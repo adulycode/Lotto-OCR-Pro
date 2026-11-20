@@ -453,20 +453,20 @@ function renderCustomersInDraw() {
           return `
             <div class="slip-mini-row ${isRoundSelected ? 'active-round' : ''}"
               onclick="event.stopPropagation(); filterBySingleRound('${c.customerName}', '${sl.id}', ${rNum})">
-              <div>
-                <div style="font-weight:700;color:#fde68a;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;color:#fde68a;word-break:break-word;">
                   📌 รอบที่ ${rNum}: <span style="color:#e2e8f0;font-weight:600;">${sl.title.replace(/^รอบที่ \d+ — /, '')}</span>
                 </div>
                 <div class="text-muted">ส่งเมื่อ: ${formatThaiDateTime(sl.createdAt)} (${sl.totalItems} รายการ)</div>
                 ${
                   has50
-                    ? `<div style="margin-top:3px;"><span class="badge-50">🔒 มีเลขอั้นส่งหลังประกาศ (${sl.restrictedHits.join(', ')}) = ${sl.half50Money.toLocaleString()}฿ จ่าย 50%</span></div>`
-                    : `<div style="margin-top:3px;"><span class="badge-100">🟢 ส่งก่อนอั้น จ่ายเต็ม 100%</span></div>`
+                    ? `<div style="margin-top:4px;"><span class="badge-50">🔒 ติดอั้น 50% (${sl.restrictedHits.join(', ')}) = ${sl.half50Money.toLocaleString()}฿</span></div>`
+                    : `<div style="margin-top:4px;"><span class="badge-100">🟢 ส่งก่อนอั้น จ่ายเต็ม 100%</span></div>`
                 }
               </div>
-              <div style="text-align:right;min-width:92px;">
-                <div style="font-family:var(--font-mono);font-weight:700;color:var(--gold);">${sl.totalMoney.toLocaleString()} ฿</div>
-                <button type="button" class="btn btn-ghost btn-sm" style="margin-top:4px;padding:2px 7px;font-size:11px;color:#60a5fa;"
+              <div style="flex-shrink:0;text-align:right;">
+                <div style="font-family:var(--font-mono);font-weight:700;color:var(--gold);white-space:nowrap;">${sl.totalMoney.toLocaleString()} ฿</div>
+                <button type="button" class="btn btn-ghost btn-sm" style="margin-top:4px;padding:2px 7px;font-size:11px;color:#60a5fa;white-space:nowrap;"
                   onclick="event.stopPropagation(); jumpToSlipInspector('${sl.id}', 1, 1)">
                   🔍 ตรวจใบนี้
                 </button>
@@ -478,8 +478,8 @@ function renderCustomersInDraw() {
 
       return `
         <div class="customer-card ${isActive ? 'active-customer' : ''}" onclick="filterByCustomer('${c.customerName}')">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-            <div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+            <div style="flex:1;min-width:0;">
               <div style="font-size:15px;font-weight:700;color:#93c5fd;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
                 <span>👤 ${c.customerName}</span>
                 <span class="runner-rounds-badge">ส่งแล้ว ${c.slipCount} รอบ</span>
@@ -488,23 +488,21 @@ function renderCustomersInDraw() {
                 รวมทุกรอบ: <strong>${c.totalItems} รายการ</strong> • ส่งล่าสุด: ${formatThaiDateTime(c.latestAt)}
               </div>
             </div>
-            <div style="text-align:right;">
-              <div style="font-size:10.5px;color:var(--text-muted);">ยอดสะสมรวม ${c.slipCount} รอบ</div>
-              <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--gold);">
+            <div style="flex-shrink:0;text-align:right;">
+              <div style="font-size:10.5px;color:var(--text-muted);white-space:nowrap;">ยอดสะสมรวม ${c.slipCount} รอบ</div>
+              <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--gold);white-space:nowrap;">
                 ${c.totalMoney.toLocaleString()} ฿
               </div>
             </div>
           </div>
 
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:11.5px;">
-            <div>
-              <span class="badge-100">🟢 ได้ 100%: ${c.full100Money.toLocaleString()} ฿</span>
-              ${
-                c.half50Money > 0
-                  ? `<span class="badge-50" style="margin-left:4px;">🔒 ติดอั้น 50%: ${c.half50Money.toLocaleString()} ฿</span>`
-                  : ''
-              }
-            </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;font-size:11.5px;">
+            <span class="badge-100">🟢 ได้ 100%: ${c.full100Money.toLocaleString()} ฿</span>
+            ${
+              c.half50Money > 0
+                ? `<span class="badge-50">🔒 ติดอั้น 50%: ${c.half50Money.toLocaleString()} ฿</span>`
+                : ''
+            }
           </div>
 
           <div class="runner-actions-bar" onclick="event.stopPropagation()">

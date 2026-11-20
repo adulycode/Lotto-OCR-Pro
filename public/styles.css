@@ -616,6 +616,9 @@ body.light-mode .nav-tab.active .nav-icon-badge {
   padding: 12px 14px;
   cursor: pointer;
   transition: all 0.15s;
+  overflow: hidden;
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 .customer-card:hover {
@@ -652,6 +655,9 @@ body.light-mode .nav-tab.active .nav-icon-badge {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 10px;
+  overflow: hidden;
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 .rounds-drawer.hidden {
@@ -664,8 +670,33 @@ body.light-mode .nav-tab.active .nav-icon-badge {
   font-size: 12px;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 10px;
   border-radius: 6px;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.slip-mini-row > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.slip-mini-row > div:last-child {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.slip-mini-row .badge-50,
+.slip-mini-row .badge-100,
+.customer-card .badge-50,
+.customer-card .badge-100 {
+  white-space: normal;
+  line-height: 1.35;
+  text-align: left;
+  max-width: 100%;
+  word-break: break-word;
 }
 
 .slip-mini-row:last-child {
