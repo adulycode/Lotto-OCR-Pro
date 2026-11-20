@@ -30,7 +30,121 @@ let currentZoom = 1.0;
 let uploadedBase64Image = '';
 let uploadedColumnSlices = null;
 
+// Theme & User Authentication State
+let currentTheme = localStorage.getItem('lotto_theme') || 'dark';
+let currentUser = (() => {
+  try {
+    const raw = localStorage.getItem('lotto_user');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return {
+    id: 'USR-1',
+    username: 'admin',
+    displayName: 'เฮียเจ้าของระบบ (Admin)',
+    role: 'admin'
+  };
+})();
+
+// Wrap window.fetch to automatically inject actorName into JSON POST/PUT requests for Audit Logging
+const _origFetch = window.fetch.bind(window);
+window.fetch = async function (input, init) {
+  if (init && init.body && typeof init.body === 'string') {
+    try {
+      const parsed = JSON.parse(init.body);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !parsed.actorName) {
+        parsed.actorName = currentUser?.displayName || currentUser?.username || 'เฮียเจ้าของระบบ (Admin)';
+        init = { ...init, body: JSON.stringify(parsed) };
+      }
+    } catch {}
+  }
+  return _origFetch(input, init);
+};
+
+function applyTheme(theme) {
+  currentTheme = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', currentTheme);
+  localStorage.setItem('lotto_theme', currentTheme);
+  const btn = document.getElementById('btnThemeToggle');
+  if (btn) {
+    btn.textContent = currentTheme === 'light' ? '🌙 โหมดมืด' : '☀️ โหมดสว่าง';
+  }
+}
+
+function toggleThemeMode() {
+  const next = currentTheme === 'light' ? 'dark' : 'light';
+  applyTheme(next);
+  showToast(next === 'light' ? '☀️ สลับเป็นโหมดสว่าง (Light Mode)' : '🌙 สลับเป็นโหมดมืด (Dark Mode)');
+}
+
+function updateCurrentUserUi() {
+  const el = document.getElementById('currentUserDisplayName');
+  if (el) {
+    el.textContent = currentUser?.displayName || currentUser?.username || 'เฮียเจ้าของระบบ (Admin)';
+  }
+}
+
+function openLoginModal() {
+  const overlay = document.getElementById('loginOverlay');
+  if (overlay) overlay.classList.remove('hidden');
+}
+
+function closeLoginModal() {
+  const overlay = document.getElementById('loginOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function quickFillLogin(username, password) {
+  const uEl = document.getElementById('loginUsernameInput');
+  const pEl = document.getElementById('loginPasswordInput');
+  if (uEl) uEl.value = username;
+  if (pEl) pEl.value = password;
+  submitLogin();
+}
+
+async function submitLogin() {
+  const username = (document.getElementById('loginUsernameInput')?.value || '').trim();
+  const password = (document.getElementById('loginPasswordInput')?.value || '').trim();
+  if (!username) {
+    showToast('กรุณากรอกชื่อผู้ใช้ (Username)');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      showToast(`❌ ${data.error || 'เข้าสู่ระบบไม่สำเร็จ'}`);
+      return;
+    }
+
+    currentUser = data.user;
+    localStorage.setItem('lotto_user', JSON.stringify(currentUser));
+    updateCurrentUserUi();
+    closeLoginModal();
+    await fetchAppState();
+    showToast(`🔐 เข้าสู่ระบบในนาม "${currentUser.displayName}" เรียบร้อย`);
+  } catch (err) {
+    showToast(`❌ เกิดข้อผิดพลาดในการเข้าสู่ระบบ: ${err.message}`);
+  }
+}
+
+async function logCustomAuditEvent(actionType, detail) {
+  try {
+    await fetch('/api/audit-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actionType, detail })
+    });
+  } catch {}
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+  applyTheme(currentTheme);
+  updateCurrentUserUi();
   buildPrintable4x30Template();
   initPhotoViewportDragPan();
   await fetchAppState();
@@ -107,12 +221,8 @@ function formatThaiDateTime(isoStr) {
 
 function toggleSidebarCollapse() {
   const shell = document.getElementById('appShell');
-  const btn = document.getElementById('btnToggleSidebar');
   if (!shell) return;
-  const isCollapsed = shell.classList.toggle('sidebar-collapsed');
-  if (btn) {
-    btn.textContent = isCollapsed ? '▶' : '◀';
-  }
+  shell.classList.toggle('sidebar-collapsed');
 }
 
 function switchTab(tabId) {
@@ -150,6 +260,7 @@ async function fetchAppState(drawIdParam = '') {
   renderLineSimulator();
   renderWinnersTab();
   populateSettingsForm();
+  renderUsersAndAuditLogs();
 }
 
 async function onSwitchDraw(drawId) {
@@ -243,7 +354,8 @@ function renderHeaderAndKpis() {
       .join('');
   }
 
-  document.getElementById('headerModelBadge').textContent = settings.geminiModel || 'gemini-2.5-pro';
+  const modelBadge = document.getElementById('headerModelBadge');
+  if (modelBadge) modelBadge.textContent = settings.geminiModel || 'gemini-2.5-pro';
   document.getElementById('kpiTotalCustomers').textContent = `${s.totalCustomers || 0} คน (${s.totalSlips || 0} บิล)`;
   document.getElementById('kpiTotalMoney').textContent = `${(s.totalGrandMoney || 0).toLocaleString()} บาท`;
   document.getElementById('kpiUniqueNumbers').textContent = `รวมทั้งหมด ${s.totalUniqueNumbers || 0} เลขไม่ซ้ำกัน`;
@@ -271,8 +383,9 @@ function renderHeaderAndKpis() {
 
   const subtitle = document.getElementById('aggModeSubtitle');
   if (subtitle) {
-    subtitle.innerHTML =
-      'แสดงตัวเลขตามหน้าโพยจริง • เลขที่มีชุดกลับ (<code>×6</code> หรือ <code>×3</code>) สามารถกดปุ่ม <strong>"🔀 ดูประตูเฉลี่ย ▼"</strong> เพื่อกางดูทุกประตูพร้อมราคาเฉลี่ยได้ทันที';
+    subtitle.innerHTML = isExpand
+      ? 'แสดงตัวเลขตามหน้าโพยจริง • เลขที่มีชุดกลับ (<code>×6</code> หรือ <code>×3</code>) สามารถกดปุ่ม <strong>"🔀 ดูประตูเฉลี่ย ▼"</strong> เพื่อกางดูทุกประตูพร้อมราคาเฉลี่ยได้ทันที'
+      : 'แสดงตัวเลขคงตามหน้าโพยจริง (ไม่แยกหางชุดกลับ ×6 / ×3)';
   }
 }
 
@@ -549,7 +662,8 @@ function renderAggregatedTable() {
           : item.threeToadAmt + item.threePermRawAmt;
 
       const customerNames = Array.from(new Set(item.contributors.map(c => c.customerName))).join(', ');
-      const hasPermDoors = Array.isArray(item.permBreakdown) && item.permBreakdown.length > 0 && item.threePermRawAmt > 0;
+      const isExpandMode = appState.settings?.permutationMode !== 'keep_raw';
+      const hasPermDoors = isExpandMode && Array.isArray(item.permBreakdown) && item.permBreakdown.length > 0 && item.threePermRawAmt > 0;
       const isPermExpanded = expandedPermDropdownKeys.has(item.key);
       const avgDoorVal = hasPermDoors ? +(item.threePermRawAmt / item.permBreakdown.length).toFixed(2) : 0;
 
@@ -2496,21 +2610,130 @@ function exportWinnersExcel() {
 }
 
 // ============================================================================
-// แท็บที่ 7: ตั้งค่าระบบ (แยกหมวดย่อย 5 หมวด) & พิมพ์กระดาษโพย 4×30
+// แท็บที่ 7: ตั้งค่าระบบ (แยกหมวดย่อย 6 หมวด) & พิมพ์กระดาษโพย 4×30
 // ============================================================================
 function switchSettingsSubTab(subTabId) {
   document.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.settings-subbtn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.settings-subbtn, .subnav-btn').forEach(b => b.classList.remove('active'));
 
   const target = document.getElementById(subTabId);
   if (target) target.classList.add('active');
 
-  const btn = document.querySelector(`.settings-subbtn[data-subtab="${subTabId}"]`);
+  const btn = document.querySelector(`[data-subtab="${subTabId}"]`);
   if (btn) btn.classList.add('active');
 
   const sheet = document.getElementById('printableSheet');
   if (sheet) {
     sheet.classList.toggle('show-preview', subTabId === 'sub-print');
+  }
+}
+
+function switchSettingsSubtab(subTabId) {
+  return switchSettingsSubTab(subTabId);
+}
+
+async function addUserAccount() {
+  const username = (document.getElementById('newUsernameInput')?.value || '').trim();
+  const password = (document.getElementById('newPasswordInput')?.value || '1234').trim();
+  const displayName = (document.getElementById('newDisplayNameInput')?.value || username).trim();
+  const role = document.getElementById('newRoleSelect')?.value || 'staff';
+
+  if (!username) {
+    showToast('กรุณาระบุชื่อผู้ใช้ (Username)');
+    return;
+  }
+
+  const res = await fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'add',
+      username,
+      password,
+      displayName,
+      role
+    })
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    showToast(`❌ ${data.error || 'ไม่สามารถเพิ่มบัญชีได้'}`);
+    return;
+  }
+
+  document.getElementById('newUsernameInput').value = '';
+  document.getElementById('newDisplayNameInput').value = '';
+  await fetchAppState();
+  showToast(`✅ เพิ่มบัญชีผู้ใช้งาน "${displayName}" (@${username}) เรียบร้อย`);
+}
+
+async function removeUserAccount(userId) {
+  const res = await fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'remove', id: userId })
+  });
+  if (res.ok) {
+    await fetchAppState();
+    showToast('🗑️ ลบบัญชีผู้ใช้งานเรียบร้อย');
+  }
+}
+
+function renderUsersAndAuditLogs() {
+  const usersWrap = document.getElementById('usersListContainer');
+  if (usersWrap) {
+    const users = appState.users || [];
+    usersWrap.innerHTML = users
+      .map(u => {
+        const isCurrent = currentUser?.username === u.username;
+        return `
+          <div class="contributor-item" style="margin-bottom:8px;border-color:${isCurrent ? 'var(--primary)' : 'var(--border)'};">
+            <div>
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <strong style="font-size:14px;">${u.role === 'admin' ? '👑' : '👤'} ${escapeHtml(u.displayName)}</strong>
+                <span class="badge-100">@${escapeHtml(u.username)}</span>
+                ${isCurrent ? `<span class="badge-50">กำลังใช้งานอยู่</span>` : ''}
+              </div>
+              <div class="text-muted" style="font-size:11.5px;margin-top:2px;">
+                สิทธิ์: ${u.role === 'admin' ? 'เจ้าของระบบ (Admin)' : 'พนักงานคีย์โพย (Staff)'}
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              ${
+                !isCurrent
+                  ? `<button type="button" class="btn btn-outline btn-sm" onclick="quickFillLogin('${escapeHtml(u.username)}', '1234')">สลับใช้คนนี้</button>`
+                  : ''
+              }
+              ${
+                u.username !== 'admin'
+                  ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="removeUserAccount('${u.id}')">ลบ</button>`
+                  : ''
+              }
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+  }
+
+  const auditTbody = document.getElementById('auditLogsTableBody');
+  if (auditTbody) {
+    const logs = appState.auditLogs || [];
+    if (logs.length === 0) {
+      auditTbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text-muted);">ยังไม่มีประวัติการใช้งาน</td></tr>`;
+    } else {
+      auditTbody.innerHTML = logs
+        .map(
+          l => `
+          <tr>
+            <td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">${formatThaiDateTime(l.timestamp)}</td>
+            <td><strong style="color:#60a5fa;">👤 ${escapeHtml(l.actor || 'แอดมิน')}</strong></td>
+            <td><span class="badge-100">${escapeHtml(l.actionType || 'ทำรายการ')}</span></td>
+            <td style="white-space:normal;max-width:440px;">${escapeHtml(l.detail || '')}</td>
+          </tr>
+        `
+        )
+        .join('');
+    }
   }
 }
 

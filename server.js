@@ -25,6 +25,27 @@ const UPLOADS_DIR = path.join(PUBLIC_DIR, 'uploads');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
+function appendAuditLog(db, actorName, actionType, detail) {
+  db.auditLogs = db.auditLogs || [];
+  db.auditLogs.unshift({
+    id: `LOG-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    actorName: actorName || 'เฮียเจ้าของระบบ (Admin)',
+    actionType,
+    detail,
+    timestamp: new Date().toISOString()
+  });
+  if (db.auditLogs.length > 300) {
+    db.auditLogs = db.auditLogs.slice(0, 300);
+  }
+}
+
+function getActorFromReq(req, body = {}) {
+  const headerActor = req.headers['x-actor-name']
+    ? decodeURIComponent(req.headers['x-actor-name'])
+    : '';
+  return body.actorName || headerActor || 'เฮียเจ้าของระบบ (Admin)';
+}
+
 function getNextRoundForCustomer(slips, drawId, customerName) {
   const existing = (slips || []).filter(
     s => (s.drawId || 'DRAW-2026-11-16') === drawId && s.customerName === customerName
@@ -209,6 +230,59 @@ function buildInitialDb() {
     currentDrawId: 'DRAW-2026-11-16',
     draws,
     settings: defaultSettings,
+    users: [
+      {
+        id: 'USR-1',
+        username: 'admin',
+        password: '1234',
+        displayName: 'เฮียเจ้าของระบบ (Admin)',
+        role: 'admin'
+      },
+      {
+        id: 'USR-2',
+        username: 'staff1',
+        password: '1234',
+        displayName: 'แอดมินเมย์ (ฝ่ายตรวจโพย)',
+        role: 'staff'
+      },
+      {
+        id: 'USR-3',
+        username: 'staff2',
+        password: '1234',
+        displayName: 'แอดมินบอย (ฝ่ายตัดยอด)',
+        role: 'staff'
+      }
+    ],
+    auditLogs: [
+      {
+        id: 'LOG-INIT-1',
+        actorName: 'เฮียเจ้าของระบบ (Admin)',
+        actionType: 'เปิดงวดหวย',
+        detail: 'เปิดรับโพย งวดวันที่ 16 พ.ย. 2569',
+        timestamp: tMuayRound1
+      },
+      {
+        id: 'LOG-INIT-2',
+        actorName: 'แอดมินเมย์ (ฝ่ายตรวจโพย)',
+        actionType: 'นำเข้าโพยกระดาษ OCR',
+        detail: 'รับโพย เจ๊หมวย (สาย A) รอบที่ 1 จำนวน 120 รายการ (ยอด 9,394 บาท)',
+        timestamp: tMuayRound1
+      },
+      {
+        id: 'LOG-INIT-3',
+        actorName: 'เฮียเจ้าของระบบ (Admin)',
+        actionType: 'ตั้งค่าเลขอั้น 50%',
+        detail: 'ประกาศเลขอั้น 5 ชุด (21, 583, 154, 072, 860) จ่าย 50% สำหรับบิลหลังเวลา 14:00 น.',
+        timestamp: tDealerCutoff
+      },
+      {
+        id: 'LOG-INIT-4',
+        actorName: 'แอดมินบอย (ฝ่ายตัดยอด)',
+        actionType: 'ตัดยอดส่งเจ้ามือ',
+        detail: 'ยืนยันส่งเจ้ามือสายใหญ่ #1 (รอบที่ 1) ยอดส่ง 494 บาท | เก็บไว้ที่เรา 320 บาท',
+        timestamp: '2026-11-14T16:00:00.000Z'
+      }
+    ],
     learnedRules: [
       {
         id: 'LEARN-1',
@@ -691,6 +765,13 @@ const server = http.createServer(async (req, res) => {
         draws: db.draws,
         upcomingGloDraws: getUpcomingGloDraws(db.draws, 16),
         settings: db.settings,
+        users: (db.users || []).map(u => ({
+          id: u.id,
+          username: u.username,
+          displayName: u.displayName,
+          role: u.role
+        })),
+        auditLogs: (db.auditLogs || []).slice(0, 150),
         learnedRules: db.learnedRules || [],
         slips: drawSlips,
         trainingSlips: db.slips.filter(s => s.isTrainingOnly),
@@ -747,6 +828,86 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, learnedRules: db.learnedRules });
     }
 
+    // API: User Authentication (Login)
+    if (req.method === 'POST' && pathname === '/api/auth/login') {
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      const users = db.users || [
+        { id: 'USR-1', username: 'admin', password: '1234', displayName: 'เฮียเจ้าของระบบ (Admin)', role: 'admin' },
+        { id: 'USR-2', username: 'staff1', password: '1234', displayName: 'แอดมินเมย์ (ฝ่ายตรวจโพย)', role: 'staff' }
+      ];
+      db.users = users;
+
+      const username = String(body.username || '').trim();
+      const password = String(body.password || '').trim();
+      const found = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password === password);
+
+      if (!found) {
+        return sendJson(res, 401, { ok: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+      }
+
+      appendAuditLog(db, found.displayName, 'เข้าสู่ระบบ', `ล็อกอินเข้าใช้งานด้วยบัญชี @${found.username}`);
+      saveDb(db);
+
+      return sendJson(res, 200, {
+        ok: true,
+        user: {
+          id: found.id,
+          username: found.username,
+          displayName: found.displayName,
+          role: found.role
+        }
+      });
+    }
+
+    // API: Manage User Accounts (Add / Remove Staff or Admin accounts)
+    if (req.method === 'POST' && pathname === '/api/users') {
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      const actor = getActorFromReq(req, body);
+      db.users = db.users || [];
+
+      if (body.action === 'add') {
+        const username = String(body.username || '').trim();
+        const password = String(body.password || '1234').trim();
+        const displayName = String(body.displayName || username).trim();
+        const role = body.role === 'admin' ? 'admin' : 'staff';
+
+        if (!username) return sendJson(res, 400, { error: 'กรุณาระบุชื่อผู้ใช้ (Username)' });
+        if (db.users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
+          return sendJson(res, 400, { error: 'ชื่อผู้ใช้นี้มีในระบบแล้ว' });
+        }
+
+        db.users.push({
+          id: `USR-${Date.now().toString().slice(-5)}`,
+          username,
+          password,
+          displayName,
+          role
+        });
+        appendAuditLog(db, actor, 'จัดการบัญชีผู้ใช้', `สร้างบัญชีผู้ใช้ใหม่: ${displayName} (@${username})`);
+      } else if (body.action === 'remove' && body.id) {
+        const target = db.users.find(u => u.id === body.id);
+        if (target && target.username !== 'admin') {
+          db.users = db.users.filter(u => u.id !== body.id);
+          appendAuditLog(db, actor, 'จัดการบัญชีผู้ใช้', `ลบบัญชีผู้ใช้: ${target.displayName} (@${target.username})`);
+        }
+      }
+
+      saveDb(db);
+      return sendJson(res, 200, { ok: true, users: db.users });
+    }
+
+    // API: Log Custom Frontend Audit Event (e.g. Export Excel, Print, Logout)
+    if (req.method === 'POST' && pathname === '/api/audit-event') {
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      const actor = getActorFromReq(req, body);
+      appendAuditLog(db, actor, body.actionType || 'ทำรายการ', body.detail || '');
+      saveDb(db);
+      return sendJson(res, 200, { ok: true });
+    }
+
     // API: Create or Switch Draw Period
     if (req.method === 'POST' && pathname === '/api/draws') {
       const body = await parseJsonBody(req);
@@ -769,6 +930,7 @@ const server = http.createServer(async (req, res) => {
       };
       db.draws.unshift(newDraw);
       db.currentDrawId = newDraw.id;
+      appendAuditLog(db, getActorFromReq(req, body), 'เปิดงวดหวยใหม่', `สร้างและเปิดรับโพย ${title} (${drawDate})`);
       saveDb(db);
       return sendJson(res, 200, { ok: true, draw: newDraw });
     }
@@ -879,10 +1041,13 @@ const server = http.createServer(async (req, res) => {
             draw.restrictedNumbers.push(entry);
           }
         }
+        appendAuditLog(db, getActorFromReq(req, body), 'ตั้งค่าเลขอั้น 50%', `ประกาศเลขอั้น (${rawNums.join(', ')}) จ่าย ${payoutPercent}% ใน ${draw.title}`);
       } else if (body.action === 'remove' && body.number) {
         draw.restrictedNumbers = (draw.restrictedNumbers || []).filter(r => r.number !== body.number);
+        appendAuditLog(db, getActorFromReq(req, body), 'ลบเลขอั้น', `ลบเลข ${body.number} ออกจากรายการอั้น`);
       } else if (body.action === 'clear_all') {
         draw.restrictedNumbers = [];
+        appendAuditLog(db, getActorFromReq(req, body), 'ล้างเลขอั้น', `ล้างรายการเลขอั้นทั้งหมดของ ${draw.title}`);
       }
 
       saveDb(db);
@@ -977,6 +1142,12 @@ const server = http.createServer(async (req, res) => {
       };
 
       db.slips.push(newSlip);
+      appendAuditLog(
+        db,
+        getActorFromReq(req, body),
+        'เพิ่มโพยกระดาษ (OCR)',
+        `เพิ่มโพยของ "${customerName}" (${newSlip.title}) จำนวน ${newSlip.totalItems} รายการ ยอดรวม ${totalMoney.toLocaleString()} บาท`
+      );
       saveDb(db);
 
       return sendJson(res, 200, {
@@ -1091,8 +1262,20 @@ const server = http.createServer(async (req, res) => {
         });
         slip.reviewCount = 0;
         slip.status = 'verified';
+        appendAuditLog(
+          db,
+          getActorFromReq(req, body),
+          'ยืนยันความถูกต้องบิล',
+          `กดยืนยันยอดบิลของ "${slip.customerName}" (${slip.title}) ยอดรวม ${slip.totalMoney.toLocaleString()} บาท`
+        );
       } else {
         slip.status = slip.reviewCount > 0 ? 'needs_review' : 'verified';
+        appendAuditLog(
+          db,
+          getActorFromReq(req, body),
+          'แก้ไขตัวเลขในบิล',
+          `แก้ไขข้อมูลโพยของ "${slip.customerName}" (${slip.title})${newlyLearned.length > 0 ? ` [${newlyLearned.join(', ')}]` : ''} ยอดรวม ${slip.totalMoney.toLocaleString()} บาท`
+        );
       }
 
       saveDb(db);
@@ -1455,6 +1638,12 @@ const server = http.createServer(async (req, res) => {
 
       db.layoffs = db.layoffs || [];
       db.layoffs.push(newLayoff);
+      appendAuditLog(
+        db,
+        getActorFromReq(req, body),
+        'ตัดยอดส่งเจ้ามือ',
+        `ยืนยันส่ง "${dealerName}" (รอบที่ ${roundNumber}) จำนวน ${newLayoff.sentItemCount} เลข ยอดส่ง ${totalLayoffMoney.toLocaleString()} บาท | เก็บไว้ที่เรา ${totalKeptMoney.toLocaleString()} บาท`
+      );
       saveDb(db);
       return sendJson(res, 200, { ok: true, layoff: newLayoff });
     }

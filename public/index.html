@@ -8,32 +8,68 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_24" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_26" />
 </head>
 <body>
+  <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
+  <div id="loginOverlay" class="modal-overlay hidden no-print" style="z-index:9500;background:rgba(9,12,18,0.92);">
+    <div class="modal-card" style="max-width:420px;text-align:center;">
+      <img src="/mascot-logo.jpg" alt="Mascot" style="width:84px;height:84px;border-radius:50%;border:2px solid var(--gold);margin-bottom:10px;" />
+      <h2 style="font-size:18px;margin-bottom:4px;">เข้าสู่ระบบจัดการโพยหวย</h2>
+      <p class="text-muted" style="margin-bottom:16px;">กรุณาเข้าสู่ระบบเพื่อบันทึกประวัติผู้ทำรายการ (Audit Log)</p>
+
+      <div style="text-align:left;margin-bottom:12px;">
+        <label class="small-label">ชื่อผู้ใช้ (Username):</label>
+        <input type="text" id="loginUsernameInput" class="input" value="admin" placeholder="เช่น admin หรือ staff1" />
+      </div>
+      <div style="text-align:left;margin-bottom:16px;">
+        <label class="small-label">รหัสผ่าน (Password):</label>
+        <input type="password" id="loginPasswordInput" class="input" value="1234" placeholder="รหัสผ่าน" onkeydown="if(event.key==='Enter') submitLogin()" />
+      </div>
+
+      <button class="btn btn-primary btn-lg" onclick="submitLogin()">🔐 เข้าสู่ระบบ</button>
+
+      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);text-align:left;">
+        <div class="small-label" style="margin-bottom:6px;">คลิกสลับบัญชีทดสอบด่วน (รหัส 1234):</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button type="button" class="chip" onclick="quickFillLogin('admin', '1234')">👑 เฮียเจ้าของระบบ (admin)</button>
+          <button type="button" class="chip" onclick="quickFillLogin('staff1', '1234')">👤 แอดมินเมย์ (staff1)</button>
+          <button type="button" class="chip" onclick="quickFillLogin('staff2', '1234')">👤 แอดมินบอย (staff2)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="app-shell" id="appShell">
     <!-- ================================================================= -->
-    <!-- แถบเมนูหลักด้านซ้ายมือ (พร้อมปุ่มหดเก็บ/กางออก)                     -->
+    <!-- แถบเมนูหลักด้านซ้ายมือ (ดีไซน์โมเดิร์น + สลับธีมสว่าง/มืด + ชื่อผู้ใช้งาน) -->
     <!-- ================================================================= -->
     <aside class="app-sidebar no-print" id="appSidebar">
       <div class="sidebar-brand">
         <div style="display:flex;align-items:center;gap:10px;min-width:0;">
           <img src="/mascot-logo.jpg" alt="Lotto Mascot" class="mascot-logo-img" onclick="toggleSidebarCollapse()" style="cursor:pointer;" title="คลิกเพื่อหดหรือกางแถบเมนู" />
           <div class="sidebar-hide-on-collapse" style="min-width:0;">
-            <div class="brand-title" style="font-size:16px;line-height:1.25;">ระบบรวมโพยหวย</div>
-            <div class="brand-subtitle" style="margin-top:3px;"><span class="badge-model" id="headerModelBadge">gemini-2.5-pro</span></div>
+            <div class="brand-title" style="font-size:15.5px;line-height:1.25;white-space:nowrap;">ระบบรวมโพยหวย</div>
+            <div class="text-muted" style="font-size:11px;white-space:nowrap;">จัดการโพย & ความเสี่ยง</div>
+            <span class="hidden" id="headerModelBadge"></span>
           </div>
         </div>
-        <button type="button" class="sidebar-collapse-btn" id="btnToggleSidebar" onclick="toggleSidebarCollapse()" title="หดเก็บหรือกางแถบเมนู">
-          ◀
+        <button type="button" class="sidebar-collapse-btn" id="btnToggleSidebar" onclick="toggleSidebarCollapse()" title="พับเก็บหรือกางแถบเมนู">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+          </svg>
         </button>
       </div>
 
-      <!-- กล่องเลือกงวดหวย -->
+      <!-- กล่องเลือกงวดหวย + ปุ่มเพิ่มโพยกระดาษด่วน -->
       <div class="sidebar-section sidebar-hide-on-collapse">
         <label class="sidebar-section-label">📅 งวดหวยที่กำลังดู</label>
         <select id="drawSelect" class="input draw-select" style="min-width:100%;margin-bottom:6px;" onchange="onSwitchDraw(this.value)"></select>
-        <button class="btn btn-outline btn-sm" style="width:100%;" onclick="openNewDrawModal()">+ เปิดงวดใหม่</button>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-outline btn-sm" style="flex:1;" onclick="openNewDrawModal()">+ เปิดงวดใหม่</button>
+          <button class="btn btn-primary btn-sm" style="flex:1;" onclick="switchTab('tab-line')" title="อัปโหลดรูปโพยกระดาษแผ่นใหม่เข้าสู่งวดนี้">📸 + เพิ่มโพย</button>
+        </div>
       </div>
 
       <!-- เมนูหลัก 7 เมนู เรียงแนวตั้งทางซ้ายมือ -->
@@ -62,9 +98,9 @@
           <span class="tab-badge" id="badgeReviewCount">1</span>
         </button>
         <button class="nav-tab" data-tab="tab-line" onclick="switchTab('tab-line')"
-          title="5. ส่งโพย / LINE — อัปโหลดรูปโพยกระดาษเข้าระบบ หรือจำลองการส่งโพยจากแชท LINE">
-          <span class="nav-icon">💬</span>
-          <span class="nav-text">5. ส่งโพย / LINE</span>
+          title="5. เพิ่มโพยกระดาษ / LINE — อัปโหลดรูปโพยกระดาษเข้าระบบเอง หรือรับโพยจากแชท LINE">
+          <span class="nav-icon">📸</span>
+          <span class="nav-text">5. เพิ่มโพยกระดาษ / LINE</span>
         </button>
         <button class="nav-tab" data-tab="tab-winners" onclick="switchTab('tab-winners')"
           title="6. ตรวจผลกองสลาก — ดึงผลสลากกินแบ่งรัฐบาล เพื่อตรวจเช็คคนถูกรางวัลและคำนวณยอดจ่ายแยกเรท 100% / 50%">
@@ -72,11 +108,28 @@
           <span class="nav-text">6. ตรวจผลกองสลาก</span>
         </button>
         <button class="nav-tab" data-tab="tab-template" onclick="switchTab('tab-template')"
-          title="7. ตั้งค่าระบบ — กติกาหวย, โมเดล AI, ความจำลายมือ, LINE OA และพิมพ์กระดาษโพย A4">
+          title="7. ตั้งค่าระบบ & ประวัติ Log — กติกาหวย, โมเดล AI, ความจำลายมือ, บัญชีผู้ใช้ และประวัติว่าใครกดอะไร">
           <span class="nav-icon">⚙️</span>
-          <span class="nav-text">7. ตั้งค่าระบบ</span>
+          <span class="nav-text">7. ตั้งค่า & ประวัติ Log</span>
         </button>
       </nav>
+
+      <!-- ส่วนท้ายแถบเมนู: สลับโหมดสีสว่าง/มืด & ข้อมูลผู้ใช้ที่ล็อกอินอยู่ -->
+      <div class="sidebar-footer sidebar-hide-on-collapse">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:12px;color:var(--text-muted);">โหมดสีหน้าจอ:</span>
+          <button type="button" class="btn btn-outline btn-sm" id="btnThemeToggle" onclick="toggleThemeMode()" style="padding:4px 10px;font-size:12px;">
+            ☀️ โหมดสว่าง
+          </button>
+        </div>
+        <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;gap:6px;">
+          <div style="min-width:0;">
+            <div style="font-size:10.5px;color:var(--text-muted);">ผู้ใช้งานขณะนี้:</div>
+            <div id="currentUserDisplayName" style="font-size:12.5px;font-weight:700;color:#60a5fa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">เฮียเจ้าของระบบ</div>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:11px;" onclick="openLoginModal()">สลับคน</button>
+        </div>
+      </div>
     </aside>
 
     <!-- ================================================================= -->
@@ -126,9 +179,14 @@
               <h2 title="รายชื่อเด็กโพยทั้งหมดที่ส่งบิลในงวดนี้ คลิกที่ชื่อคนเพื่อดูยอดรวมทุกใบของเขา">👥 1. เด็กโพยในงวดนี้</h2>
               <p class="text-muted">คลิกชื่อคนเพื่อกรองดูยอด หรือกดกางดูแต่ละรอบ</p>
             </div>
-            <button class="btn btn-ghost btn-sm" id="btnShowAllCustomers" onclick="filterByCustomer(null)" title="แสดงยอดรวมของเด็กโพยทุกคนในงวดนี้">
-              🌐 ดูทุกคน
-            </button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <button class="btn btn-primary btn-sm" onclick="switchTab('tab-line')" title="อัปโหลดรูปโพยกระดาษแผ่นใหม่เข้าสู่งวดนี้">
+                📸 + เพิ่มโพยกระดาษ
+              </button>
+              <button class="btn btn-ghost btn-sm" id="btnShowAllCustomers" onclick="filterByCustomer(null)" title="แสดงยอดรวมของเด็กโพยทุกคนในงวดนี้">
+                🌐 ดูทุกคน
+              </button>
+            </div>
           </div>
 
           <!-- รายชื่อลูกค้าที่ส่งในงวดนี้ -->
@@ -494,7 +552,65 @@
     <!-- ================================================================= -->
     <section id="tab-line" class="tab-panel no-print">
       <div class="two-col-grid">
-        <!-- ซ้าย: จำลองลูกค้าส่งหวยผ่าน LINE OA -->
+        <!-- ซ้าย: อัปโหลดรูปโพยกระดาษโดยแอดมิน -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3>📸 อัปโหลดรูปโพยกระดาษเข้าสู่งวดนี้โดยตรง</h3>
+              <p class="text-muted">ระบบจะตัดแบ่ง 4 คอลัมน์และใช้ Gemini 2.5 Pro อ่านตัวเลขเข้าสู่งวดปัจจุบันทันที</p>
+            </div>
+          </div>
+
+          <div class="upload-form">
+            <div class="form-row-2">
+              <div>
+                <label>ชื่อคนส่ง / เจ้าของโพย:</label>
+                <input type="text" id="uploadCustomerName" class="input" value="เจ๊หมวย (สาย A)" />
+              </div>
+              <div>
+                <label>ชื่อบิล / แผ่นที่:</label>
+                <input type="text" id="uploadSlipTitle" class="input" value="โพยกระดาษ แผ่นที่ 2" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>เวลาที่ลูกค้านำโพยมาส่ง (ใช้เช็คสิทธิ์จ่ายเต็ม 100% หรือติดอั้น 50%):</label>
+              <select id="uploadTimingSelect" class="input">
+                <option value="after_cutoff">🕒 ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
+                <option value="before_cutoff">⏪ ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100% ทั้งใบ)</option>
+              </select>
+            </div>
+
+            <div class="dropzone" id="ocrDropzone" onclick="document.getElementById('directFileInput').click()">
+              <input type="file" id="directFileInput" accept="image/*" hidden onchange="previewUploadImage(this)" />
+              <div class="dropzone-content">
+                <div class="drop-icon">📄🔍</div>
+                <h4>คลิกเพื่อเลือกรูปถ่ายโพยกระดาษจากมือถือหรือคอมพิวเตอร์</h4>
+                <p>รองรับโพยตาราง 4 คอลัมน์ × 30 แถว และโพยเขียนมือทุกชนิด</p>
+              </div>
+            </div>
+
+            <div id="slicePreviewContainer" class="slice-preview-box">
+              <div class="slice-header">
+                <span>✂️ ระบบตัดแบ่ง 4 คอลัมน์อัตโนมัติ (ช่วยให้ AI อ่านแม่นยำไม่ข้ามบรรทัด):</span>
+              </div>
+              <div class="slice-grid" id="slicePreviewGrid">
+                <div class="slice-item">คอลัมน์ 1 (แถว 1–30)</div>
+                <div class="slice-item">คอลัมน์ 2 (แถว 1–30)</div>
+                <div class="slice-item">คอลัมน์ 3 (แถว 1–30)</div>
+                <div class="slice-item">คอลัมน์ 4 (แถว 1–30)</div>
+              </div>
+            </div>
+
+            <div class="btn-group-full">
+              <button class="btn btn-primary btn-lg" id="btnRunOcr" onclick="runDirectOcrUpload()">
+                🚀 เริ่มอ่านลายมือในโพยด้วย AI (Gemini 2.5 Pro)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ขวา: จำลองลูกค้าส่งหวยผ่าน LINE OA -->
         <div class="card line-chat-card">
           <div class="card-header line-header">
             <div class="line-title-row">
@@ -553,64 +669,6 @@
               </label>
               <button class="btn btn-line" onclick="sendLineTextMessage()">
                 ส่งบิลเข้า LINE ➤
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- ขวา: อัปโหลดรูปโพยกระดาษโดยแอดมิน -->
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <h3>📸 อัปโหลดรูปโพยกระดาษเข้าสู่งวดนี้โดยตรง</h3>
-              <p class="text-muted">ระบบจะตัดแบ่ง 4 คอลัมน์และใช้ Gemini 2.5 Pro อ่านตัวเลขเข้าสู่งวดปัจจุบันทันที</p>
-            </div>
-          </div>
-
-          <div class="upload-form">
-            <div class="form-row-2">
-              <div>
-                <label>ชื่อคนส่ง / เจ้าของโพย:</label>
-                <input type="text" id="uploadCustomerName" class="input" value="เจ๊หมวย (สาย A)" />
-              </div>
-              <div>
-                <label>ชื่อบิล / แผ่นที่:</label>
-                <input type="text" id="uploadSlipTitle" class="input" value="โพยกระดาษ แผ่นที่ 2" />
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label>เวลาที่ลูกค้านำโพยมาส่ง (ใช้เช็คสิทธิ์จ่ายเต็ม 100% หรือติดอั้น 50%):</label>
-              <select id="uploadTimingSelect" class="input">
-                <option value="after_cutoff">🕒 ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
-                <option value="before_cutoff">⏪ ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100% ทั้งใบ)</option>
-              </select>
-            </div>
-
-            <div class="dropzone" id="ocrDropzone" onclick="document.getElementById('directFileInput').click()">
-              <input type="file" id="directFileInput" accept="image/*" hidden onchange="previewUploadImage(this)" />
-              <div class="dropzone-content">
-                <div class="drop-icon">📄🔍</div>
-                <h4>คลิกเพื่อเลือกรูปถ่ายโพยกระดาษจากมือถือหรือคอมพิวเตอร์</h4>
-                <p>รองรับโพยตาราง 4 คอลัมน์ × 30 แถว และโพยเขียนมือทุกชนิด</p>
-              </div>
-            </div>
-
-            <div id="slicePreviewContainer" class="slice-preview-box">
-              <div class="slice-header">
-                <span>✂️ ระบบตัดแบ่ง 4 คอลัมน์อัตโนมัติ (ช่วยให้ AI อ่านแม่นยำไม่ข้ามบรรทัด):</span>
-              </div>
-              <div class="slice-grid" id="slicePreviewGrid">
-                <div class="slice-item">คอลัมน์ 1 (แถว 1–30)</div>
-                <div class="slice-item">คอลัมน์ 2 (แถว 1–30)</div>
-                <div class="slice-item">คอลัมน์ 3 (แถว 1–30)</div>
-                <div class="slice-item">คอลัมน์ 4 (แถว 1–30)</div>
-              </div>
-            </div>
-
-            <div class="btn-group-full">
-              <button class="btn btn-primary btn-lg" id="btnRunOcr" onclick="runDirectOcrUpload()">
-                🚀 เริ่มอ่านลายมือในโพยด้วย AI (Gemini 2.5 Pro)
               </button>
             </div>
           </div>
@@ -769,6 +827,9 @@
             </button>
             <button type="button" class="settings-subbtn" data-subtab="sub-print" onclick="switchSettingsSubTab('sub-print')">
               <span>🖨️ 5. พิมพ์ใบโพย A4 & ข้อมูลระบบ</span>
+            </button>
+            <button type="button" class="settings-subbtn subnav-btn" data-subtab="sub-audit" onclick="switchSettingsSubtab('sub-audit')">
+              <span>📜 6. บัญชีผู้ใช้ & ประวัติ Log</span>
             </button>
           </div>
         </div>
@@ -956,6 +1017,75 @@
             <p class="text-muted" style="margin-bottom:12px;">ตัวอย่างแบบฟอร์มกระดาษโพย A4 (4 คอลัมน์ × 30 แถว = 120 รายการต่อแผ่น):</p>
           </div>
 
+          <!-- หมวดย่อยที่ 6: จัดการบัญชีผู้ใช้งาน & ประวัติการใช้งานระบบ (Audit Log) -->
+          <div id="sub-audit" class="settings-subpanel">
+            <div class="two-col-grid" style="grid-template-columns: 1fr 1.6fr;">
+              <!-- ซ้าย: จัดการบัญชีผู้ใช้งาน (User Accounts) -->
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <h3>👥 จัดการบัญชีผู้ใช้งาน (User Accounts)</h3>
+                    <p class="text-muted">สร้างหรือสลับบัญชีผู้ใช้งานเพื่อระบุตัวตนผู้ทำรายการใน Audit Log</p>
+                  </div>
+                </div>
+
+                <div class="settings-form" style="background:var(--bg-input);padding:12px;border-radius:10px;border:1px solid var(--border);margin-bottom:14px;">
+                  <div class="form-row-2">
+                    <div>
+                      <label class="small-label">ชื่อผู้ใช้ (Username):</label>
+                      <input type="text" id="newUsernameInput" class="input" placeholder="เช่น staff3" />
+                    </div>
+                    <div>
+                      <label class="small-label">รหัสผ่าน (Password):</label>
+                      <input type="text" id="newPasswordInput" class="input" value="1234" placeholder="1234" />
+                    </div>
+                  </div>
+                  <div class="form-row-2">
+                    <div>
+                      <label class="small-label">ชื่อที่แสดงในระบบ:</label>
+                      <input type="text" id="newDisplayNameInput" class="input" placeholder="เช่น แอดมินแนน (กะบ่าย)" />
+                    </div>
+                    <div>
+                      <label class="small-label">สิทธิ์การใช้งาน:</label>
+                      <select id="newRoleSelect" class="input">
+                        <option value="staff">👤 พนักงานคีย์โพย (staff)</option>
+                        <option value="admin">👑 เจ้าของระบบ (admin)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button type="button" class="btn btn-primary" style="width:100%;" onclick="addUserAccount()">+ เพิ่มบัญชีผู้ใช้</button>
+                </div>
+
+                <div id="usersListContainer"></div>
+              </div>
+
+              <!-- ขวา: ประวัติการใช้งานระบบ (Audit Log) -->
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <h3>📜 ประวัติการใช้งานระบบ (Audit Log — ใครทำอะไร กดอะไร เวลาไหน)</h3>
+                    <p class="text-muted">บันทึกทุกการกระทำในระบบอัตโนมัติ (เข้าสู่ระบบ, เพิ่มโพย, แก้ไขบิล, ตั้งเลขอั้น, ตัดยอดส่งเจ้ามือ)</p>
+                  </div>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="fetchAppState()">🔄 รีเฟรชประวัติ</button>
+                </div>
+
+                <div class="table-scroll" style="max-height:540px;">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>วัน-เวลา</th>
+                        <th>ผู้ทำรายการ</th>
+                        <th>ประเภทกิจกรรม</th>
+                        <th>รายละเอียด</th>
+                      </tr>
+                    </thead>
+                    <tbody id="auditLogsTableBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -1005,6 +1135,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_24"></script>
+  <script src="/app.js?v=20261120_26"></script>
 </body>
 </html>
