@@ -478,41 +478,41 @@ function renderCustomersInDraw() {
 
       return `
         <div class="customer-card ${isActive ? 'active-customer' : ''}" onclick="filterByCustomer('${c.customerName}')">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
             <div style="flex:1;min-width:0;">
-              <div style="font-size:15px;font-weight:700;color:#93c5fd;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
+              <div style="font-size:13.5px;font-weight:700;color:#93c5fd;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
                 <span>👤 ${c.customerName}</span>
                 <span class="runner-rounds-badge">ส่งแล้ว ${c.slipCount} รอบ</span>
               </div>
-              <div class="text-muted" style="margin-top:3px;">
-                รวมทุกรอบ: <strong>${c.totalItems} รายการ</strong> • ส่งล่าสุด: ${formatThaiDateTime(c.latestAt)}
+              <div class="text-muted" style="margin-top:2px;font-size:11px;">
+                รวมทุกรอบ: <strong>${c.totalItems} รายการ</strong> • ล่าสุด: ${formatThaiDateTime(c.latestAt)}
               </div>
             </div>
             <div style="flex-shrink:0;text-align:right;">
-              <div style="font-size:10.5px;color:var(--text-muted);white-space:nowrap;">ยอดสะสมรวม ${c.slipCount} รอบ</div>
-              <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--gold);white-space:nowrap;">
+              <div style="font-size:10px;color:var(--text-muted);white-space:nowrap;">ยอดรวม ${c.slipCount} รอบ</div>
+              <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--gold);white-space:nowrap;">
                 ${c.totalMoney.toLocaleString()} ฿
               </div>
             </div>
           </div>
 
-          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;font-size:11.5px;">
-            <span class="badge-100">🟢 ได้ 100%: ${c.full100Money.toLocaleString()} ฿</span>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-top:5px;font-size:11px;">
+            <span class="badge-100" style="padding:2px 8px;font-size:11px;">🟢 ได้ 100%: ${c.full100Money.toLocaleString()} ฿</span>
             ${
               c.half50Money > 0
-                ? `<span class="badge-50">🔒 ติดอั้น 50%: ${c.half50Money.toLocaleString()} ฿</span>`
+                ? `<span class="badge-50" style="padding:2px 8px;font-size:11px;">🔒 ติดอั้น 50%: ${c.half50Money.toLocaleString()} ฿</span>`
                 : ''
             }
           </div>
 
           <div class="runner-actions-bar" onclick="event.stopPropagation()">
-            <button type="button" class="btn ${isActive && !selectedSlipRoundFilter ? 'btn-primary' : 'btn-outline'} btn-sm" style="flex:1;"
+            <button type="button" class="btn ${isActive && !selectedSlipRoundFilter ? 'btn-primary' : 'btn-outline'} btn-sm" style="flex:1;padding:3px 7px;font-size:11.5px;"
               onclick="filterByCustomer('${c.customerName}')">
-              📊 ${isActive && !selectedSlipRoundFilter ? 'กำลังดูยอดรวมทุกใบของคนนี้' : `ดูยอดรวมทั้ง ${c.slipCount} รอบ`}
+              📊 ${isActive && !selectedSlipRoundFilter ? 'กำลังดูยอดรวมคนนี้' : `ดูรวมทั้ง ${c.slipCount} รอบ`}
             </button>
-            <button type="button" class="btn btn-ghost btn-sm"
+            <button type="button" class="btn btn-ghost btn-sm" style="padding:3px 7px;font-size:11.5px;"
               onclick="toggleRunnerRoundsDrawer('${c.customerName}')">
-              📂 ${isExpanded ? 'พับเก็บ ▲' : `กางดูทีละรอบ (${c.slipCount}) ▼`}
+              📂 ${isExpanded ? 'พับ ▲' : `ทีละรอบ (${c.slipCount}) ▼`}
             </button>
           </div>
 
@@ -605,15 +605,15 @@ function renderAggregatedTable() {
         onclick="setAggFilter('${currentAggFilter === 'kept_us' ? 'all' : 'kept_us'}')"
         title="คลิกเพื่อกรองดูเฉพาะเลขที่เราเลือกเก็บไว้รับกินเอง">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;font-weight:700;color:#34d399;">🏠 เก็บไว้รับเองแล้ว (${keptItems.length} เลข)</span>
-          <span style="font-size:10.5px;color:var(--text-muted);">${currentAggFilter === 'kept_us' ? '✕ ยกเลิกกรอง' : 'คลิกกรองดู'}</span>
+          <span style="font-size:11.5px;font-weight:700;color:#34d399;">🏠 เก็บไว้รับเองแล้ว (${keptItems.length} เลข)</span>
+          <span style="font-size:10px;color:var(--text-muted);">${currentAggFilter === 'kept_us' ? '✕ ยกเลิกกรอง' : 'คลิกกรองดู'}</span>
         </div>
-        <div style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:#34d399;">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:#34d399;">
           ${totalKeptAmt.toLocaleString()} ฿
         </div>
         <div class="alloc-mini-pills">
-          ${topKeptBadges || `<span class="text-muted" style="font-size:11px;">ยังไม่ได้กดยืนยันเก็บยอดในหน้าตัดยอด</span>`}
-          ${keptItems.length > 4 ? `<span class="text-muted" style="font-size:11px;">+${keptItems.length - 4} เลข</span>` : ''}
+          ${topKeptBadges || `<span class="text-muted" style="font-size:10.5px;">ยังไม่ได้กดยืนยันเก็บยอดในหน้าตัดยอด</span>`}
+          ${keptItems.length > 4 ? `<span class="text-muted" style="font-size:10.5px;">+${keptItems.length - 4} เลข</span>` : ''}
         </div>
       </div>
 
@@ -621,15 +621,15 @@ function renderAggregatedTable() {
         onclick="setAggFilter('${currentAggFilter === 'sent_dealer' ? 'all' : 'sent_dealer'}')"
         title="คลิกเพื่อกรองดูเฉพาะเลขที่ตัดส่งเจ้ามือใหญ่ไปแล้ว">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:12px;font-weight:700;color:#60a5fa;">📤 ส่งเจ้ามือแล้ว (${sentItems.length} เลข • ${layoffRoundCount} รอบ)</span>
-          <span style="font-size:10.5px;color:var(--text-muted);">${currentAggFilter === 'sent_dealer' ? '✕ ยกเลิกกรอง' : 'คลิกกรองดู'}</span>
+          <span style="font-size:11.5px;font-weight:700;color:#60a5fa;">📤 ส่งเจ้ามือแล้ว (${sentItems.length} เลข • ${layoffRoundCount} รอบ)</span>
+          <span style="font-size:10px;color:var(--text-muted);">${currentAggFilter === 'sent_dealer' ? '✕ ยกเลิกกรอง' : 'คลิกกรองดู'}</span>
         </div>
-        <div style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:#60a5fa;">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:#60a5fa;">
           ${totalSentAmt.toLocaleString()} ฿
         </div>
         <div class="alloc-mini-pills">
-          ${topSentBadges || `<span class="text-muted" style="font-size:11px;">ยังไม่มีประวัติส่งเจ้ามือในงวดนี้</span>`}
-          ${sentItems.length > 4 ? `<span class="text-muted" style="font-size:11px;">+${sentItems.length - 4} เลข</span>` : ''}
+          ${topSentBadges || `<span class="text-muted" style="font-size:10.5px;">ยังไม่มีประวัติส่งเจ้ามือในงวดนี้</span>`}
+          ${sentItems.length > 4 ? `<span class="text-muted" style="font-size:10.5px;">+${sentItems.length - 4} เลข</span>` : ''}
         </div>
       </div>
 
@@ -637,16 +637,16 @@ function renderAggregatedTable() {
         onclick="setAggFilter('${currentAggFilter === 'pending_new' ? 'all' : 'pending_new'}')"
         title="คลิกเพื่อกรองดูเฉพาะเลขที่มียอดบิลเข้ามาใหม่และยังไม่ได้จัดสรรว่าจะเก็บหรือส่ง">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
-          <span style="font-size:12px;font-weight:700;color:#fbbf24;">⏳ ยอดใหม่รอตัด/จัดสรร (${pendingItems.length} เลข)</span>
-          <button type="button" class="btn btn-outline btn-sm" style="padding:1px 7px;font-size:10.5px;"
-            onclick="event.stopPropagation(); switchTab('tab-layoff')">ไปหน้าตัดยอด ➤</button>
+          <span style="font-size:11.5px;font-weight:700;color:#fbbf24;">⏳ ยอดใหม่รอตัด/จัดสรร (${pendingItems.length} เลข)</span>
+          <button type="button" class="btn btn-outline btn-sm" style="padding:1px 6px;font-size:10px;"
+            onclick="event.stopPropagation(); switchTab('tab-layoff')">ไปตัดยอด ➤</button>
         </div>
-        <div style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:#fbbf24;">
+        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:#fbbf24;">
           ${totalPendingAmt.toLocaleString()} ฿
         </div>
         <div class="alloc-mini-pills">
-          ${topPendingBadges || `<span style="font-size:11px;color:#34d399;">✅ จัดสรรครบทุกเลขในงวดนี้แล้ว</span>`}
-          ${pendingItems.length > 4 ? `<span class="text-muted" style="font-size:11px;">+${pendingItems.length - 4} เลข</span>` : ''}
+          ${topPendingBadges || `<span style="font-size:10.5px;color:#34d399;">✅ จัดสรรครบทุกเลขในงวดนี้แล้ว</span>`}
+          ${pendingItems.length > 4 ? `<span class="text-muted" style="font-size:10.5px;">+${pendingItems.length - 4} เลข</span>` : ''}
         </div>
       </div>
     `;
@@ -786,7 +786,7 @@ function renderAggregatedTable() {
         ? `<button type="button" class="perm-dropdown-btn"
             onclick="event.stopPropagation(); togglePermDropdown('${item.key}')"
             title="คลิกเพื่อกางดูเลขกลับทั้ง ${item.permBreakdown.length} ประตู พร้อมราคาเฉลี่ยประตูละ ${avgDoorVal} บาท">
-            🔀 ชุดกลับ ×${item.permBreakdown.length} (เฉลี่ย ${avgDoorVal}฿/ประตู) ${isPermExpanded ? '▲' : '▼'}
+            🔀 ×${item.permBreakdown.length} (${avgDoorVal}฿) ${isPermExpanded ? '▲' : '▼'}
           </button>`
         : '';
 
@@ -858,7 +858,7 @@ function renderAggregatedTable() {
           </td>
           <td class="num-col">${topAmt > 0 ? `${topAmt.toLocaleString()} ฿` : '-'}</td>
           <td class="num-col">${secondAmt > 0 ? `${secondAmt.toLocaleString()} ฿` : '-'}</td>
-          <td class="num-col" style="color:var(--gold);font-weight:700;font-size:15px;">
+          <td class="num-col" style="color:var(--gold);font-weight:700;font-size:13.5px;">
             ${item.totalAmt.toLocaleString()} ฿
           </td>
           <td class="num-col">
@@ -877,8 +877,8 @@ function renderAggregatedTable() {
           </td>
           <td class="num-col">${keptCellHtml}</td>
           <td class="num-col">${sentCellHtml}</td>
-          <td style="font-size:12.5px;">
-            <strong>รวม ${item.hitCount} รายการ</strong>
+          <td style="font-size:11.5px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="รวม ${item.hitCount} รายการ (${customerNames})">
+            <strong>${item.hitCount} ใบ</strong>
             <span class="text-muted">(${customerNames})</span>
           </td>
         </tr>
