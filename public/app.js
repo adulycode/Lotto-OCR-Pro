@@ -1057,20 +1057,27 @@ function onInspectorRunnerChange(runnerName) {
 }
 
 function renderInspectorSelector() {
-  const runnerTabsBar = document.getElementById('inspectorRunnerTabsBar');
-  const runnerSelect = document.getElementById('inspectorRunnerSelect');
-  const slipSelect = document.getElementById('inspectorSlipSelect');
-  const roundPillsBar = document.getElementById('inspectorRoundPillsBar');
-  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+  const sidebarEl = document.getElementById('inspectorSidebarList');
+  const allInspectableSlips = [...(appState.slips || [])];
 
-  if (!slipSelect) return;
+  if (!sidebarEl) return;
   if (allInspectableSlips.length === 0) {
-    if (runnerTabsBar) runnerTabsBar.innerHTML = `<span class="text-muted">ไม่มีเด็กโพยในงวดนี้</span>`;
-    if (roundPillsBar) roundPillsBar.innerHTML = '';
+    sidebarEl.innerHTML = `<div class="text-muted" style="padding:16px;text-align:center;">ไม่มีบิลในงวดนี้</div>`;
     return;
   }
 
-  // Group slips by runner name
+  if (!currentInspectedSlipId || !allInspectableSlips.find(s => s.id === currentInspectedSlipId)) {
+    currentInspectedSlipId = allInspectableSlips[0].id;
+  }
+
+  selectSlipForInspection(currentInspectedSlipId);
+}
+
+function renderSidebarListForInspector() {
+  const sidebarEl = document.getElementById('inspectorSidebarList');
+  if (!sidebarEl) return;
+  const allInspectableSlips = [...(appState.slips || [])];
+
   const runnerGroups = new Map();
   for (const s of allInspectableSlips) {
     if (!runnerGroups.has(s.customerName)) {
@@ -1079,73 +1086,42 @@ function renderInspectorSelector() {
     runnerGroups.get(s.customerName).push(s);
   }
 
-  if (!currentInspectedSlipId || !allInspectableSlips.find(s => s.id === currentInspectedSlipId)) {
-    currentInspectedSlipId = allInspectableSlips[0].id;
-  }
-  const activeSlip = allInspectableSlips.find(s => s.id === currentInspectedSlipId) || allInspectableSlips[0];
-  if (!currentInspectorRunner || !runnerGroups.has(currentInspectorRunner)) {
-    currentInspectorRunner = activeSlip.customerName;
-  }
+  sidebarEl.innerHTML = Array.from(runnerGroups.entries())
+    .map(([runnerName, list]) => {
+      const totalRunnerMoney = list.reduce((sum, x) => sum + (x.totalMoney || 0), 0);
+      const roundsHtml = list
+        .map((s, idx) => {
+          const rNum = s.roundNumber || idx + 1;
+          const isCurrent = s.id === currentInspectedSlipId;
+          const hasWarn = (s.reviewCount || 0) > 0;
+          return `
+            <div class="round-list-item ${isCurrent ? 'active' : ''}" onclick="selectSlipForInspection('${s.id}')">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <strong style="color:${isCurrent ? '#fde68a' : '#e2e8f0'};font-size:13px;">
+                  📌 รอบที่ ${rNum}
+                </strong>
+                ${
+                  hasWarn
+                    ? `<span class="badge-50" style="padding:1px 7px;font-size:10.5px;">⚠️ รอเช็ค ${s.reviewCount} จุด</span>`
+                    : `<span class="badge-100" style="padding:1px 7px;font-size:10.5px;">✅ ตรงแล้ว</span>`
+                }
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:11.5px;">
+                <span class="text-muted">${formatThaiDateTime(s.createdAt)} (${s.totalItems} รายการ)</span>
+                <strong style="font-family:var(--font-mono);color:var(--gold);">${s.totalMoney.toLocaleString()} ฿</strong>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
 
-  // 1) Render Runner Buttons (ขั้นที่ 1: คลิกเลือกชื่อเด็กโพย)
-  if (runnerTabsBar) {
-    runnerTabsBar.innerHTML = Array.from(runnerGroups.entries())
-      .map(([name, list]) => {
-        const totalM = list.reduce((sum, x) => sum + (x.totalMoney || 0), 0);
-        const warnCnt = list.reduce((sum, x) => sum + (x.reviewCount || 0), 0);
-        const isCurrentRunner = name === currentInspectorRunner;
-        return `<button type="button" class="btn ${isCurrentRunner ? 'btn-primary' : 'btn-outline'}"
-          onclick="onInspectorRunnerChange('${name}')">
-          👤 ${name}
-          <span class="runner-rounds-badge" style="background:rgba(15,23,42,0.5);color:#fde68a;">${list.length} รอบ (${totalM.toLocaleString()}฿)</span>
-          ${warnCnt > 0 ? `<span class="tab-badge">${warnCnt}</span>` : ''}
-        </button>`;
-      })
-      .join('');
-  }
-
-  // 2) Filter slips for the selected runner
-  const runnerSlips = runnerGroups.get(currentInspectorRunner) || allInspectableSlips;
-  if (!runnerSlips.find(s => s.id === currentInspectedSlipId)) {
-    currentInspectedSlipId = runnerSlips[0].id;
-  }
-
-  selectSlipForInspection(currentInspectedSlipId);
-}
-
-function renderRoundCardsForActiveRunner() {
-  const roundPillsBar = document.getElementById('inspectorRoundPillsBar');
-  if (!roundPillsBar) return;
-  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
-  const runnerSlips = allInspectableSlips.filter(s => s.customerName === currentInspectorRunner);
-
-  roundPillsBar.innerHTML = runnerSlips
-    .map((s, idx) => {
-      const rNum = s.roundNumber || idx + 1;
-      const isCurrent = s.id === currentInspectedSlipId;
-      const hasWarn = (s.reviewCount || 0) > 0;
       return `
-        <div class="customer-card ${isCurrent ? 'active-customer' : ''}" style="padding:10px 14px;"
-          onclick="selectSlipForInspection('${s.id}')">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <strong style="color:${isCurrent ? '#fde68a' : '#93c5fd'};font-size:14px;">
-              📌 รอบที่ ${rNum} ${isCurrent ? '(กำลังเปิดดู)' : ''}
-            </strong>
-            ${
-              hasWarn
-                ? `<span class="badge-50">⚠️ รอเช็ค ${s.reviewCount} จุด</span>`
-                : `<span class="badge-100">✅ ยอดบิลตรงแล้ว</span>`
-            }
+        <div class="runner-sidebar-group">
+          <div class="runner-sidebar-header">
+            <span>👤 ${runnerName}</span>
+            <span style="font-family:var(--font-mono);font-size:12px;color:var(--gold);">${list.length} รอบ (${totalRunnerMoney.toLocaleString()}฿)</span>
           </div>
-          <div class="text-muted" style="margin-top:4px;font-size:12px;">
-            📅 ส่งเมื่อ: <strong>${formatThaiDateTime(s.createdAt)}</strong>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);">
-            <span style="font-size:12px;">จำนวน <strong>${s.totalItems} รายการ</strong></span>
-            <strong style="font-family:var(--font-mono);font-size:15px;color:var(--gold);">
-              ยอดบิล: ${s.totalMoney.toLocaleString()} ฿
-            </strong>
-          </div>
+          <div>${roundsHtml}</div>
         </div>
       `;
     })
@@ -1154,7 +1130,7 @@ function renderRoundCardsForActiveRunner() {
 
 function selectSlipForInspection(slipId, highlightCol = null, highlightRow = null) {
   currentInspectedSlipId = slipId;
-  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+  const allInspectableSlips = [...(appState.slips || [])];
   const slip = allInspectableSlips.find(s => s.id === slipId);
   if (!slip) return;
 
@@ -1162,13 +1138,13 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   const learnInput = document.getElementById('learnCustomerInput');
   if (learnInput) learnInput.value = slip.customerName;
 
-  renderRoundCardsForActiveRunner();
+  renderSidebarListForInspector();
   renderLearnedRules();
 
   const imgEl = document.getElementById('inspectorImage');
   imgEl.src = slip.imageUrl || '/uploads/slip-16-11-page1.jpg';
   document.getElementById('inspectorMetaText').textContent =
-    `👤 ผู้ส่ง: ${slip.customerName} | 📌 รอบที่ ${slip.roundNumber || 1} | 📅 วัน-เวลาที่ส่ง: ${formatThaiDateTime(slip.createdAt)} | 🟢 ได้ 100%: ${(slip.full100Money || 0).toLocaleString()}฿ | 🔒 ติดอั้น 50%: ${(slip.half50Money || 0).toLocaleString()}฿`;
+    `👤 ${slip.customerName} | 📌 รอบที่ ${slip.roundNumber || 1} (${formatThaiDateTime(slip.createdAt)}) | ยอดบิล: ${slip.totalMoney.toLocaleString()}฿`;
 
   const banner = document.getElementById('validationSummaryBanner');
   const warnItems = (slip.items || []).filter(i => i.needsReview);
@@ -1327,17 +1303,12 @@ async function saveAndVerifyCurrentSlip(markVerified = false) {
   });
 
   if (res.ok) {
-    const data = await res.json();
     await fetchAppState();
-    if (data.newlyLearnedCount > 0) {
-      showToast(`🧠 AI เรียนรู้และจดจำลายมือใหม่ของ "${slip.customerName}" แล้ว: ${data.newlyLearned.join(', ')} (พร้อมใช้ในรอบถัดไป!)`);
-    } else {
-      showToast(
-        markVerified
-          ? '✅ ยืนยันความถูกต้องของโพยนี้ 100% และอัปเดตยอดรวมทั้งหมดแล้ว!'
-          : '💾 บันทึกการแก้ไขและคำนวณกฎคณิตศาสตร์ใหม่เรียบร้อย'
-      );
-    }
+    showToast(
+      markVerified
+        ? '✅ ยืนยันความถูกต้องของบิลรอบนี้ 100% และอัปเดตยอดรวมทั้งหมดแล้ว!'
+        : '💾 บันทึกการแก้ไขและคำนวณยอดบิลใหม่เรียบร้อย'
+    );
   }
 }
 

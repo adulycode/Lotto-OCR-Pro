@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_4" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_10" />
 </head>
 <body>
   <!-- แถบด้านบนสุด: เลือกงวดหวยชัดเจน ดูง่ายตั้งแต่เปิดเว็บ -->
@@ -380,86 +380,23 @@
     </section>
 
     <!-- ================================================================= -->
-    <!-- แท็บที่ 4: ตรวจบิล OCR เทียบรูปกระดาษ (เลือกคน ➔ เลือกรอบเช็คยอดบิล) -->
+    <!-- แท็บที่ 4: ตรวจบิล OCR เทียบรูปกระดาษ (รายการซ้ายมือ • รูปกลาง • ตารางขวา) -->
     <!-- ================================================================= -->
     <section id="tab-inspector" class="tab-panel no-print">
-      <!-- แผงเลือกตรวจเช็คยอดบิลแต่ละคน & แต่ละรอบ -->
-      <div class="card" style="margin-bottom:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
-          <div>
-            <h2 style="font-size:16px;">📋 เลือกเด็กโพย & เลือกรอบบิลที่ต้องการตรวจเช็คยอด</h2>
-            <p class="text-muted">1. คลิกเลือกชื่อเด็กโพย ➔ 2. คลิกที่กล่อง "รอบที่ส่ง" เพื่อเปิดตรวจเช็คตัวเลขและยอดรวมของบิลรอบนั้นด้านล่าง</p>
+      <div class="inspector-3col-layout">
+
+        <!-- คอลัมน์ซ้ายมือ: รายชื่อเด็กโพย & รายการรอบบิลที่ส่ง (คลิกเลือกเช็คได้ทันที ไม่ต้องเลื่อนขึ้นลง) -->
+        <div class="card" style="padding:12px;">
+          <div class="card-header" style="margin-bottom:10px;padding-bottom:8px;">
+            <div>
+              <h3 style="font-size:14.5px;">📋 เด็กโพย & รอบบิลที่ส่ง</h3>
+              <p class="text-muted">คลิกเลือกรอบบิลเพื่อตรวจเช็คยอด</p>
+            </div>
           </div>
-          <div class="toolbar-right">
-            <button class="btn btn-outline btn-sm" onclick="toggleLearnedMemoryPanel()">
-              🧠 สมุดจำลายมือ AI (<span id="learnedRulesCountText">5</span>)
-            </button>
-            <button class="btn btn-outline btn-sm" onclick="filterInspectorWarningsOnly()" id="btnFilterWarnings">
-              ⚠️ ดูเฉพาะแถวที่แจ้งเตือน
-            </button>
-            <button class="btn btn-success" onclick="saveAndVerifyCurrentSlip(true)">
-              ✅ ยืนยันว่ายอดบิลรอบนี้ถูกต้อง 100%
-            </button>
-          </div>
+          <div id="inspectorSidebarList" class="inspector-sidebar-list"></div>
         </div>
 
-        <!-- แถวที่ 1: ปุ่มกดเลือกชื่อเด็กโพย -->
-        <div style="margin-bottom:10px;">
-          <div class="small-label" style="margin-bottom:6px;color:#93c5fd;font-weight:700;">👤 ขั้นที่ 1 — คลิกเลือกชื่อเด็กโพย:</div>
-          <div id="inspectorRunnerTabsBar" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
-          <!-- ซ่อน select เดิมไว้เผื่อโค้ดอ้างอิง -->
-          <select id="inspectorRunnerSelect" class="hidden" onchange="onInspectorRunnerChange(this.value)"></select>
-          <select id="inspectorSlipSelect" class="hidden" onchange="selectSlipForInspection(this.value)"></select>
-        </div>
-
-        <!-- แถวที่ 2: การ์ดแต่ละรอบของเด็กโพยคนนั้น (คลิกเพื่อเปิดเช็คยอดบิลแต่ละรอบ) -->
-        <div style="padding-top:10px;border-top:1px dashed var(--border);">
-          <div class="small-label" style="margin-bottom:6px;color:var(--gold);font-weight:700;">📅 ขั้นที่ 2 — คลิกเลือกรอบบิลที่ส่งมา เพื่อเช็คยอดบิลด้านล่าง:</div>
-          <div id="inspectorRoundPillsBar" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));gap:10px;"></div>
-        </div>
-      </div>
-
-      <!-- กล่องสมองความจำ AI (พับเก็บไว้เป็นค่าเริ่มต้น กดปุ่ม "🧠 สมุดจำลายมือ AI" เพื่อเปิดดู และคลิกป้ายรอบเพื่อกระโดดไปดูบิลได้) -->
-      <div id="learnedMemoryPanel" class="card hidden" style="margin-bottom:14px;background:rgba(59,130,246,0.07);border-color:rgba(59,130,246,0.35);">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
-          <div>
-            <h3 style="font-size:14.5px;color:#93c5fd;">
-              🧠 สมุดจำลายมือ AI — <span id="learnedActiveRunnerLabel" style="color:var(--gold);">รวมทุกสาย</span>
-            </h3>
-            <p class="text-muted">คลิกที่ป้าย <strong>"📌 รอบที่..."</strong> ในรายการด้านล่าง เพื่อกระโดดไปเปิดตรวจบิลรอบนั้นได้ทันที</p>
-          </div>
-          <div class="filter-chips" id="learnedRunnerFilterChips"></div>
-        </div>
-
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;background:var(--bg-input);padding:10px;border-radius:8px;border:1px solid var(--border);">
-          <div>
-            <label class="small-label">เด็กโพยเจ้าของลายมือ:</label>
-            <input type="text" id="learnCustomerInput" class="input" style="width:170px;" value="เจ๊หมวย (สาย A)" />
-          </div>
-          <div>
-            <label class="small-label">ช่องข้อมูล:</label>
-            <select id="learnFieldSelect" class="input" style="width:130px;">
-              <option value="numText">ช่องตัวเลข</option>
-              <option value="amtText">ช่องยอดเงิน</option>
-            </select>
-          </div>
-          <div>
-            <label class="small-label">ลายมือที่ AI มักอ่านเพี้ยน:</label>
-            <input type="text" id="learnWrongInput" class="input" style="width:140px;" placeholder="เช่น 533 หรือ n×n" />
-          </div>
-          <div>
-            <label class="small-label">ค่าที่ถูกต้องจริง:</label>
-            <input type="text" id="learnCorrectInput" class="input" style="width:140px;" placeholder="เช่น 583 หรือ 11×11" />
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="addManualLearnedRule()">+ สอนให้ AI จำ</button>
-        </div>
-        <div id="learnedRulesListContainer"></div>
-      </div>
-
-      <div id="validationSummaryBanner" class="validation-banner"></div>
-
-      <div class="inspector-split">
-        <!-- ซ้าย: รูปโพยกระดาษต้นฉบับ -->
+        <!-- คอลัมน์กลาง: รูปโพยกระดาษต้นฉบับ -->
         <div class="card photo-inspector-card">
           <div class="card-header">
             <div>
@@ -468,12 +405,12 @@
             </div>
             <div class="zoom-controls">
               <button class="btn btn-sm btn-outline" onclick="toggleGridOverlay()" id="btnGridOverlay">
-                📏 เปิดเส้นทาบ 4 คอลัมน์
+                📏 เส้นทาบ 4 คอลัมน์
               </button>
               <button class="btn btn-sm btn-ghost" onclick="adjustZoom(-0.25)">➖</button>
               <span id="zoomLevelText">100%</span>
               <button class="btn btn-sm btn-ghost" onclick="adjustZoom(0.25)">➕</button>
-              <button class="btn btn-sm btn-ghost" onclick="resetZoom()">ขนาดปกติ</button>
+              <button class="btn btn-sm btn-ghost" onclick="resetZoom()">100%</button>
             </div>
           </div>
           <div class="photo-viewport" id="photoViewport">
@@ -489,19 +426,30 @@
           </div>
         </div>
 
-        <!-- ขวา: ตาราง 4 คอลัมน์ × 30 แถว แก้ไขได้ทุกช่อง -->
+        <!-- คอลัมน์ขวา: ตาราง 4 คอลัมน์ × 30 แถว แก้ไขได้ทุกช่อง -->
         <div class="card grid-inspector-card">
           <div class="card-header">
             <div>
-              <h3>📝 ตารางโพย 4 คอลัมน์ × 30 แถว (คลิกแก้ไขตัวเลขได้ทุกช่อง)</h3>
-              <p class="text-muted">ระบบเช็คกฎคณิตศาสตร์อัตโนมัติ: <code>×6</code> ต้องเลขไม่ซ้ำและหาร 6 ลงตัว • <code>×3</code> ต้องเลขเบิ้ลและหาร 3 ลงตัว</p>
+              <h3>📝 ตารางตัวเลขของบิลรอบนี้</h3>
+              <p class="text-muted">คลิกแก้ไขตัวเลขได้ทุกช่อง ระบบเช็คกฎ ×6 และ ×3 อัตโนมัติ</p>
             </div>
-            <button class="btn btn-primary btn-sm" onclick="saveAndVerifyCurrentSlip(false)">
-              💾 บันทึกการแก้ไข
-            </button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn btn-outline btn-sm" onclick="filterInspectorWarningsOnly()" id="btnFilterWarnings">
+                ⚠️ เฉพาะจุดแจ้งเตือน
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="saveAndVerifyCurrentSlip(false)">
+                💾 บันทึก
+              </button>
+              <button class="btn btn-success btn-sm" onclick="saveAndVerifyCurrentSlip(true)">
+                ✅ ยืนยันยอดบิลรอบนี้
+              </button>
+            </div>
           </div>
+
+          <div id="validationSummaryBanner" class="validation-banner" style="margin-bottom:10px;"></div>
           <div id="paperGridContainer" class="paper-grid-4col"></div>
         </div>
+
       </div>
     </section>
 
@@ -596,11 +544,10 @@
             </div>
 
             <div class="form-group">
-              <label>โหมดการอัปโหลดและเวลาที่ส่ง:</label>
+              <label>เวลาที่ลูกค้านำโพยมาส่ง (ใช้เช็คสิทธิ์จ่ายเต็ม 100% หรือติดอั้น 50%):</label>
               <select id="uploadTimingSelect" class="input">
-                <option value="after_cutoff">🕒 โพยจริงงวดนี้ — ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
-                <option value="before_cutoff">⏪ โพยจริงงวดนี้ — ส่งก่อนประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100% ทั้งใบ)</option>
-                <option value="training_only">🧠 โพยเก่าใช้ฝึกสอน AI เท่านั้น (เรียนรู้ลายมือโดยไม่คิดเงินรวมในงวดปัจจุบัน)</option>
+                <option value="after_cutoff">🕒 ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
+                <option value="before_cutoff">⏪ ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100% ทั้งใบ)</option>
               </select>
             </div>
 
@@ -689,7 +636,27 @@
             </div>
             <div class="btn-group-full">
               <button class="btn btn-primary" onclick="saveSettingsFromForm()">💾 บันทึกการตั้งค่า</button>
+              <button class="btn btn-outline" onclick="toggleLearnedMemoryPanel()">🧠 จัดการฐานข้อมูลลายมือ (<span id="learnedRulesCountText">5</span>)</button>
               <button class="btn btn-outline" onclick="resetDemoDatabase()">🔄 รีเซ็ตข้อมูลตัวอย่างเริ่มต้น</button>
+            </div>
+
+            <!-- ซ่อนฐานข้อมูลความจำลายมือไว้ในเมนูตั้งค่า AI (เมนูที่ 6) -->
+            <div id="learnedMemoryPanel" class="hidden" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+                <strong style="color:#93c5fd;">ฐานข้อมูลความจำลายมือ (<span id="learnedActiveRunnerLabel">ทุกสาย</span>)</strong>
+                <div class="filter-chips" id="learnedRunnerFilterChips"></div>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+                <input type="text" id="learnCustomerInput" class="input" style="width:140px;" value="เจ๊หมวย (สาย A)" placeholder="ชื่อเด็กโพย" />
+                <select id="learnFieldSelect" class="input" style="width:115px;">
+                  <option value="numText">ช่องตัวเลข</option>
+                  <option value="amtText">ช่องยอดเงิน</option>
+                </select>
+                <input type="text" id="learnWrongInput" class="input" style="width:110px;" placeholder="คำที่เพี้ยน" />
+                <input type="text" id="learnCorrectInput" class="input" style="width:110px;" placeholder="คำที่ถูก" />
+                <button class="btn btn-primary btn-sm" onclick="addManualLearnedRule()">+ เพิ่ม</button>
+              </div>
+              <div id="learnedRulesListContainer"></div>
             </div>
           </div>
         </div>
@@ -740,6 +707,6 @@
   </main>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_9"></script>
+  <script src="/app.js?v=20261120_10"></script>
 </body>
 </html>
