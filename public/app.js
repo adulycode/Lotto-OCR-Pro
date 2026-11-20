@@ -1,8 +1,12 @@
-// LottoOCR Pro Frontend Controller
+// ระบบควบคุมหน้าเว็บจัดการโพยหวย (แยกตามงวด • เช็คใครส่งอะไรมา • เลขอั้น 50% ตามเวลาประกาศ • ตัดยอดส่งเจ้ามือ)
 
 let appState = {
+  currentDrawId: '',
+  currentDraw: null,
+  draws: [],
   settings: {},
   slips: [],
+  customersInDraw: [],
   aggregated: [],
   layoffs: [],
   lineChats: [],
@@ -10,9 +14,10 @@ let appState = {
 };
 
 let currentAggFilter = 'all';
+let selectedCustomerFilter = null; // กรองดูเฉพาะคนที่คลิกเลือกในงวดนี้
 let selectedAggNumberKey = null;
 let selectedLayoffKeys = new Set();
-let customLayoffAmounts = {}; // key -> custom send amount
+let customLayoffAmounts = {};
 let currentInspectedSlipId = null;
 let showWarningsOnlyInInspector = false;
 let currentZoom = 1.0;
@@ -22,7 +27,8 @@ let uploadedColumnSlices = null;
 document.addEventListener('DOMContentLoaded', async () => {
   buildPrintable4x30Template();
   await fetchAppState();
-  document.getElementById('webhookUrlDisplay').value = `${window.location.origin}/api/line/webhook`;
+  const webhookEl = document.getElementById('webhookUrlDisplay');
+  if (webhookEl) webhookEl.value = `${window.location.origin}/api/line/webhook`;
 });
 
 function showToast(msg) {
@@ -32,6 +38,21 @@ function showToast(msg) {
   div.textContent = msg;
   container.appendChild(div);
   setTimeout(() => div.remove(), 3800);
+}
+
+function formatThaiDateTime(isoStr) {
+  if (!isoStr) return '-';
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleString('th-TH', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    }) + ' น.';
+  } catch {
+    return isoStr;
+  }
 }
 
 function switchTab(tabId) {
@@ -45,40 +66,91 @@ function switchTab(tabId) {
   if (btn) btn.classList.add('active');
 }
 
-async function fetchAppState() {
-  const res = await fetch('/api/state');
+async function fetchAppState(drawIdParam = '') {
+  const url = drawIdParam ? `/api/state?drawId=${encodeURIComponent(drawIdParam)}` : '/api/state';
+  const res = await fetch(url);
   appState = await res.json();
 
-  // Default select over-limit items on first load if set is empty
   if (selectedLayoffKeys.size === 0 && appState.aggregated) {
     appState.aggregated.forEach(item => {
       if (item.isOverLimit) selectedLayoffKeys.add(item.key);
     });
   }
 
-  renderHeaderStats();
+  renderHeaderAndKpis();
+  renderCustomersInDraw();
   renderAggregatedTable();
+  renderRestrictedNumbersTab();
   renderLayoffBuilder();
   renderInspectorSelector();
   renderLineSimulator();
-  renderCustomerBillsAndLayoffs();
   populateSettingsForm();
 }
 
-function renderHeaderStats() {
+async function onSwitchDraw(drawId) {
+  selectedCustomerFilter = null;
+  selectedAggNumberKey = null;
+  selectedLayoffKeys.clear();
+  await fetch('/api/draws', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'switch', drawId })
+  });
+  await fetchAppState(drawId);
+  showToast(`📅 สลับไปยัง "${appState.currentDraw?.title || ''}" เรียบร้อย`);
+}
+
+async function openNewDrawModal() {
+  const title = prompt('ระบุชื่องวดหวยใหม่ (เช่น งวดวันที่ 16 ธ.ค. 2569):', 'งวดวันที่ 16 ธ.ค. 2569');
+  if (!title) return;
+  const res = await fetch('/api/draws', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title })
+  });
+  if (res.ok) {
+    selectedCustomerFilter = null;
+    selectedAggNumberKey = null;
+    await fetchAppState();
+    showToast(`✅ เปิดงวดใหม่ "${title}" เรียบร้อยแล้ว`);
+  }
+}
+
+function renderHeaderAndKpis() {
   const s = appState.summary || {};
   const settings = appState.settings || {};
+  const draw = appState.currentDraw || {};
+
+  // Draw dropdown
+  const drawSelect = document.getElementById('drawSelect');
+  if (drawSelect && Array.isArray(appState.draws)) {
+    drawSelect.innerHTML = appState.draws
+      .map(d => `<option value="${d.id}" ${d.id === appState.currentDrawId ? 'selected' : ''}>${d.title}</option>`)
+      .join('');
+  }
 
   document.getElementById('headerModelBadge').textContent = settings.geminiModel || 'gemini-2.5-pro';
-  document.getElementById('statTotalSlips').textContent = `${s.totalSlips || 0} ใบ`;
-  document.getElementById('statTotalMoney').textContent = `${(s.totalGrandMoney || 0).toLocaleString()} ฿`;
+  document.getElementById('kpiTotalCustomers').textContent = `${s.totalCustomers || 0} คน (${s.totalSlips || 0} บิล)`;
+  document.getElementById('kpiTotalMoney').textContent = `${(s.totalGrandMoney || 0).toLocaleString()} บาท`;
+  document.getElementById('kpiUniqueNumbers').textContent = `รวมทั้งหมด ${s.totalUniqueNumbers || 0} เลขไม่ซ้ำกัน`;
+
+  document.getElementById('kpiFull100').textContent = `${(s.totalFull100Money || 0).toLocaleString()} ฿`;
+  document.getElementById('kpiHalf50').textContent = `${(s.totalHalf50Money || 0).toLocaleString()} ฿`;
+
+  const restrictedNums = (draw.restrictedNumbers || []).map(r => r.number);
+  document.getElementById('kpiRestrictedList').textContent =
+    restrictedNums.length > 0 ? `${restrictedNums.join(', ')} (${restrictedNums.length} ชุด)` : 'ยังไม่มีเลขอั้น';
+
+  const badgeRest = document.getElementById('badgeRestrictedCount');
+  if (badgeRest) badgeRest.textContent = restrictedNums.length;
 
   const totalWarnRows = (appState.slips || []).reduce((acc, sl) => acc + (sl.reviewCount || 0), 0);
-  document.getElementById('statPendingReview').textContent = `${totalWarnRows} จุด`;
-  document.getElementById('badgeReviewCount').textContent = totalWarnRows;
-  document.getElementById('badgeReviewCount').style.display = totalWarnRows > 0 ? 'inline-block' : 'none';
+  const badgeRev = document.getElementById('badgeReviewCount');
+  if (badgeRev) {
+    badgeRev.textContent = totalWarnRows;
+    badgeRev.style.display = totalWarnRows > 0 ? 'inline-block' : 'none';
+  }
 
-  // Permutation mode buttons
   const isExpand = settings.permutationMode !== 'keep_raw';
   document.getElementById('btnModeExpand').classList.toggle('active', isExpand);
   document.getElementById('btnModeRaw').classList.toggle('active', !isExpand);
@@ -86,10 +158,10 @@ function renderHeaderStats() {
   const subtitle = document.getElementById('aggModeSubtitle');
   if (isExpand) {
     subtitle.innerHTML =
-      'โหมดปัจจุบัน: <strong>🔀 แยกเลขทุกประตูอัตโนมัติ</strong> (เช่น <code>072×6 = 66฿</code> แตกเป็น <code>072, 027, 207, 270, 702, 720</code> ตัวละ 11฿ แล้วนำไปบวกรวมกับยอด 3 ตัวบนของทุกคนทันที)';
+      'วิธีคิดเลขชุดกลับตอนนี้: <strong>🔀 แยกเลขทุกประตูอัตโนมัติ</strong> (เช่น <code>072×6 = 66฿</code> แตกเป็น 6 หาง หางละ 11฿ รวมเข้ากับยอด 3 ตัวบนทันที)';
   } else {
     subtitle.innerHTML =
-      'โหมดปัจจุบัน: <strong>📋 คงตามหน้าโพย (ไม่แยกหาง)</strong> (เช่น <code>072×6 = 66฿</code> จะแสดงในคอลัมน์ "ชุดกลับ ×6/×3" แยกจาก 3 ตัวเต็ง)';
+      'วิธีคิดเลขชุดกลับตอนนี้: <strong>📋 คงตามหน้าโพย (ไม่แยกหาง)</strong> (เก็บ <code>072×6 = 66฿</code> ไว้เป็นรายการชุดกลับตามที่เขียน)';
   }
 }
 
@@ -107,6 +179,77 @@ async function setPermutationMode(mode) {
   );
 }
 
+// ============================================================================
+// แท็บที่ 1 (ฝั่งซ้าย): งวดนี้ใครส่งอะไรมาบ้าง
+// ============================================================================
+function filterByCustomer(customerName) {
+  selectedCustomerFilter = selectedCustomerFilter === customerName ? null : customerName;
+  renderCustomersInDraw();
+  renderAggregatedTable();
+}
+
+function renderCustomersInDraw() {
+  const container = document.getElementById('customerCardsContainer');
+  const customers = appState.customersInDraw || [];
+
+  if (customers.length === 0) {
+    container.innerHTML = `<div class="text-muted" style="text-align:center;padding:24px;">ยังไม่มีใครส่งโพยในงวดนี้ (กดที่แท็บ "💬 5. ส่งโพยเข้าระบบ" เพื่อเพิ่มบิลแรกได้เลย)</div>`;
+    return;
+  }
+
+  container.innerHTML = customers
+    .map(c => {
+      const isActive = selectedCustomerFilter === c.customerName;
+      const slipsHtml = c.slips
+        .map(sl => {
+          const has50 = sl.half50Money > 0;
+          return `
+            <div class="slip-mini-row" onclick="event.stopPropagation(); jumpToSlipInspector('${sl.id}', 1, 1)">
+              <div>
+                <div style="font-weight:600;color:#e2e8f0;">📄 ${sl.title}</div>
+                <div class="text-muted">ส่งเมื่อ: ${formatThaiDateTime(sl.createdAt)} (${sl.totalItems} รายการ)</div>
+                ${
+                  has50
+                    ? `<div style="margin-top:3px;"><span class="badge-50">🔒 มีเลขอั้นส่งหลังเวลาประกาศ (${sl.restrictedHits.join(', ')}) = ${sl.half50Money.toLocaleString()}฿ จ่าย 50%</span></div>`
+                    : `<div style="margin-top:3px;"><span class="badge-100">🟢 ส่งก่อนอั้น จ่ายเต็ม 100% ทั้งใบ</span></div>`
+                }
+              </div>
+              <div style="text-align:right;">
+                <div style="font-family:var(--font-mono);font-weight:700;color:var(--gold);">${sl.totalMoney.toLocaleString()} ฿</div>
+                <span style="font-size:11px;color:#60a5fa;">เปิดดูโพย ➔</span>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+
+      return `
+        <div class="customer-card ${isActive ? 'active-customer' : ''}" onclick="filterByCustomer('${c.customerName}')">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-size:15px;font-weight:700;color:#93c5fd;">👤 ${c.customerName}</div>
+              <div class="text-muted">ส่งทั้งหมด ${c.slipCount} บิล (${c.totalItems} รายการ)</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--gold);">
+                ${c.totalMoney.toLocaleString()} ฿
+              </div>
+              <div style="font-size:11px;">
+                <span class="text-success">100%: ${c.full100Money.toLocaleString()}฿</span>
+                ${c.half50Money > 0 ? ` | <span class="text-warn">50%: ${c.half50Money.toLocaleString()}฿</span>` : ''}
+              </div>
+            </div>
+          </div>
+          ${slipsHtml}
+        </div>
+      `;
+    })
+    .join('');
+}
+
+// ============================================================================
+// แท็บที่ 1 (ฝั่งขวา): สรุปยอดรวมแต่ละเลขในงวดนี้ (แยก 100% vs 50% ชัดเจน)
+// ============================================================================
 function setAggFilter(filter, btnEl) {
   currentAggFilter = filter;
   document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
@@ -117,37 +260,46 @@ function setAggFilter(filter, btnEl) {
 function renderAggregatedTable() {
   const tbody = document.getElementById('aggTableBody');
   const search = (document.getElementById('searchNumberInput')?.value || '').trim();
-  const isExpand = appState.settings?.permutationMode !== 'keep_raw';
+  const titleEl = document.getElementById('aggTableTitle');
 
-  // Highlight bar showing notable multi-customer merged numbers (including 21 = 42 Baht!)
+  if (selectedCustomerFilter) {
+    titleEl.innerHTML = `📊 2. รายการเลขเฉพาะของ: <span style="color:#60a5fa;">${selectedCustomerFilter}</span> <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="filterByCustomer(null)">✕ แสดงรวมทุกคน</button>`;
+  } else {
+    titleEl.textContent = `📊 2. สรุปยอดรวมแต่ละเลขในงวดนี้ (รวมจากทุกคนเป็นยอดเงินเดียว)`;
+  }
+
+  // แถบตัวอย่างไฮไลต์ด้านบนตาราง
   const highlightBar = document.getElementById('exampleHighlightBar');
-  const num21 = appState.aggregated.find(a => a.number === '21');
-  const num583 = appState.aggregated.find(a => a.number === '583');
-  const num154 = appState.aggregated.find(a => a.number === '154');
-  const num072 = appState.aggregated.find(a => a.number === '072');
+  const num21 = (appState.aggregated || []).find(a => a.number === '21');
+  const num583 = (appState.aggregated || []).find(a => a.number === '583');
+  const num860 = (appState.aggregated || []).find(a => a.number === '860');
 
-  let hlHtml = `<span>💡 <strong>ตัวอย่างเลขที่มีคนส่งซ้ำและระบบรวมเป็นยอดเงินเดียวอัตโนมัติ (คลิกเพื่อดูรายคน):</strong></span>`;
+  let hlHtml = `<span>💡 <strong>คลิกดูตัวอย่างเลขที่รวมยอดและแยกเวลาส่งก่อนอั้น (100%) vs หลังอั้น (50%):</strong></span>`;
   if (num21) {
-    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num21.key}')">เลข <strong>21</strong> = ${num21.totalAmt}฿ (22+20)</span>`;
+    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num21.key}')">เลข <strong>21</strong> รวม = ${num21.totalAmt}฿ (ได้ 100% = ${num21.fullPayout100Amt}฿ | ได้ 50% = ${num21.halfPayout50Amt}฿)</span>`;
+  }
+  if (num860) {
+    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num860.key}')">เลข <strong>860</strong> รวม = ${num860.totalAmt}฿ (ได้ 100% = ${num860.fullPayout100Amt}฿ | ได้ 50% = ${num860.halfPayout50Amt}฿)</span>`;
   }
   if (num583) {
-    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num583.key}')">เลข <strong>583</strong> = ${num583.totalAmt}฿ (${num583.hitCount} รายการ)</span>`;
-  }
-  if (num154) {
-    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num154.key}')">เลข <strong>154</strong> = ${num154.totalAmt}฿ (${num154.hitCount} รายการ)</span>`;
-  }
-  if (num072) {
-    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num072.key}')">เลข <strong>072</strong> = ${num072.totalAmt}฿ (${num072.hitCount} รายการ)</span>`;
+    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num583.key}')">เลข <strong>583</strong> รวม = ${num583.totalAmt}฿ (${num583.hitCount} รายการ)</span>`;
   }
   highlightBar.innerHTML = hlHtml;
 
   let list = appState.aggregated || [];
+
+  // หากคลิกเลือกชื่อลูกค้าทางซ้าย ให้กรองเฉพาะเลขที่ลูกค้าคนนั้นส่งมา
+  if (selectedCustomerFilter) {
+    list = list.filter(item => item.contributors.some(c => c.customerName === selectedCustomerFilter));
+  }
 
   if (search) {
     list = list.filter(item => item.number.includes(search));
   }
   if (currentAggFilter === 'multi_hit') {
     list = list.filter(item => item.hitCount > 1);
+  } else if (currentAggFilter === 'restricted') {
+    list = list.filter(item => item.isRestricted);
   } else if (currentAggFilter === 'over_limit') {
     list = list.filter(item => item.isOverLimit);
   } else if (currentAggFilter === 'digit_2') {
@@ -163,49 +315,44 @@ function renderAggregatedTable() {
   tbody.innerHTML = list
     .map(item => {
       const isSelected = item.key === selectedAggNumberKey;
-      const isChecked = selectedLayoffKeys.has(item.key);
-      const rowClasses = [
-        isSelected ? 'selected-row' : '',
-        item.isOverLimit ? 'over-limit-row' : ''
-      ]
-        .filter(Boolean)
-        .join(' ');
-
-      const straightBreakdown =
-        isExpand && item.threeStraightFromPermAmt > 0 && item.threeStraightDirectAmt > 0
-          ? `<div style="font-size:10px;color:#94a3b8;">(เต็ง ${item.threeStraightDirectAmt}+แตก ${item.threeStraightFromPermAmt})</div>`
-          : isExpand && item.threeStraightFromPermAmt > 0
-            ? `<div style="font-size:10px;color:#60a5fa;">(จากชุดกลับ)</div>`
-            : '';
+      const topAmt = item.digitCount === 2 ? item.twoTopAmt : item.threeStraightAmt;
+      const secondAmt =
+        item.digitCount === 2
+          ? item.twoBottomAmt
+          : item.threeToadAmt + item.threePermRawAmt;
 
       const customerNames = Array.from(new Set(item.contributors.map(c => c.customerName))).join(', ');
 
       return `
-        <tr class="${rowClasses}" onclick="inspectAggNumber('${item.key}')">
-          <td style="text-align:center;" onclick="event.stopPropagation()">
-            <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleLayoffItem('${item.key}', this.checked)" />
-          </td>
+        <tr class="${isSelected ? 'selected-row' : ''}" onclick="inspectAggNumber('${item.key}')">
           <td>
             <span class="number-pill">${item.number}</span>
             ${item.hitCount > 1 ? `<span class="multi-hit-tag">รวม ${item.hitCount} รายการ</span>` : ''}
           </td>
-          <td>${item.digitCount} ตัว</td>
-          <td class="num-col">
-            ${item.threeStraightAmt > 0 ? `<strong>${item.threeStraightAmt.toLocaleString()}</strong>` : '-'}
-            ${straightBreakdown}
+          <td>
+            ${
+              item.isRestricted
+                ? `<span class="badge-50">🔒 เลขอั้น (${item.restrictedRule?.payoutPercent || 50}%)</span>`
+                : `<span class="badge-100">🟢 ปกติ (100%)</span>`
+            }
           </td>
-          <td class="num-col">${item.threeToadAmt > 0 ? item.threeToadAmt.toLocaleString() : '-'}</td>
-          <td class="num-col">${item.threePermRawAmt > 0 ? item.threePermRawAmt.toLocaleString() : '-'}</td>
-          <td class="num-col">${item.twoTopAmt > 0 ? `<strong>${item.twoTopAmt.toLocaleString()}</strong>` : '-'}</td>
-          <td class="num-col">${item.twoBottomAmt > 0 ? item.twoBottomAmt.toLocaleString() : '-'}</td>
-          <td class="num-col" style="color:var(--gold);font-weight:700;font-size:14px;">
+          <td class="num-col">${topAmt > 0 ? `${topAmt.toLocaleString()} ฿` : '-'}</td>
+          <td class="num-col">${secondAmt > 0 ? `${secondAmt.toLocaleString()} ฿` : '-'}</td>
+          <td class="num-col" style="color:var(--gold);font-weight:700;font-size:15px;">
             ${item.totalAmt.toLocaleString()} ฿
           </td>
           <td class="num-col">
             ${
-              item.isOverLimit
-                ? `<span style="color:#f87171;font-weight:700;">+${item.totalExcess.toLocaleString()} ฿</span>`
-                : `<span style="color:#10b981;font-size:11px;">อยู่ในเพดาน</span>`
+              item.fullPayout100Amt > 0
+                ? `<strong style="color:#34d399;">${item.fullPayout100Amt.toLocaleString()} ฿</strong>`
+                : '-'
+            }
+          </td>
+          <td class="num-col">
+            ${
+              item.halfPayout50Amt > 0
+                ? `<strong style="color:#fb923c;">${item.halfPayout50Amt.toLocaleString()} ฿</strong>`
+                : '-'
             }
           </td>
           <td style="font-size:12px;">
@@ -226,66 +373,183 @@ function inspectAggNumber(key) {
 }
 
 function renderSelectedNumberDetail() {
-  const container = document.getElementById('numberDetailBody');
+  const container = document.getElementById('selectedNumberBreakdownBox');
   const item = (appState.aggregated || []).find(a => a.key === selectedAggNumberKey);
   if (!item) {
-    container.innerHTML = `<div class="empty-hint">คลิกเลือกตัวเลขในตารางเพื่อดูรายละเอียดผู้ส่ง</div>`;
+    container.innerHTML = `<div class="text-muted">คลิกที่แถวตัวเลขในตารางด้านบน เพื่อดูว่าใครส่งเลขนั้นมาบ้าง ส่งเวลาไหน ได้เรท 100% หรือ 50%</div>`;
     return;
   }
 
   const contribHtml = item.contributors
-    .map(
-      c => `
-      <div class="contributor-item">
-        <div>
-          <div style="font-weight:700;color:#60a5fa;">👤 ${c.customerName}</div>
-          <div class="text-muted">
-            บิล: <strong>${c.slipTitle}</strong>
-            ${c.col ? `• คอลัมน์ ${c.col} แถว ${c.row}` : ''}
+    .map(c => {
+      const is100 = c.payoutPercent === 100;
+      return `
+        <div class="contributor-item" style="margin-top:8px;">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <strong style="color:#60a5fa;font-size:14px;">👤 ${c.customerName}</strong>
+              ${
+                is100
+                  ? `<span class="badge-100">🟢 แทงก่อนเวลาอั้น ➔ ได้เต็ม 100%</span>`
+                  : `<span class="badge-50">🔒 แทงหลังเวลาอั้น ➔ ได้ ${c.payoutPercent}%</span>`
+              }
+            </div>
+            <div class="text-muted" style="margin-top:2px;">
+              จาก: <strong>${c.slipTitle}</strong> • เวลาที่ส่ง: ${formatThaiDateTime(c.createdAt)}
+            </div>
+            <div style="font-size:12px;margin-top:2px;">
+              ที่เขียนในโพย: <code style="color:var(--gold);">${c.originalWrite}</code> (${c.typeLabel})
+            </div>
           </div>
-          <div style="font-size:12px;margin-top:2px;">
-            ต้นฉบับที่เขียน: <code style="color:var(--gold);">${c.originalWrite}</code> → <span>${c.typeLabel}</span>
+          <div style="text-align:right;">
+            <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:${is100 ? '#34d399' : '#fb923c'};">
+              +${c.amount.toLocaleString()} บาท
+            </div>
+            <button class="btn btn-ghost btn-sm" style="margin-top:4px;" onclick="jumpToSlipInspector('${c.slipId}', ${c.col || 1}, ${c.row || 1})">
+              🔍 ดูในใบโพย
+            </button>
           </div>
         </div>
-        <div style="text-align:right;">
-          <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--success);">
-            +${c.amount.toLocaleString()} ฿
-          </div>
-          <button class="btn btn-ghost btn-sm" style="margin-top:4px;" onclick="jumpToSlipInspector('${c.slipId}', ${c.col || 1}, ${c.row || 1})">
-            🔍 ดูในโพย
-          </button>
-        </div>
-      </div>
-    `
-    )
+      `;
+    })
     .join('');
 
   container.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;background:var(--bg-input);padding:10px 14px;border-radius:8px;border:1px solid var(--border);">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
       <div>
-        <span style="font-size:12px;color:var(--text-muted);">เลขที่เลือกดู:</span>
+        <span style="font-size:13px;font-weight:700;">📌 รายละเอียดผู้ส่งเลข:</span>
         <span class="number-pill" style="font-size:18px;margin-left:8px;">${item.number}</span>
+        ${
+          item.isRestricted
+            ? `<span class="badge-50" style="margin-left:8px;">🔒 เลขอั้นเจ้ามือ (ประกาศอั้นเมื่อ ${formatThaiDateTime(item.restrictedRule?.announcedAt)})</span>`
+            : ''
+        }
       </div>
-      <div style="text-align:right;">
-        <div style="font-size:11px;color:var(--text-muted);">ผลรวมยอดเงินเดียว (${item.contributors.length} รายการ)</div>
-        <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--gold);">
-          ${item.totalAmt.toLocaleString()} บาท
-        </div>
+      <div style="display:flex;gap:16px;font-family:var(--font-mono);font-size:14px;">
+        <span>🟢 ยอดที่ได้ 100%: <strong class="text-success">${item.fullPayout100Amt.toLocaleString()} ฿</strong></span>
+        <span>🔒 ยอดที่ได้ 50%: <strong class="text-warn">${item.halfPayout50Amt.toLocaleString()} ฿</strong></span>
+        <span>💰 ยอดรวมทั้งหมด: <strong class="text-gold">${item.totalAmt.toLocaleString()} ฿</strong></span>
       </div>
     </div>
     ${contribHtml}
   `;
 }
 
-function jumpToSlipInspector(slipId, col, row) {
-  currentInspectedSlipId = slipId;
-  switchTab('tab-inspector');
-  renderInspectorSelector();
-  selectSlipForInspection(slipId, col, row);
+// ============================================================================
+// แท็บที่ 2: จัดการเลขอั้นเจ้ามือ 50% ตามเวลาที่ประกาศ
+// ============================================================================
+function renderRestrictedNumbersTab() {
+  const wrap = document.getElementById('restrictedNumbersTableWrap');
+  if (!wrap) return;
+
+  const list = appState.currentDraw?.restrictedNumbers || [];
+  if (list.length === 0) {
+    wrap.innerHTML = `<div class="text-muted" style="padding:24px;text-align:center;">ยังไม่มีเลขอั้นในงวดนี้ สามารถพิมพ์เลขด้านซ้ายแล้วกดบันทึกได้เลยครับ</div>`;
+    return;
+  }
+
+  const rowsHtml = list
+    .map(r => {
+      const agg = (appState.aggregated || []).find(a => a.number === r.number);
+      const full100 = agg ? agg.fullPayout100Amt : 0;
+      const half50 = agg ? agg.halfPayout50Amt : 0;
+      const total = agg ? agg.totalAmt : 0;
+
+      return `
+        <tr>
+          <td><span class="number-pill">${r.number}</span></td>
+          <td><span class="badge-50">จ่าย ${r.payoutPercent}%</span></td>
+          <td>${formatThaiDateTime(r.announcedAt)}</td>
+          <td class="num-col" style="color:#34d399;font-weight:700;">${full100.toLocaleString()} ฿</td>
+          <td class="num-col" style="color:#fb923c;font-weight:700;">${half50.toLocaleString()} ฿</td>
+          <td class="num-col" style="color:var(--gold);font-weight:700;">${total.toLocaleString()} ฿</td>
+          <td style="text-align:right;">
+            <button class="btn btn-ghost btn-sm" onclick="removeRestrictedNumber('${r.number}')">ลบ</button>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>เลขอั้น</th>
+            <th>เรทหลังอั้น</th>
+            <th>เวลาที่เจ้ามือประกาศ</th>
+            <th class="num-col">แทงก่อนอั้น (ได้ 100%)</th>
+            <th class="num-col">แทงหลังอั้น (ได้ 50%)</th>
+            <th class="num-col">ยอดรวมเลขนี้</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function addRestrictedNumbersBatch(useNow = false) {
+  const numbersText = document.getElementById('restrictNumbersInput').value.trim();
+  if (!numbersText) {
+    showToast('กรุณากรอกตัวเลขที่เจ้ามือแจ้งอั้นก่อนครับ');
+    return;
+  }
+
+  const payoutPercent = Number(document.getElementById('restrictPayoutPercentInput').value) || 50;
+  let announcedAt = new Date().toISOString();
+  if (!useNow) {
+    const dtVal = document.getElementById('restrictAnnouncedAtInput').value;
+    if (dtVal) announcedAt = new Date(dtVal).toISOString();
+  }
+
+  await fetch('/api/draws/restrictions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'add_batch',
+      drawId: appState.currentDrawId,
+      numbersText,
+      payoutPercent,
+      announcedAt
+    })
+  });
+
+  await fetchAppState();
+  showToast('🔒 บันทึกชุดเลขอั้นและคำนวณแยกบิล 100% / 50% ตามเวลาที่ส่งเรียบร้อยแล้ว!');
+}
+
+async function removeRestrictedNumber(number) {
+  await fetch('/api/draws/restrictions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'remove',
+      drawId: appState.currentDrawId,
+      number
+    })
+  });
+  await fetchAppState();
+  showToast(`ลบเลข ${number} ออกจากรายการอั้นแล้ว`);
+}
+
+async function clearAllRestrictions() {
+  await fetch('/api/draws/restrictions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'clear_all',
+      drawId: appState.currentDrawId
+    })
+  });
+  await fetchAppState();
+  showToast('ล้างรายการเลขอั้นทั้งหมดในงวดนี้แล้ว');
 }
 
 // ============================================================================
-// DEALER LAYOFF (ระบบเลือกเลขตัดยอดส่งเจ้ามือเพื่อกระจายความเสี่ยง)
+// แท็บที่ 3: ตัดยอดส่งเจ้ามือ (กระจายความเสี่ยง)
 // ============================================================================
 function toggleLayoffItem(key, checked) {
   if (checked) selectedLayoffKeys.add(key);
@@ -299,7 +563,6 @@ function toggleSelectAllAgg(checked) {
   } else {
     selectedLayoffKeys.clear();
   }
-  renderAggregatedTable();
   renderLayoffBuilder();
 }
 
@@ -308,15 +571,13 @@ function selectOverLimitForLayoff() {
   (appState.aggregated || []).forEach(a => {
     if (a.isOverLimit) selectedLayoffKeys.add(a.key);
   });
-  renderAggregatedTable();
   renderLayoffBuilder();
-  showToast(`เลือกเลขที่เกินเพดานความเสี่ยงทั้งหมด ${selectedLayoffKeys.size} เลขแล้ว`);
+  showToast(`เลือกเลขที่เกินเพดานทั้งหมด ${selectedLayoffKeys.size} เลขแล้ว`);
 }
 
 function clearLayoffSelection() {
   selectedLayoffKeys.clear();
   customLayoffAmounts = {};
-  renderAggregatedTable();
   renderLayoffBuilder();
 }
 
@@ -326,12 +587,43 @@ function onCustomLayoffAmountChange(key, val) {
 }
 
 function renderLayoffBuilder(skipInputRebuild = false) {
+  const selectTbody = document.getElementById('layoffSelectTableBody');
+  if (selectTbody) {
+    selectTbody.innerHTML = (appState.aggregated || [])
+      .map(item => {
+        const isChecked = selectedLayoffKeys.has(item.key);
+        return `
+          <tr class="${item.isOverLimit ? 'over-limit-row' : ''}" onclick="toggleLayoffItem('${item.key}', ${!isChecked})">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleLayoffItem('${item.key}', this.checked)" />
+            </td>
+            <td>
+              <span class="number-pill">${item.number}</span>
+              ${item.isRestricted ? `<span class="badge-50" style="margin-left:4px;">เลขอั้น 50%</span>` : ''}
+            </td>
+            <td class="num-col" style="color:var(--gold);font-weight:700;">${item.totalAmt.toLocaleString()} ฿</td>
+            <td class="num-col" style="color:#34d399;">${item.fullPayout100Amt.toLocaleString()} ฿</td>
+            <td class="num-col" style="color:#fb923c;">${item.halfPayout50Amt.toLocaleString()} ฿</td>
+            <td class="num-col">
+              ${
+                item.isOverLimit
+                  ? `<strong style="color:#f87171;">+${item.totalExcess.toLocaleString()} ฿</strong>`
+                  : `<span class="text-muted">อยู่ในเพดาน</span>`
+              }
+            </td>
+          </tr>
+        `;
+      })
+      .join('');
+  }
+
   const mode = document.getElementById('layoffModeSelect')?.value || 'excess';
   const dealerName = document.getElementById('dealerNameInput')?.value || 'เจ้ามือสายใหญ่ #1';
   const listContainer = document.getElementById('layoffItemsList');
+  if (!listContainer) return;
 
   const selectedItems = (appState.aggregated || []).filter(a => selectedLayoffKeys.has(a.key));
-  let totalAllMoney = (appState.summary?.totalGrandMoney || 0);
+  const totalAllMoney = appState.summary?.totalGrandMoney || 0;
   let totalSendMoney = 0;
 
   const layoffRows = selectedItems.map(item => {
@@ -347,28 +639,9 @@ function renderLayoffBuilder(skipInputRebuild = false) {
     const keepAmt = Math.max(0, item.totalAmt - sendAmt);
     totalSendMoney += sendAmt;
 
-    // Describe type for dealer slip
-    let typeDesc = '';
-    if (item.digitCount === 2) {
-      if (item.twoTopAmt > 0 && item.twoBottomAmt > 0) typeDesc = `บน×ล่าง`;
-      else if (item.twoBottomAmt > 0) typeDesc = `2 ตัวล่าง`;
-      else typeDesc = `2 ตัวบน`;
-    } else {
-      if (item.threeStraightAmt > 0 && item.threeToadAmt > 0) {
-        if (mode === 'excess') {
-          const sEx = item.excessThreeStraight > 0 ? item.excessThreeStraight : item.threeStraightAmt;
-          const tEx = item.excessThreeToad > 0 ? item.excessThreeToad : item.threeToadAmt;
-          typeDesc = `${sEx}×${tEx}`;
-        } else {
-          typeDesc = `${item.threeStraightAmt}×${item.threeToadAmt}`;
-        }
-      } else if (item.threePermRawAmt > 0) {
-        typeDesc = `ชุดกลับ`;
-      } else if (item.threeToadAmt > 0) {
-        typeDesc = `โต๊ด`;
-      } else {
-        typeDesc = `3 ตัวบน`;
-      }
+    let typeDesc = item.digitCount === 2 ? '2 ตัวบน' : '3 ตัวบน';
+    if (item.threeStraightAmt > 0 && item.threeToadAmt > 0) {
+      typeDesc = `${item.threeStraightAmt}×${item.threeToadAmt}`;
     }
 
     return {
@@ -383,7 +656,7 @@ function renderLayoffBuilder(skipInputRebuild = false) {
 
   if (!skipInputRebuild) {
     if (layoffRows.length === 0) {
-      listContainer.innerHTML = `<div class="text-muted" style="text-align:center;padding:18px;">ยังไม่ได้ติ๊กเลือกเลขที่จะตัดส่งเจ้ามือ (ติ๊กช่องหน้าตัวเลขในตารางด้านซ้าย หรือกดปุ่ม "⚡ ติ๊กเลือกเลขเกินเพดานทั้งหมด")</div>`;
+      listContainer.innerHTML = `<div class="text-muted" style="text-align:center;padding:18px;">ติ๊กเลือกตัวเลขจากตารางด้านซ้าย เพื่อกำหนดจำนวนเงินที่จะตัดส่งเจ้ามือ</div>`;
     } else {
       listContainer.innerHTML = layoffRows
         .map(
@@ -391,10 +664,10 @@ function renderLayoffBuilder(skipInputRebuild = false) {
         <div class="layoff-row-item">
           <div>
             <strong style="font-family:var(--font-mono);color:var(--gold);font-size:15px;">${r.number}</strong>
-            <span class="text-muted" style="margin-left:6px;">(รับมา ${r.totalReceived}฿ | เก็บเอง ${r.keepAmt}฿)</span>
+            <span class="text-muted" style="margin-left:6px;">(รับมา ${r.totalReceived}฿ | เก็บไว้เอง ${r.keepAmt}฿)</span>
           </div>
           <div style="display:flex;align-items:center;gap:6px;">
-            <span class="text-muted">ส่งออก:</span>
+            <span class="text-muted">ส่งเจ้ามือ:</span>
             <input type="number" class="cell-input" style="width:78px;" value="${r.sendTotal}"
               oninput="onCustomLayoffAmountChange('${r.key}', this.value)" />
             <span>฿</span>
@@ -410,16 +683,33 @@ function renderLayoffBuilder(skipInputRebuild = false) {
   document.getElementById('layoffKeepTotal').textContent = `${Math.max(0, totalAllMoney - totalSendMoney).toLocaleString()} บาท`;
   document.getElementById('layoffSendTotal').textContent = `${totalSendMoney.toLocaleString()} บาท`;
 
-  // Build formatted text for dealer LINE message
   const lines = [
     `📋 ใบตัดยอดส่ง: ${dealerName}`,
-    `📅 งวดวันที่: 16/11`,
+    `📅 ${appState.currentDraw?.title || 'งวดวันที่ 16/11'}`,
     `-------------------------`,
     ...layoffRows.map(r => `${r.number} = ${r.sendTotal} บ. (${r.typeDesc})`),
     `-------------------------`,
     `รวม ${layoffRows.length} รายการ | ยอดรวม ${totalSendMoney.toLocaleString()} บาท`
   ];
   document.getElementById('layoffFormattedText').value = lines.join('\n');
+
+  const layoffHistoryEl = document.getElementById('layoffHistoryList');
+  if (layoffHistoryEl) {
+    const layoffs = appState.layoffs || [];
+    layoffHistoryEl.innerHTML =
+      layoffs.length === 0
+        ? `<div class="text-muted">ยังไม่มีประวัติการตัดยอดในงวดนี้</div>`
+        : layoffs
+            .map(
+              l => `
+          <div class="contributor-item" style="margin-bottom:6px;">
+            <span>📤 <strong>${l.dealerName}</strong> (${l.itemCount} เลข)</span>
+            <strong style="color:var(--gold);font-family:var(--font-mono);">${l.totalLayoffMoney.toLocaleString()} ฿</strong>
+          </div>
+        `
+            )
+            .join('');
+  }
 }
 
 async function copyAndSaveLayoff() {
@@ -434,7 +724,7 @@ async function copyAndSaveLayoff() {
 
   try {
     await navigator.clipboard.writeText(text);
-  } catch (e) {}
+  } catch {}
 
   const itemsPayload = selectedItems.map(item => ({
     number: item.number,
@@ -445,6 +735,7 @@ async function copyAndSaveLayoff() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      drawId: appState.currentDrawId,
       dealerName,
       formattedText: text,
       items: itemsPayload
@@ -452,16 +743,27 @@ async function copyAndSaveLayoff() {
   });
 
   await fetchAppState();
-  showToast('✅ คัดลอกโพยส่งเจ้ามือลง Clipboard และบันทึกประวัติเรียบร้อยแล้ว!');
+  showToast('✅ คัดลอกใบโพยส่งเจ้ามือและบันทึกประวัติเรียบร้อยแล้ว!');
 }
 
 // ============================================================================
-// TAB 2: SIDE-BY-SIDE 4x30 PAPER SLIP INSPECTOR & MATH VALIDATOR
+// แท็บที่ 4: ตรวจบิล OCR เทียบรูปกระดาษ 4×30
 // ============================================================================
+function jumpToSlipInspector(slipId, col, row) {
+  currentInspectedSlipId = slipId;
+  switchTab('tab-inspector');
+  renderInspectorSelector();
+  selectSlipForInspection(slipId, col, row);
+}
+
 function renderInspectorSelector() {
   const select = document.getElementById('inspectorSlipSelect');
   const slips = appState.slips || [];
-  if (slips.length === 0) return;
+  if (!select) return;
+  if (slips.length === 0) {
+    select.innerHTML = `<option value="">ไม่มีบิลในงวดนี้</option>`;
+    return;
+  }
 
   if (!currentInspectedSlipId || !slips.find(s => s.id === currentInspectedSlipId)) {
     currentInspectedSlipId = slips[0].id;
@@ -486,13 +788,11 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   const slip = (appState.slips || []).find(s => s.id === slipId);
   if (!slip) return;
 
-  // Photo & Meta
   const imgEl = document.getElementById('inspectorImage');
   imgEl.src = slip.imageUrl || '/uploads/slip-16-11-page1.jpg';
   document.getElementById('inspectorMetaText').textContent =
-    `ผู้ส่ง: ${slip.customerName} | วันที่ในโพย: ${slip.sheetDate || '16/11'} | แผ่นที่: ${slip.sheetPage || '1'} | อ่านด้วย: ${slip.modelUsed || 'gemini-2.5-pro'}`;
+    `ผู้ส่ง: ${slip.customerName} | เวลาส่ง: ${formatThaiDateTime(slip.createdAt)} | ยอดจ่าย 100%: ${(slip.full100Money || 0).toLocaleString()}฿ | ยอดติดอั้น 50%: ${(slip.half50Money || 0).toLocaleString()}฿`;
 
-  // Validation Banner
   const banner = document.getElementById('validationSummaryBanner');
   const warnItems = (slip.items || []).filter(i => i.needsReview);
   if (warnItems.length > 0) {
@@ -518,14 +818,12 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     `;
   }
 
-  // Render 4 Columns x 30 Rows Grid
   const container = document.getElementById('paperGridContainer');
   const cols = [1, 2, 3, 4];
 
   container.innerHTML = cols
     .map(colNum => {
       const colItems = (slip.items || []).filter(i => (i.col || 1) === colNum);
-      // Ensure rows 1..30 if it's a 4x30 sheet, or render existing items
       const maxRows = slip.isGrid4x30 ? 30 : Math.max(colItems.length, 1);
       const rowsHtml = [];
       let colTotal = 0;
@@ -545,11 +843,8 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
         if (showWarningsOnlyInInspector && !item.needsReview) continue;
 
         const isHighlighted = highlightCol === colNum && highlightRow === rIdx;
-        const rowClass = item.warnings && item.warnings.length > 0
-          ? 'row-warn'
-          : isHighlighted
-            ? 'row-warn'
-            : '';
+        const rowClass =
+          item.warnings && item.warnings.length > 0 ? 'row-warn' : isHighlighted ? 'row-warn' : '';
 
         rowsHtml.push(`
           <div class="paper-row-item ${rowClass}" id="cell-${colNum}-${rIdx}">
@@ -603,7 +898,6 @@ function filterInspectorWarningsOnly() {
 }
 
 async function onCellEdit(col, row) {
-  // Immediately save and run server-side 4-layer math validation so the user gets instant feedback
   await saveAndVerifyCurrentSlip(false);
 }
 
@@ -611,11 +905,9 @@ async function saveAndVerifyCurrentSlip(markVerified = false) {
   const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
   if (!slip) return;
 
-  // Gather all edited inputs from the 4x30 DOM grid
   const numInputs = document.querySelectorAll('.cell-input[data-field="numText"]');
   const updatedMap = new Map();
 
-  // Seed with existing items first (so hidden rows when filtering warnings are preserved)
   for (const it of slip.items || []) {
     updatedMap.set(`${it.col}_${it.row}`, {
       col: it.col,
@@ -667,8 +959,7 @@ async function saveAndVerifyCurrentSlip(markVerified = false) {
 }
 
 function toggleGridOverlay() {
-  const overlay = document.getElementById('gridOverlay4x30');
-  overlay.classList.toggle('hidden');
+  document.getElementById('gridOverlay4x30').classList.toggle('hidden');
 }
 
 function adjustZoom(delta) {
@@ -684,9 +975,9 @@ function resetZoom() {
 }
 
 // ============================================================================
-// TAB 3: LINE SIMULATOR & 4-COLUMN SLICING OCR UPLOAD
+// แท็บที่ 5: ส่งโพยเข้าระบบ / จำลองแชท LINE OA
 // ============================================================================
-function onSimCustomerChange(val) {
+function onSimCustomerChange() {
   document.getElementById('simCustomCustomerInput').value = '';
 }
 
@@ -695,12 +986,21 @@ function getSimCustomerName() {
   return custom || document.getElementById('simCustomerSelect').value;
 }
 
+function getSimSubmittedAt(selectId) {
+  const mode = document.getElementById(selectId)?.value || 'after_cutoff';
+  if (mode === 'before_cutoff') {
+    return '2026-11-14T11:00:00.000Z'; // ส่งวันที่ 14 พ.ย. (ก่อนเวลาเจ้ามือประกาศอั้น 15 พ.ย.)
+  }
+  return new Date().toISOString();
+}
+
 function fillLinePreset(text) {
   document.getElementById('lineMessageInput').value = text;
 }
 
 function renderLineSimulator() {
   const stream = document.getElementById('lineChatStream');
+  if (!stream) return;
   const chats = appState.lineChats || [];
 
   stream.innerHTML = chats
@@ -708,9 +1008,9 @@ function renderLineSimulator() {
       const isCustomer = msg.sender === 'customer';
       return `
         <div class="chat-bubble-wrap ${isCustomer ? 'customer' : 'bot'}">
-          <div class="chat-sender-name">${isCustomer ? `👤 ${msg.customerName}` : '🤖 LottoOCR LINE Bot'}</div>
+          <div class="chat-sender-name">${isCustomer ? `👤 ${msg.customerName} (${formatThaiDateTime(msg.timestamp)})` : '🤖 ระบบตอบรับโพยอัตโนมัติ'}</div>
           <div class="chat-bubble">${escapeHtml(msg.text || '')}${
-        msg.imageUrl ? `<br/><img src="${msg.imageUrl}" class="chat-thumb" alt="slip" />` : ''
+        msg.imageUrl ? `<br/><img src="${msg.imageUrl}" class="chat-thumb" alt="รูปโพย" />` : ''
       }</div>
         </div>
       `;
@@ -729,49 +1029,61 @@ async function sendLineTextMessage() {
   }
 
   const customerName = getSimCustomerName();
+  const submittedAt = getSimSubmittedAt('simTimingSelect');
   textEl.value = '';
-
-  const res = await fetch('/api/line/simulate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ customerName, text })
-  });
-
-  await fetchAppState();
-  showToast(`💬 รับบิล LINE จาก "${customerName}" และอัปเดตยอดรวมทันที!`);
-}
-
-async function simulateLineSamplePhoto() {
-  const customerName = getSimCustomerName();
-  showToast(`📸 กำลังส่งรูปโพย 16/11 (120 แถว) เข้า LINE Bot ในนาม "${customerName}"...`);
 
   await fetch('/api/line/simulate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      drawId: appState.currentDrawId,
+      customerName,
+      text,
+      submittedAt
+    })
+  });
+
+  await fetchAppState();
+  showToast(`💬 บันทึกบิลของ "${customerName}" เข้าสู่ ${appState.currentDraw?.title || 'งวดนี้'} เรียบร้อย!`);
+}
+
+async function simulateLineSamplePhoto() {
+  const customerName = getSimCustomerName();
+  const submittedAt = getSimSubmittedAt('simTimingSelect');
+  showToast(`📸 กำลังส่งรูปโพย 16/11 (120 แถว) เข้า LINE ในนาม "${customerName}"...`);
+
+  await fetch('/api/line/simulate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      drawId: appState.currentDrawId,
       customerName,
       useSamplePhoto: true,
+      submittedAt,
       text: 'ส่งรูปโพยกระดาษ 16/11 (120 รายการ)'
     })
   });
 
   await fetchAppState();
-  showToast(`✅ LINE Bot อ่านรูปโพยของ "${customerName}" และรวมยอดเข้าตารางเรียบร้อย!`);
+  showToast(`✅ อ่านรูปโพยของ "${customerName}" และรวมยอดเข้าตารางเรียบร้อย!`);
 }
 
 async function sendLineCustomPhoto(inputEl) {
   const file = inputEl.files?.[0];
   if (!file) return;
   const customerName = getSimCustomerName();
+  const submittedAt = getSimSubmittedAt('simTimingSelect');
   const base64Image = await fileToBase64(file);
 
-  showToast(`📸 กำลังอ่านรูปโพยจาก LINE ของ "${customerName}" ด้วย ${appState.settings.geminiModel}...`);
+  showToast(`📸 กำลังอ่านรูปโพยจาก LINE ของ "${customerName}"...`);
   await fetch('/api/line/simulate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      drawId: appState.currentDrawId,
       customerName,
       base64Image,
+      submittedAt,
       text: `ส่งรูปโพย (${file.name})`
     })
   });
@@ -790,16 +1102,11 @@ function fileToBase64(file) {
   });
 }
 
-/**
- * Slices a 4-column lottery slip image into 4 vertical column strips using HTML5 Canvas
- * so Gemini 2.5 Pro reads 30 rows per strip without jumping across columns.
- */
 async function sliceImageInto4Columns(dataUrl) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
       const slices = [];
-      // Approximate table area: top 12% to 96%, left 6% to 97% divided into 4 columns
       const tableLeft = img.width * 0.05;
       const tableWidth = img.width * 0.92;
       const colWidth = tableWidth / 4;
@@ -851,24 +1158,27 @@ async function previewUploadImage(inputEl) {
       )
       .join('');
   }
-  showToast('✂️ ตัดแบ่งภาพเป็น 4 คอลัมน์อัตโนมัติพร้อมส่งให้ Gemini 2.5 Pro แล้ว');
+  showToast('✂️ ตัดแบ่งภาพเป็น 4 คอลัมน์อัตโนมัติพร้อมส่งให้ AI แล้ว');
 }
 
 async function runDirectOcrUpload() {
   const btn = document.getElementById('btnRunOcr');
   const customerName = document.getElementById('uploadCustomerName').value.trim() || 'ลูกค้าทั่วไป';
   const title = document.getElementById('uploadSlipTitle').value.trim() || `โพยกระดาษ - ${customerName}`;
+  const submittedAt = getSimSubmittedAt('uploadTimingSelect');
 
   btn.disabled = true;
-  btn.textContent = '⏳ กำลังอ่านลายมือด้วย Gemini 2.5 Pro + ตรวจสอบกฎคณิตศาสตร์ 4 ชั้น...';
+  btn.textContent = '⏳ กำลังอ่านลายมือด้วย AI + ตรวจสอบกฎคณิตศาสตร์ 4 ชั้น...';
 
   try {
     const res = await fetch('/api/slips/ocr', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        drawId: appState.currentDrawId,
         customerName,
         title,
+        submittedAt,
         base64Image: uploadedBase64Image,
         columnSlices: uploadedColumnSlices
       })
@@ -886,85 +1196,12 @@ async function runDirectOcrUpload() {
     showToast(`❌ เกิดข้อผิดพลาด: ${err.message}`);
   } finally {
     btn.disabled = false;
-    btn.textContent = '🚀 เริ่มอ่านลายมือด้วย AI (Gemini 2.5 Pro + เช็คกฎคณิตศาสตร์ 4 ชั้น)';
+    btn.textContent = '🚀 เริ่มอ่านลายมือในโพยด้วย AI (Gemini 2.5 Pro)';
   }
 }
 
 // ============================================================================
-// TAB 4: CUSTOMER BILLS & DEALER LAYOFF HISTORY
-// ============================================================================
-function renderCustomerBillsAndLayoffs() {
-  const listEl = document.getElementById('customerSlipsList');
-  const slips = appState.slips || [];
-
-  listEl.innerHTML = slips
-    .map(
-      s => `
-      <div class="contributor-item">
-        <div>
-          <div style="font-weight:700;font-size:15px;color:#93c5fd;">
-            📄 ${s.title}
-          </div>
-          <div class="text-muted">
-            👤 ผู้ส่ง: <strong>${s.customerName}</strong> • ช่องทาง: ${s.source} • โมเดล: ${s.modelUsed}
-          </div>
-          <div style="font-size:12px;margin-top:4px;">
-            จำนวน: <strong>${s.totalItems} รายการ</strong> • สถานะ: ${
-        s.reviewCount > 0
-          ? `<span style="color:var(--gold);">⚠️ รอตรวจทาน ${s.reviewCount} จุด</span>`
-          : `<span style="color:var(--success);">✅ ยืนยันแล้ว</span>`
-      }
-          </div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--gold);">
-            ${s.totalMoney.toLocaleString()} ฿
-          </div>
-          <div style="display:flex;gap:6px;margin-top:6px;">
-            <button class="btn btn-outline btn-sm" onclick="jumpToSlipInspector('${s.id}', 1, 1)">
-              🔍 เปิดดู/แก้ไข
-            </button>
-            <button class="btn btn-ghost btn-sm" onclick="deleteSlip('${s.id}')">
-              🗑️ ลบ
-            </button>
-          </div>
-        </div>
-      </div>
-    `
-    )
-    .join('');
-
-  const layoffEl = document.getElementById('layoffHistoryList');
-  const layoffs = appState.layoffs || [];
-  if (layoffs.length === 0) {
-    layoffEl.innerHTML = `<div class="text-muted" style="padding:18px;text-align:center;">ยังไม่มีประวัติการตัดยอดส่งเจ้ามือ</div>`;
-  } else {
-    layoffEl.innerHTML = layoffs
-      .map(
-        l => `
-        <div class="contributor-item" style="flex-direction:column;align-items:stretch;gap:8px;">
-          <div style="display:flex;justify-content:space-between;">
-            <strong>📤 ${l.dealerName} (${l.itemCount} เลข)</strong>
-            <strong style="color:var(--gold);font-family:var(--font-mono);">${l.totalLayoffMoney.toLocaleString()} ฿</strong>
-          </div>
-          <pre style="background:var(--bg-input);padding:8px;border-radius:6px;font-family:var(--font-mono);font-size:11px;overflow-x:auto;">${escapeHtml(
-            l.formattedText
-          )}</pre>
-        </div>
-      `
-      )
-      .join('');
-  }
-}
-
-async function deleteSlip(slipId) {
-  await fetch(`/api/slips/${encodeURIComponent(slipId)}`, { method: 'DELETE' });
-  await fetchAppState();
-  showToast('🗑️ ลบบิลเรียบร้อยแล้ว');
-}
-
-// ============================================================================
-// TAB 5: PRINTABLE STANDARD 4x30 PAPER SLIP TEMPLATE
+// แท็บที่ 6: พิมพ์กระดาษโพย 4×30 & ตั้งค่า
 // ============================================================================
 function buildPrintable4x30Template() {
   const table = document.getElementById('printTable4x30');
@@ -1013,9 +1250,6 @@ function buildPrintable4x30Template() {
   table.innerHTML = html;
 }
 
-// ============================================================================
-// TAB 6: SETTINGS
-// ============================================================================
 function populateSettingsForm() {
   const s = appState.settings || {};
   document.getElementById('settingGeminiModel').value = s.geminiModel || 'gemini-2.5-pro';
@@ -1063,6 +1297,7 @@ async function resetDemoDatabase() {
   await fetch('/api/reset', { method: 'POST' });
   selectedLayoffKeys.clear();
   customLayoffAmounts = {};
+  selectedCustomerFilter = null;
   await fetchAppState();
   showToast('🔄 รีเซ็ตข้อมูลตัวอย่างเริ่มต้นเรียบร้อยแล้ว');
 }

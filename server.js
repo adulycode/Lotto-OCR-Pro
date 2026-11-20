@@ -4,12 +4,12 @@ dns.setDefaultResultOrder('ipv4first');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 
 const { RAW_COLUMNS_16_11 } = require('./seedData');
 const {
   parseAndValidateRow,
   parseFreeTextMessage,
+  evaluateNumberRestriction,
   aggregateSlips
 } = require('./lotteryEngine');
 const { analyzeSlipImage } = require('./geminiOcr');
@@ -27,21 +27,54 @@ function buildInitialDb() {
   const defaultSettings = {
     geminiModel: 'gemini-2.5-pro',
     geminiApiKey: '',
-    permutationMode: 'expand', // 'expand' = แยกเลข/กระจายประตูอัตโนมัติ (×6, ×3), 'keep_raw' = คงตามหน้าโพย
-    useColumnSlicing: true,    // ตัดแบ่ง 4 คอลัมน์อัตโนมัติเพื่อความแม่นยำสูงสุด
-    checkMultiplesOf11: true,  // ตรวจสอบกฎพหูคูณ 11 / 10 / 5
+    permutationMode: 'expand', // 'expand' = แยกเลขทุกประตู, 'keep_raw' = คงตามหน้าโพย
+    useColumnSlicing: true,
+    checkMultiplesOf11: true,
     riskLimits: {
-      threeStraight: 100, // เพดานรับเอง 3 ตัวบน (บาท/ตัว)
-      threeToad: 100,     // เพดานรับเอง 3 ตัวโต๊ด (บาท/ตัว)
-      threePerm: 132,     // เพดานรับเอง ชุดกลับ (บาท/ตัว)
-      twoTop: 30,         // เพดานรับเอง 2 ตัวบน (ตั้งไว้ 30 เพื่อให้เห็นตัวอย่างเลข 21 = 42 บาท เกินเพดาน 12 บาท)
-      twoBottom: 100      // เพดานรับเอง 2 ตัวล่าง
+      threeStraight: 100,
+      threeToad: 100,
+      threePerm: 132,
+      twoTop: 30,
+      twoBottom: 100
     },
     lineChannelAccessToken: '',
     lineChannelSecret: ''
   };
 
-  // Build Slip 1 from the user's real uploaded photo (16/11 แผ่นที่ 1 - 120 rows)
+  // Timestamps to clearly demonstrate the Before-Cutoff (100%) vs After-Cutoff (50%) rule:
+  // 1) เจ๊หมวย & เฮียพงษ์ sent on 14 พ.ย. (2 days before draw -> BEFORE dealer announced 50% cutoff) => Gets 100%!
+  // 2) Dealer announced 5 restricted numbers (21, 583, 154, 072, 860) on 15 พ.ย. 14:00 น. (1 day before draw) => After this time gets 50%!
+  // 3) ป้านิด sent on 15 พ.ย. 16:30 น. (AFTER dealer announcement) => Numbers 21 and 860 in her bill get 50%!
+  const timeBeforeCutoff1 = '2026-11-14T10:15:00.000Z';
+  const timeBeforeCutoff2 = '2026-11-14T15:30:00.000Z';
+  const timeDealerCutoffAnnouncement = '2026-11-15T07:00:00.000Z'; // 14:00 น. เวลาไทย (ก่อนหวยออก 1 วัน)
+  const timeAfterCutoff3 = '2026-11-15T09:45:00.000Z';             // 16:45 น. เวลาไทย (ส่งหลังประกาศอั้น -> ได้ 50%)
+
+  const draws = [
+    {
+      id: 'DRAW-2026-11-16',
+      title: 'งวดวันที่ 16 พ.ย. 2569',
+      drawDate: '2026-11-16',
+      status: 'open', // 'open' = เปิดรับแทง, 'closed' = ปิดงวดแล้ว
+      // เลขอั้น 5 ชุดที่เจ้ามือแจ้งก่อนวันหวยออก 1 วัน (แทงก่อนเวลาประกาศได้ 100% / แทงหลังเวลาประกาศได้ 50%)
+      restrictedNumbers: [
+        { number: '21', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
+        { number: '583', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
+        { number: '154', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
+        { number: '072', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
+        { number: '860', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' }
+      ]
+    },
+    {
+      id: 'DRAW-2026-12-01',
+      title: 'งวดวันที่ 1 ธ.ค. 2569 (งวดหน้า)',
+      drawDate: '2026-12-01',
+      status: 'open',
+      restrictedNumbers: []
+    }
+  ];
+
+  // Slip 1: โพยกระดาษ 16/11 แผ่นที่ 1 (120 รายการ) - ส่งเมื่อ 14 พ.ย. (ก่อนอั้น -> ได้ 100% ทั้งใบ)
   const slip1Items = [];
   for (const colNum of [1, 2, 3, 4]) {
     for (const r of RAW_COLUMNS_16_11[colNum]) {
@@ -61,11 +94,9 @@ function buildInitialDb() {
       );
     }
   }
-
   const slip1Total = slip1Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
 
-  // Build Slip 2 & Slip 3 to demonstrate the user's exact prompt scenario:
-  // "เช่น เลข 21 มีคนกรอก 22 บาท แล้วมีคนส่งเลข 21 = 22 บาท, 21 = 20 บาท ก็ให้แสดงเป็น 21 จำนวน 42 บาท"
+  // Slip 2: เฮียพงษ์ ส่งเมื่อ 14 พ.ย. (ก่อนเวลาเจ้ามือประกาศอั้น -> เลข 21 = 22 บาท และ 583 ได้เต็ม 100%!)
   const slip2Items = [
     parseAndValidateRow({ col: 1, row: 1, numText: '21', amtText: '22', confidence: 0.99 }, defaultSettings),
     parseAndValidateRow({ col: 1, row: 2, numText: '583', amtText: '55×55', confidence: 0.99 }, defaultSettings),
@@ -74,6 +105,7 @@ function buildInitialDb() {
   ];
   const slip2Total = slip2Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
 
+  // Slip 3: ป้านิด ส่งเมื่อ 15 พ.ย. 16:45 น. (หลังเวลาเจ้ามือประกาศอั้น -> เลข 21 = 20 บาท และ 860 ได้จ่ายครึ่ง 50%!)
   const slip3Items = [
     parseAndValidateRow({ col: 1, row: 1, numText: '21', amtText: '20', confidence: 0.99 }, defaultSettings),
     parseAndValidateRow({ col: 1, row: 2, numText: '860', amtText: '22×22', confidence: 0.99 }, defaultSettings),
@@ -81,14 +113,15 @@ function buildInitialDb() {
   ];
   const slip3Total = slip3Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
 
-  const now = new Date().toISOString();
-
   return {
+    currentDrawId: 'DRAW-2026-11-16',
+    draws,
     settings: defaultSettings,
     slips: [
       {
         id: 'SLIP-1611-001',
-        title: 'โพยกระดาษ 16/11 แผ่นที่ 1 (4 คอลัมน์ × 30 แถว)',
+        drawId: 'DRAW-2026-11-16',
+        title: 'โพยกระดาษ แผ่นที่ 1 (120 แถว)',
         sheetDate: '16/11',
         sheetPage: '1',
         customerName: 'เจ๊หมวย (สาย A)',
@@ -96,22 +129,23 @@ function buildInitialDb() {
         source: 'LINE รูปโพยกระดาษ',
         imageUrl: '/uploads/slip-16-11-page1.jpg',
         isGrid4x30: true,
-        status: 'needs_review', // Has 1 row (Col 2 Row 8: 103 = 22x22) flagged for scratch-out confirmation
+        status: 'needs_review',
         modelUsed: 'gemini-2.5-pro',
         totalItems: slip1Items.filter(i => !i.isEmpty).length,
         totalMoney: slip1Total,
         reviewCount: slip1Items.filter(i => i.needsReview).length,
-        createdAt: now,
+        createdAt: timeBeforeCutoff1,
         items: slip1Items
       },
       {
         id: 'SLIP-1611-002',
-        title: 'บิล LINE #2 (เฮียพงษ์ ส่งเลข 21 = 22 บ. + 3 ตัว)',
+        drawId: 'DRAW-2026-11-16',
+        title: 'บิล LINE #2 (ส่งก่อนอั้น — จ่าย 100%)',
         sheetDate: '16/11',
         sheetPage: '-',
         customerName: 'เฮียพงษ์ (ลูกค้า LINE)',
         customerLineId: 'U_pong_line_02',
-        source: 'LINE Messaging',
+        source: 'LINE ข้อความ',
         imageUrl: '',
         isGrid4x30: false,
         status: 'verified',
@@ -119,17 +153,18 @@ function buildInitialDb() {
         totalItems: slip2Items.length,
         totalMoney: slip2Total,
         reviewCount: 0,
-        createdAt: now,
+        createdAt: timeBeforeCutoff2,
         items: slip2Items
       },
       {
         id: 'SLIP-1611-003',
-        title: 'บิล LINE #3 (ป้านิด ส่งเลข 21 = 20 บ. + 3 ตัว)',
+        drawId: 'DRAW-2026-11-16',
+        title: 'บิล LINE #3 (ส่งหลังประกาศอั้น — เลขอั้นจ่าย 50%)',
         sheetDate: '16/11',
         sheetPage: '-',
         customerName: 'ป้านิด (ลูกค้า LINE)',
         customerLineId: 'U_nid_line_03',
-        source: 'LINE Messaging',
+        source: 'LINE ข้อความ',
         imageUrl: '',
         isGrid4x30: false,
         status: 'verified',
@@ -137,7 +172,7 @@ function buildInitialDb() {
         totalItems: slip3Items.length,
         totalMoney: slip3Total,
         reviewCount: 0,
-        createdAt: now,
+        createdAt: timeAfterCutoff3,
         items: slip3Items
       }
     ],
@@ -145,52 +180,58 @@ function buildInitialDb() {
     lineChats: [
       {
         id: 'MSG-1',
+        drawId: 'DRAW-2026-11-16',
         customerName: 'เจ๊หมวย (สาย A)',
         sender: 'customer',
         type: 'image',
         imageUrl: '/uploads/slip-16-11-page1.jpg',
-        text: 'ส่งโพยกระดาษงวด 16/11 แผ่นที่ 1 ค่ะ (120 แถว)',
-        timestamp: now
+        text: 'ส่งโพยกระดาษงวด 16/11 แผ่นที่ 1 ค่ะ (ส่งวันที่ 14 พ.ย. ก่อนเลขอั้น)',
+        timestamp: timeBeforeCutoff1
       },
       {
         id: 'MSG-2',
+        drawId: 'DRAW-2026-11-16',
         customerName: 'เจ๊หมวย (สาย A)',
         sender: 'bot',
         type: 'text',
-        text: `✅ รับโพย #SLIP-1611-001 เรียบร้อยค่ะ\n👤 ผู้ส่ง: เจ๊หมวย (สาย A)\n🤖 อ่านด้วย: gemini-2.5-pro\n📋 จำนวน: 120 รายการ (4 คอลัมน์)\n💰 ยอดรวมทั้งใบ: ${slip1Total.toLocaleString()} บาท\n⚠️ จุดรอแอดมินตรวจซ้ำ: 1 จุด (คอลัมน์ 2 แถว 8 เลข 103 = 22×22 มีรอยขีดทับ)`,
-        timestamp: now
+        text: `✅ รับโพย #SLIP-1611-001 (งวดวันที่ 16 พ.ย. 2569)\n👤 ผู้ส่ง: เจ๊หมวย (สาย A)\n🟢 สถานะเรทจ่าย: จ่ายเต็ม 100% ทุกเลข (ส่งก่อนเวลาประกาศเลขอั้น)\n📋 จำนวน: 120 รายการ | ยอดรวม: ${slip1Total.toLocaleString()} บาท`,
+        timestamp: timeBeforeCutoff1
       },
       {
         id: 'MSG-3',
+        drawId: 'DRAW-2026-11-16',
         customerName: 'เฮียพงษ์ (ลูกค้า LINE)',
         sender: 'customer',
         type: 'text',
         text: '21 = 22 บาท\n583 = 55x55\n154 = 22x22\n072 = 33',
-        timestamp: now
+        timestamp: timeBeforeCutoff2
       },
       {
         id: 'MSG-4',
+        drawId: 'DRAW-2026-11-16',
         customerName: 'เฮียพงษ์ (ลูกค้า LINE)',
         sender: 'bot',
         type: 'text',
-        text: `✅ บันทึกบิล #SLIP-1611-002 สำเร็จ!\n👤 ผู้ส่ง: เฮียพงษ์ (ลูกค้า LINE)\n• 21 (2 ตัวบน) = 22 บาท\n• 583 (ตรง×โต๊ด) = 55×55 (110 บาท)\n• 154 (ตรง×โต๊ด) = 22×22 (44 บาท)\n• 072 (3 ตัวบน) = 33 บาท\n💰 รวมยอดบิลนี้: ${slip2Total.toLocaleString()} บาท`,
-        timestamp: now
+        text: `✅ บันทึกบิล #SLIP-1611-002 (งวดวันที่ 16 พ.ย. 2569)\n👤 ผู้ส่ง: เฮียพงษ์ (ลูกค้า LINE)\n🟢 ส่งก่อนเวลาประกาศอั้น: ได้เรทจ่ายเต็ม 100% ทุกเลข!\n• 21 = 22 บาท (จ่ายเต็ม 100%)\n• 583 = 55×55 (จ่ายเต็ม 100%)\n• 154 = 22×22 (จ่ายเต็ม 100%)\n• 072 = 33 บาท (จ่ายเต็ม 100%)\n💰 รวมยอดบิลนี้: ${slip2Total.toLocaleString()} บาท`,
+        timestamp: timeBeforeCutoff2
       },
       {
         id: 'MSG-5',
+        drawId: 'DRAW-2026-11-16',
         customerName: 'ป้านิด (ลูกค้า LINE)',
         sender: 'customer',
         type: 'text',
         text: '21 = 20 บาท\n860 = 22x22\n289 = 22x11',
-        timestamp: now
+        timestamp: timeAfterCutoff3
       },
       {
         id: 'MSG-6',
+        drawId: 'DRAW-2026-11-16',
         customerName: 'ป้านิด (ลูกค้า LINE)',
         sender: 'bot',
         type: 'text',
-        text: `✅ บันทึกบิล #SLIP-1611-003 สำเร็จ!\n👤 ผู้ส่ง: ป้านิด (ลูกค้า LINE)\n• 21 (2 ตัวบน) = 20 บาท (รวมยอดเลข 21 ในระบบตอนนี้ = 42 บาท)\n• 860 (ตรง×โต๊ด) = 22×22 (44 บาท)\n• 289 (ตรง×โต๊ด) = 22×11 (33 บาท)\n💰 รวมยอดบิลนี้: ${slip3Total.toLocaleString()} บาท`,
-        timestamp: now
+        text: `✅ บันทึกบิล #SLIP-1611-003 (งวดวันที่ 16 พ.ย. 2569)\n👤 ผู้ส่ง: ป้านิด (ลูกค้า LINE)\n⚠️ หมายเหตุเลขอั้น (ส่งหลังเวลาประกาศอั้น 15 พ.ย. 14:00 น.):\n• 21 = 20 บาท 🔒 [เลขอั้น จ่าย 50%]\n• 860 = 22×22 🔒 [เลขอั้น จ่าย 50%]\n• 289 = 22×11 🟢 [เลขปกติ จ่ายเต็ม 100%]\n💰 รวมยอดบิลนี้: ${slip3Total.toLocaleString()} บาท`,
+        timestamp: timeAfterCutoff3
       }
     ]
   };
@@ -203,7 +244,14 @@ function loadDb() {
     return initial;
   }
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    // Auto-migrate if older schema without `draws`
+    if (!Array.isArray(db.draws) || db.draws.length === 0) {
+      const initial = buildInitialDb();
+      fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf8');
+      return initial;
+    }
+    return db;
   } catch (e) {
     const initial = buildInitialDb();
     fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf8');
@@ -238,7 +286,7 @@ function recalculateSlipItems(slip, settings) {
   return slip;
 }
 
-const MAX_BODY_BYTES = 25 * 1024 * 1024; // 25MB limit for base64 photos
+const MAX_BODY_BYTES = 25 * 1024 * 1024;
 
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -292,7 +340,6 @@ const server = http.createServer(async (req, res) => {
     const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
 
-    // Security hardening: silence missing favicon & block dotfiles / scanner extensions
     if (pathname === '/favicon.ico') {
       res.writeHead(204);
       return res.end();
@@ -302,7 +349,6 @@ const server = http.createServer(async (req, res) => {
       return res.end('Not Found');
     }
 
-    // API: Health Check (for Docker healthcheck & EFL-OpsCenter)
     if (req.method === 'GET' && pathname === '/api/health') {
       return sendJson(res, 200, {
         status: 'ok',
@@ -311,38 +357,176 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // API: Get Complete Application State
+    // API: Get State for the selected Draw Period (งวดหวย)
     if (req.method === 'GET' && pathname === '/api/state') {
       const db = loadDb();
-      const aggregated = aggregateSlips(db.slips, db.settings);
-      const totalGrandMoney = db.slips
-        .filter(s => s.status !== 'cancelled')
-        .reduce((sum, s) => sum + (s.totalMoney || 0), 0);
+      const requestedDrawId = parsedUrl.searchParams.get('drawId') || db.currentDrawId || db.draws[0].id;
+      const currentDraw = db.draws.find(d => d.id === requestedDrawId) || db.draws[0];
+      db.currentDrawId = currentDraw.id;
+
+      const drawSlips = db.slips
+        .filter(s => (s.drawId || 'DRAW-2026-11-16') === currentDraw.id)
+        .map(s => {
+          // Annotate each slip with how many items fall into 100% vs 50% payout
+          let full100Money = 0;
+          let half50Money = 0;
+          const restrictedHits = [];
+
+          for (const it of s.items || []) {
+            if (it.isEmpty || !it.baseNumber) continue;
+            const ev = evaluateNumberRestriction(it.baseNumber, s.createdAt, currentDraw.restrictedNumbers);
+            if (ev.payoutPercentForThisSlip === 100) {
+              full100Money += it.rowTotalMoney || 0;
+            } else {
+              half50Money += it.rowTotalMoney || 0;
+              restrictedHits.push(it.baseNumber);
+            }
+          }
+
+          return {
+            ...s,
+            full100Money,
+            half50Money,
+            restrictedHits: Array.from(new Set(restrictedHits))
+          };
+        });
+
+      const aggregated = aggregateSlips(drawSlips, db.settings, currentDraw.restrictedNumbers);
+      const totalGrandMoney = drawSlips.reduce((sum, s) => sum + (s.totalMoney || 0), 0);
+      const totalFull100Money = aggregated.reduce((sum, a) => sum + (a.fullPayout100Amt || 0), 0);
+      const totalHalf50Money = aggregated.reduce((sum, a) => sum + (a.halfPayout50Amt || 0), 0);
+
+      // Group customer summary for "งวดนี้ใครส่งอะไรมาบ้าง"
+      const customerMap = new Map();
+      for (const s of drawSlips) {
+        if (!customerMap.has(s.customerName)) {
+          customerMap.set(s.customerName, {
+            customerName: s.customerName,
+            slipCount: 0,
+            totalItems: 0,
+            totalMoney: 0,
+            full100Money: 0,
+            half50Money: 0,
+            slips: []
+          });
+        }
+        const c = customerMap.get(s.customerName);
+        c.slipCount += 1;
+        c.totalItems += s.totalItems || 0;
+        c.totalMoney += s.totalMoney || 0;
+        c.full100Money += s.full100Money || 0;
+        c.half50Money += s.half50Money || 0;
+        c.slips.push({
+          id: s.id,
+          title: s.title,
+          createdAt: s.createdAt,
+          totalItems: s.totalItems,
+          totalMoney: s.totalMoney,
+          full100Money: s.full100Money,
+          half50Money: s.half50Money,
+          restrictedHits: s.restrictedHits,
+          reviewCount: s.reviewCount,
+          source: s.source
+        });
+      }
 
       return sendJson(res, 200, {
+        currentDrawId: currentDraw.id,
+        currentDraw,
+        draws: db.draws,
         settings: db.settings,
-        slips: db.slips,
+        slips: drawSlips,
+        customersInDraw: Array.from(customerMap.values()),
         aggregated,
-        layoffs: db.layoffs || [],
-        lineChats: db.lineChats || [],
+        layoffs: (db.layoffs || []).filter(l => (l.drawId || currentDraw.id) === currentDraw.id),
+        lineChats: (db.lineChats || []).filter(m => (m.drawId || currentDraw.id) === currentDraw.id),
         summary: {
-          totalSlips: db.slips.length,
+          totalSlips: drawSlips.length,
+          totalCustomers: customerMap.size,
           totalGrandMoney,
+          totalFull100Money,
+          totalHalf50Money,
           totalUniqueNumbers: aggregated.length,
+          restrictedCount: (currentDraw.restrictedNumbers || []).length,
           overLimitCount: aggregated.filter(a => a.isOverLimit).length,
-          pendingReviewSlips: db.slips.filter(s => s.reviewCount > 0 && s.status !== 'verified').length
+          pendingReviewSlips: drawSlips.filter(s => s.reviewCount > 0 && s.status !== 'verified').length
         }
       });
     }
 
-    // API: Reset Demo Database back to clean initial state
+    // API: Create or Switch Draw Period (สร้างงวดใหม่ / สลับงวด)
+    if (req.method === 'POST' && pathname === '/api/draws') {
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+
+      if (body.action === 'switch' && body.drawId) {
+        db.currentDrawId = body.drawId;
+        saveDb(db);
+        return sendJson(res, 200, { ok: true, currentDrawId: db.currentDrawId });
+      }
+
+      const title = (body.title || 'งวดใหม่').trim();
+      const drawDate = body.drawDate || new Date().toISOString().slice(0, 10);
+      const newDraw = {
+        id: `DRAW-${Date.now()}`,
+        title,
+        drawDate,
+        status: 'open',
+        restrictedNumbers: []
+      };
+      db.draws.unshift(newDraw);
+      db.currentDrawId = newDraw.id;
+      saveDb(db);
+      return sendJson(res, 200, { ok: true, draw: newDraw });
+    }
+
+    // API: Manage Restricted Numbers (เลขอั้น 50% ประจำงวด พร้อมเวลาประกาศ)
+    if (req.method === 'POST' && pathname === '/api/draws/restrictions') {
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      const draw = db.draws.find(d => d.id === (body.drawId || db.currentDrawId)) || db.draws[0];
+
+      if (body.action === 'add_batch') {
+        // Accepts comma/space/newline separated numbers e.g. "21, 583, 154, 072, 860"
+        const rawNums = String(body.numbersText || '')
+          .split(/[\s,،\r\n]+/)
+          .map(s => s.replace(/[^\d]/g, '').trim())
+          .filter(s => s.length === 2 || s.length === 3);
+
+        const announcedAt = body.announcedAt
+          ? new Date(body.announcedAt).toISOString()
+          : new Date().toISOString();
+        const payoutPercent = Number(body.payoutPercent) || 50;
+        const note = (body.note || `เจ้ามือแจ้งอั้นจ่าย ${payoutPercent}%`).trim();
+
+        draw.restrictedNumbers = draw.restrictedNumbers || [];
+        for (const num of rawNums) {
+          const existingIdx = draw.restrictedNumbers.findIndex(r => r.number === num);
+          const entry = { number: num, payoutPercent, announcedAt, note };
+          if (existingIdx >= 0) {
+            draw.restrictedNumbers[existingIdx] = entry;
+          } else {
+            draw.restrictedNumbers.push(entry);
+          }
+        }
+      } else if (body.action === 'remove' && body.number) {
+        draw.restrictedNumbers = (draw.restrictedNumbers || []).filter(r => r.number !== body.number);
+      } else if (body.action === 'clear_all') {
+        draw.restrictedNumbers = [];
+      }
+
+      saveDb(db);
+      return sendJson(res, 200, { ok: true, draw });
+    }
+
+    // API: Reset Demo Database
     if (req.method === 'POST' && pathname === '/api/reset') {
       const initial = buildInitialDb();
       saveDb(initial);
       return sendJson(res, 200, { ok: true, message: 'รีเซ็ตข้อมูลตัวอย่างเริ่มต้นเรียบร้อยแล้ว' });
     }
 
-    // API: Update Settings (Model, Permutation Mode, Risk Limits, API Keys)
+    // API: Update Settings
     if (req.method === 'POST' && pathname === '/api/settings') {
       const body = await parseJsonBody(req);
       const db = loadDb();
@@ -354,7 +538,6 @@ const server = http.createServer(async (req, res) => {
           ...(body.riskLimits || {})
         }
       };
-      // Re-validate slips with updated settings
       db.slips.forEach(s => recalculateSlipItems(s, db.settings));
       saveDb(db);
       return sendJson(res, 200, { ok: true, settings: db.settings });
@@ -364,11 +547,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/slips/ocr') {
       const body = await parseJsonBody(req);
       const db = loadDb();
+      const drawId = body.drawId || db.currentDrawId || db.draws[0].id;
+      const currentDraw = db.draws.find(d => d.id === drawId) || db.draws[0];
 
       const customerName = (body.customerName || 'ลูกค้าทั่วไป (LINE)').trim();
       const title = (body.title || `โพยกระดาษ - ${customerName}`).trim();
       const base64Image = body.base64Image || '';
       const columnSlices = body.columnSlices || null;
+      const submittedAt = body.submittedAt ? new Date(body.submittedAt).toISOString() : new Date().toISOString();
 
       let savedImageUrl = '/uploads/slip-16-11-page1.jpg';
       if (base64Image && base64Image.startsWith('data:image/')) {
@@ -394,6 +580,7 @@ const server = http.createServer(async (req, res) => {
 
       const newSlip = {
         id: `SLIP-${Date.now().toString().slice(-6)}`,
+        drawId: currentDraw.id,
         title,
         sheetDate: ocrResult.sheetDate || '16/11',
         sheetPage: ocrResult.sheetPage || '1',
@@ -409,7 +596,7 @@ const server = http.createServer(async (req, res) => {
         totalItems: items.filter(i => !i.isEmpty).length,
         totalMoney,
         reviewCount,
-        createdAt: new Date().toISOString(),
+        createdAt: submittedAt,
         items
       };
 
@@ -423,7 +610,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // API: Update / Verify a Slip (from the Side-by-Side 4x30 Inspector)
+    // API: Update / Verify a Slip
     if (req.method === 'PUT' && pathname.startsWith('/api/slips/')) {
       const slipId = decodeURIComponent(pathname.replace('/api/slips/', ''));
       const body = await parseJsonBody(req);
@@ -434,6 +621,8 @@ const server = http.createServer(async (req, res) => {
 
       if (body.customerName !== undefined) slip.customerName = body.customerName;
       if (body.title !== undefined) slip.title = body.title;
+      if (body.createdAt !== undefined) slip.createdAt = new Date(body.createdAt).toISOString();
+
       if (Array.isArray(body.items)) {
         slip.items = body.items.map(it =>
           parseAndValidateRow(
@@ -442,7 +631,7 @@ const server = http.createServer(async (req, res) => {
               row: it.row || 1,
               numText: it.numText || '',
               amtText: it.amtText || '',
-              note: it. clearedNote ? '' : (it.note || ''),
+              note: it.clearedNote ? '' : (it.note || ''),
               needsReview: false,
               confidence: 1.0
             },
@@ -456,7 +645,6 @@ const server = http.createServer(async (req, res) => {
       slip.reviewCount = slip.items.filter(i => i.needsReview).length;
 
       if (body.markVerified) {
-        // Admin explicitly verified all rows against the photo
         slip.items.forEach(i => {
           i.needsReview = false;
         });
@@ -479,18 +667,18 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
-    // API: LINE Simulator (Send Text or Photo as any Customer)
+    // API: LINE Simulator (Supports testing sending BEFORE vs AFTER dealer 50% restriction cutoff!)
     if (req.method === 'POST' && pathname === '/api/line/simulate') {
       const body = await parseJsonBody(req);
       const db = loadDb();
+      const currentDraw = db.draws.find(d => d.id === (body.drawId || db.currentDrawId)) || db.draws[0];
       const customerName = (body.customerName || 'ลูกค้า LINE').trim();
       const text = (body.text || '').trim();
       const useSamplePhoto = Boolean(body.useSamplePhoto);
       const base64Image = body.base64Image || '';
-      const now = new Date().toISOString();
+      const submittedAt = body.submittedAt ? new Date(body.submittedAt).toISOString() : new Date().toISOString();
 
       if (useSamplePhoto || base64Image) {
-        // Customer sent a photo slip in LINE
         let savedImageUrl = '/uploads/slip-16-11-page1.jpg';
         if (base64Image && base64Image.startsWith('data:image/')) {
           const matches = base64Image.match(/^data:(image\/(\w+));base64,(.+)$/);
@@ -504,12 +692,13 @@ const server = http.createServer(async (req, res) => {
 
         db.lineChats.push({
           id: `MSG-${Date.now()}-1`,
+          drawId: currentDraw.id,
           customerName,
           sender: 'customer',
           type: 'image',
           imageUrl: savedImageUrl,
           text: text || 'ส่งรูปโพยหวยผ่าน LINE',
-          timestamp: now
+          timestamp: submittedAt
         });
 
         const ocrResult = await analyzeSlipImage({
@@ -523,6 +712,7 @@ const server = http.createServer(async (req, res) => {
 
         const newSlip = {
           id: `SLIP-${Date.now().toString().slice(-6)}`,
+          drawId: currentDraw.id,
           title: `โพยรูป LINE - ${customerName}`,
           sheetDate: ocrResult.sheetDate || '16/11',
           sheetPage: ocrResult.sheetPage || '1',
@@ -536,24 +726,36 @@ const server = http.createServer(async (req, res) => {
           totalItems: items.filter(i => !i.isEmpty).length,
           totalMoney,
           reviewCount,
-          createdAt: now,
+          createdAt: submittedAt,
           items
         };
 
         db.slips.unshift(newSlip);
 
+        // Check how many items hit 50% restriction
+        const restrictedHits = [];
+        for (const it of items) {
+          const ev = evaluateNumberRestriction(it.baseNumber, submittedAt, currentDraw.restrictedNumbers);
+          if (ev.isRestrictedNumber && !ev.isBeforeCutoff) {
+            restrictedHits.push(`${it.baseNumber} (จ่าย ${ev.payoutPercentForThisSlip}%)`);
+          }
+        }
+        const uniqueHits = Array.from(new Set(restrictedHits));
+
         const botReply =
-          `✅ รับรูปโพย #${newSlip.id} เรียบร้อยครับ!\n` +
+          `✅ รับรูปโพย #${newSlip.id} (${currentDraw.title})\n` +
           `👤 ผู้ส่ง: ${customerName}\n` +
-          `🤖 โมเดล: ${db.settings.geminiModel}\n` +
-          `📋 อ่านได้ทั้งหมด: ${newSlip.totalItems} รายการ\n` +
-          `💰 ยอดเงินรวม: ${totalMoney.toLocaleString()} บาท\n` +
+          `📋 อ่านได้ทั้งหมด: ${newSlip.totalItems} รายการ | รวม ${totalMoney.toLocaleString()} บาท\n` +
+          (uniqueHits.length > 0
+            ? `🔒 มีเลขอั้นในโพยนี้ (ส่งหลังเวลาประกาศอั้น): ${uniqueHits.join(', ')}\n`
+            : `🟢 เรทจ่าย: จ่ายเต็ม 100% ทุกรายการ\n`) +
           (reviewCount > 0
-            ? `⚠️ มี ${reviewCount} รายการที่ระบบส่งให้แอดมินตรวจสอบความถูกต้องซ้ำ`
-            : `✨ ผ่านการตรวจสอบกฎคณิตศาสตร์ครบ 100%`);
+            ? `⚠️ มี ${reviewCount} จุดที่ส่งให้แอดมินตรวจทานซ้ำ`
+            : `✨ ตรวจสอบกฎคณิตศาสตร์ผ่าน 100%`);
 
         db.lineChats.push({
           id: `MSG-${Date.now()}-2`,
+          drawId: currentDraw.id,
           customerName,
           sender: 'bot',
           type: 'text',
@@ -564,21 +766,22 @@ const server = http.createServer(async (req, res) => {
         saveDb(db);
         return sendJson(res, 200, { ok: true, slip: newSlip, botReply });
       } else {
-        // Customer sent text numbers in LINE (e.g. "21 = 22\n583 = 110x110")
         db.lineChats.push({
           id: `MSG-${Date.now()}-1`,
+          drawId: currentDraw.id,
           customerName,
           sender: 'customer',
           type: 'text',
           text,
-          timestamp: now
+          timestamp: submittedAt
         });
 
         const items = parseFreeTextMessage(text, db.settings);
         if (items.length === 0) {
-          const errReply = `❌ ไม่พบรูปแบบตัวเลขในข้อความ กรุณาพิมพ์เช่น:\n21 = 22\n072x6 = 66\n583 = 55x55\nหรือส่งเป็นรูปถ่ายโพยกระดาษได้เลยครับ`;
+          const errReply = `❌ ไม่พบรูปแบบตัวเลขในข้อความ กรุณาพิมพ์เช่น:\n21 = 22\n072x6 = 66\n583 = 55x55`;
           db.lineChats.push({
             id: `MSG-${Date.now()}-2`,
+            drawId: currentDraw.id,
             customerName,
             sender: 'bot',
             type: 'text',
@@ -594,6 +797,7 @@ const server = http.createServer(async (req, res) => {
 
         const newSlip = {
           id: `SLIP-${Date.now().toString().slice(-6)}`,
+          drawId: currentDraw.id,
           title: `บิลข้อความ LINE - ${customerName}`,
           sheetDate: '16/11',
           sheetPage: '-',
@@ -603,32 +807,36 @@ const server = http.createServer(async (req, res) => {
           imageUrl: '',
           isGrid4x30: false,
           status: reviewCount > 0 ? 'needs_review' : 'verified',
-          modelUsed: 'Text Pattern Parser',
+          modelUsed: 'ระบบอ่านข้อความอัตโนมัติ',
           totalItems: items.length,
           totalMoney,
           reviewCount,
-          createdAt: now,
+          createdAt: submittedAt,
           items
         };
 
         db.slips.unshift(newSlip);
 
-        // Compute new aggregated total for each submitted number to show in LINE reply
-        const aggregated = aggregateSlips(db.slips, db.settings);
         const linesSummary = items.map(it => {
-          const agg = aggregated.find(a => a.number === it.baseNumber);
-          const cumulativeText = agg ? ` (ยอดรวมเลข ${it.baseNumber} ในระบบ = ${agg.totalAmt.toLocaleString()}฿)` : '';
-          return `• ${it.numText} (${it.patternLabel}) = ${it.rowTotalMoney.toLocaleString()} บาท${cumulativeText}`;
+          const ev = evaluateNumberRestriction(it.baseNumber, submittedAt, currentDraw.restrictedNumbers);
+          const rateTag =
+            ev.isRestrictedNumber && !ev.isBeforeCutoff
+              ? ` 🔒 [เลขอั้น จ่าย ${ev.payoutPercentForThisSlip}%]`
+              : ev.isRestrictedNumber && ev.isBeforeCutoff
+                ? ` 🟢 [ส่งก่อนอั้น ได้เต็ม 100%]`
+                : ` 🟢 [จ่ายเต็ม 100%]`;
+          return `• ${it.numText} (${it.patternLabel}) = ${it.rowTotalMoney.toLocaleString()} บาท${rateTag}`;
         });
 
         const botReply =
-          `✅ บันทึกบิล #${newSlip.id} สำเร็จ!\n` +
+          `✅ บันทึกบิล #${newSlip.id} (${currentDraw.title})\n` +
           `👤 ผู้ส่ง: ${customerName}\n` +
           linesSummary.join('\n') +
           `\n💰 รวมยอดบิลนี้: ${totalMoney.toLocaleString()} บาท`;
 
         db.lineChats.push({
           id: `MSG-${Date.now()}-2`,
+          drawId: currentDraw.id,
           customerName,
           sender: 'bot',
           type: 'text',
@@ -641,10 +849,11 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // API: Real LINE Messaging API Webhook (/api/line/webhook)
+    // API: Real LINE Messaging API Webhook
     if (req.method === 'POST' && pathname === '/api/line/webhook') {
       const body = await parseJsonBody(req);
       const db = loadDb();
+      const currentDraw = db.draws.find(d => d.id === db.currentDrawId) || db.draws[0];
       const events = body.events || [];
       const token = db.settings.lineChannelAccessToken || process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 
@@ -653,9 +862,9 @@ const server = http.createServer(async (req, res) => {
           const replyToken = ev.replyToken;
           const userId = ev.source?.userId || 'LINE_USER';
           let replyText = '';
+          const nowIso = new Date().toISOString();
 
           if (ev.message.type === 'image' && token) {
-            // Download image from LINE Content API
             const imgRes = await fetch(`https://api-data.line.me/v2/bot/message/${ev.message.id}/content`, {
               headers: { Authorization: `Bearer ${token}` }
             });
@@ -675,12 +884,13 @@ const server = http.createServer(async (req, res) => {
 
               const newSlip = {
                 id: `SLIP-${Date.now().toString().slice(-6)}`,
+                drawId: currentDraw.id,
                 title: `โพย LINE OA (${userId.slice(0, 6)})`,
                 sheetDate: ocrResult.sheetDate || '16/11',
                 sheetPage: ocrResult.sheetPage || '1',
                 customerName: `ลูกค้า LINE (${userId.slice(0, 6)})`,
                 customerLineId: userId,
-                source: 'LINE Webhook (รูปโพย)',
+                source: 'LINE รูปโพยกระดาษ',
                 imageUrl: `/uploads/${fileName}`,
                 isGrid4x30: items.length > 30,
                 status: reviewCount > 0 ? 'needs_review' : 'verified',
@@ -688,11 +898,11 @@ const server = http.createServer(async (req, res) => {
                 totalItems: items.filter(i => !i.isEmpty).length,
                 totalMoney,
                 reviewCount,
-                createdAt: new Date().toISOString(),
+                createdAt: nowIso,
                 items
               };
               db.slips.unshift(newSlip);
-              replyText = `✅ รับโพย #${newSlip.id} เรียบร้อย (${newSlip.totalItems} รายการ รวม ${totalMoney.toLocaleString()} บาท)`;
+              replyText = `✅ รับโพย #${newSlip.id} (${currentDraw.title}) จำนวน ${newSlip.totalItems} รายการ รวม ${totalMoney.toLocaleString()} บาท`;
             }
           } else if (ev.message.type === 'text') {
             const items = parseFreeTextMessage(ev.message.text, db.settings);
@@ -700,24 +910,31 @@ const server = http.createServer(async (req, res) => {
               const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
               const newSlip = {
                 id: `SLIP-${Date.now().toString().slice(-6)}`,
+                drawId: currentDraw.id,
                 title: `ข้อความ LINE OA (${userId.slice(0, 6)})`,
                 sheetDate: '16/11',
                 sheetPage: '-',
                 customerName: `ลูกค้า LINE (${userId.slice(0, 6)})`,
                 customerLineId: userId,
-                source: 'LINE Webhook (ข้อความ)',
+                source: 'LINE ข้อความ',
                 imageUrl: '',
                 isGrid4x30: false,
                 status: 'verified',
-                modelUsed: 'Text Parser',
+                modelUsed: 'ระบบอ่านข้อความ',
                 totalItems: items.length,
                 totalMoney,
                 reviewCount: 0,
-                createdAt: new Date().toISOString(),
+                createdAt: nowIso,
                 items
               };
               db.slips.unshift(newSlip);
-              replyText = `✅ บันทึกบิล #${newSlip.id} (${items.length} รายการ รวม ${totalMoney.toLocaleString()} บาท)`;
+
+              const linesSummary = items.map(it => {
+                const evRes = evaluateNumberRestriction(it.baseNumber, nowIso, currentDraw.restrictedNumbers);
+                const tag = evRes.isRestrictedNumber && !evRes.isBeforeCutoff ? ` 🔒(อั้นจ่าย ${evRes.payoutPercentForThisSlip}%)` : ` 🟢(จ่าย 100%)`;
+                return `• ${it.numText} = ${it.rowTotalMoney}฿${tag}`;
+              });
+              replyText = `✅ บันทึกบิล #${newSlip.id} (${currentDraw.title})\n${linesSummary.join('\n')}\n💰 รวม ${totalMoney.toLocaleString()} บาท`;
             }
           }
 
@@ -741,7 +958,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { status: 'ok' });
     }
 
-    // API: Save Dealer Layoff Bill (ใบตัดยอดส่งเจ้ามือใหญ่)
+    // API: Save Dealer Layoff Bill
     if (req.method === 'POST' && pathname === '/api/layoffs') {
       const body = await parseJsonBody(req);
       const db = loadDb();
@@ -751,6 +968,7 @@ const server = http.createServer(async (req, res) => {
 
       const newLayoff = {
         id: `LAYOFF-${Date.now().toString().slice(-6)}`,
+        drawId: body.drawId || db.currentDrawId,
         dealerName,
         itemCount: items.length,
         totalLayoffMoney,
@@ -765,9 +983,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, layoff: newLayoff });
     }
 
-    // Static File Serving
     let filePath = pathname === '/' ? path.join(PUBLIC_DIR, 'index.html') : path.join(PUBLIC_DIR, pathname);
-    // Prevent directory traversal
     if (!filePath.startsWith(PUBLIC_DIR)) {
       res.writeHead(403);
       return res.end('Forbidden');

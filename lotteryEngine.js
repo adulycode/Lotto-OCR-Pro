@@ -1,9 +1,8 @@
-// Core Lottery Parsing, 4-Layer Mathematical Validation, Permutation Expansion & Aggregation Engine
+// Core Lottery Parsing, 4-Layer Mathematical Validation, Time-Based Restricted Numbers (100% vs 50%) & Aggregation Engine
 
 function normalizeHandwritingAmount(raw) {
   if (!raw) return '';
   let s = String(raw).trim();
-  // Common handwriting OCR fix: "n" -> "11", "no" / "n0" -> "110"
   s = s.replace(/no|n0|ก0/gi, '110');
   s = s.replace(/n|ก/gi, '11');
   s = s.replace(/[xX\*]/g, '×');
@@ -46,10 +45,6 @@ function getUniquePermutations2(numStr) {
   return a === b ? [numStr] : [a + b, b + a];
 }
 
-/**
- * Parses a single row (numText, amtText, columnHeader) into structured bet components
- * and runs 4-Layer Mathematical Cross-Checks.
- */
 function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', categoryHint = '3_top', note = '', needsReview = false, confidence = 0.99 }, settings = {}) {
   const cleanNum = normalizeHandwritingNumber(numText);
   const cleanAmt = normalizeHandwritingAmount(amtText);
@@ -82,9 +77,8 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
   }
 
   let baseNumber = '';
-  let permMult = null; // 6, 3, 2, or null
+  let permMult = null;
 
-  // Match number e.g. "072×6", "979×3", "426", "21"
   const numMatch = cleanNum.match(/^(\d{2,3})(?:×(\d+))?$/);
   if (numMatch) {
     baseNumber = numMatch[1];
@@ -107,7 +101,6 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
   let patternLabel = '';
   let rowTotalMoney = 0;
 
-  // Parse amount: either "66", "132" or "22×22", "55×110", "22×11"
   const amtMatch = cleanAmt.match(/^(\d+)(?:×(\d+))?$/);
   const amt1 = amtMatch ? parseInt(amtMatch[1], 10) : 0;
   const amt2 = amtMatch && amtMatch[2] !== undefined ? parseInt(amtMatch[2], 10) : null;
@@ -119,19 +112,16 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
   if (isThreeDigit) {
     const perms = getUniquePermutations3(baseNumber);
     if (permMult !== null) {
-      // Pattern: 072×6 = 66 or 979×3 = 66
       patternType = `3_perm_${permMult}`;
       patternLabel = `3 ตัวชุดกลับ (×${permMult})`;
       permTotalAmt = amt1;
       rowTotalMoney = amt1;
 
-      // Mathematical Cross-Check 1: Does permutation count match the digits?
       if (perms.length !== permMult) {
         warnings.push(
           `กติกาคณิตศาสตร์: เลข ${baseNumber} สลับได้ ${perms.length} ประตู แต่ในโพยเขียน ×${permMult} (อาจอ่านเลขผิด เช่น เลขเบิ้ล/ไม่เบิ้ล)`
         );
       }
-      // Mathematical Cross-Check 2: Is total amount divisible by permMult?
       if (permMult > 0 && permTotalAmt % permMult !== 0) {
         warnings.push(
           `กติกาหารลงตัว: ยอดเงิน ${permTotalAmt} บาท หารด้วย ${permMult} ประตูไม่ลงตัว (${(permTotalAmt / permMult).toFixed(2)} บ./ประตู)`
@@ -141,14 +131,12 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
         warnings.push(`พบเครื่องหมาย × ซ้ำในช่องจำนวนเงิน (${cleanAmt}) ของเลขชุดกลับ ×${permMult}`);
       }
     } else if (amt2 !== null) {
-      // Pattern: 426 = 22×22 (3 ตัวตรง × โต๊ด)
       patternType = '3_straight_toad';
       patternLabel = '3 ตัว (ตรง×โต๊ด)';
       straightAmt = amt1;
       toadAmt = amt2;
       rowTotalMoney = amt1 + amt2;
     } else {
-      // Pattern: 932 = 22 (3 ตัวบน/ตรง อย่างเดียว)
       patternType = '3_straight';
       patternLabel = '3 ตัวบน (ตรง)';
       straightAmt = amt1;
@@ -170,8 +158,8 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
     } else if (amt2 !== null) {
       patternType = '2_top_bottom';
       patternLabel = '2 ตัว (บน×ล่าง)';
-      straightAmt = amt1; // 2 ตัวบน
-      bottomAmt = amt2;   // 2 ตัวล่าง
+      straightAmt = amt1;
+      bottomAmt = amt2;
       rowTotalMoney = amt1 + amt2;
     } else if (categoryHint === '2_bottom') {
       patternType = '2_bottom';
@@ -190,7 +178,6 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
     warnings.push(`ตัวเลข "${cleanNum}" ต้องเป็นเลข 2 หลัก หรือ 3 หลัก`);
   }
 
-  // Mathematical Cross-Check 3: Base Multiple Check (e.g. multiples of 11 or 5 or 10)
   const enforceEleven = settings.checkMultiplesOf11 !== false;
   if (enforceEleven && rowTotalMoney > 0) {
     const checkUnit = (val, label) => {
@@ -241,13 +228,6 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
   };
 }
 
-/**
- * Parses free-text LINE messages like:
- * "21 = 22"
- * "21 = 20x20"
- * "072x6 = 66"
- * "583 = 110x110"
- */
 function parseFreeTextMessage(text, settings = {}) {
   const lines = String(text || '')
     .split(/\r?\n/)
@@ -258,8 +238,6 @@ function parseFreeTextMessage(text, settings = {}) {
   let rowIdx = 1;
 
   for (const line of lines) {
-    // Support formats:
-    // "21 = 22 บาท", "21 = 20x20", "072x6 = 66", "583 110x110", "21 ล่าง 20"
     let categoryHint = '3_top';
     if (/ล่าง/.test(line) && !/บน/.test(line)) {
       categoryHint = '2_bottom';
@@ -293,44 +271,110 @@ function parseFreeTextMessage(text, settings = {}) {
 }
 
 /**
- * Aggregates all verified/active slips across all customers into a unified table.
- * Respects `settings.permutationMode`:
- * - 'expand': Expands 072×6 = 66 into 6 separate 3-digit straight entries (072=11, 027=11, 207=11, 270=11, 702=11, 720=11)
- *             and 979×3 = 66 into 3 separate 3-digit straight entries (979=22, 997=22, 799=22).
- * - 'keep_raw': Keeps 072×6 = 66 in a dedicated permAmt column on baseNumber '072' without splitting into 6 rows.
+ * Checks if a number is restricted (เลขอั้น 50%) in the given draw,
+ * and determines whether a slip created at `slipCreatedAt` gets 100% (before cutoff) or 50% (after cutoff).
  */
-function aggregateSlips(slips, settings = {}) {
-  const permutationMode = settings.permutationMode || 'expand'; // 'expand' or 'keep_raw'
+function evaluateNumberRestriction(number, slipCreatedAt, restrictedList = []) {
+  if (!Array.isArray(restrictedList) || restrictedList.length === 0) {
+    return {
+      isRestrictedNumber: false,
+      payoutPercentForThisSlip: 100,
+      isBeforeCutoff: true,
+      restrictionInfo: null
+    };
+  }
+
+  const rule = restrictedList.find(r => r.number === number);
+  if (!rule) {
+    return {
+      isRestrictedNumber: false,
+      payoutPercentForThisSlip: 100,
+      isBeforeCutoff: true,
+      restrictionInfo: null
+    };
+  }
+
+  const slipTime = new Date(slipCreatedAt || Date.now()).getTime();
+  const cutoffTime = new Date(rule.announcedAt).getTime();
+  const isBeforeCutoff = slipTime < cutoffTime;
+
+  return {
+    isRestrictedNumber: true,
+    payoutPercentForThisSlip: isBeforeCutoff ? 100 : (rule.payoutPercent ?? 50),
+    isBeforeCutoff,
+    restrictionInfo: rule
+  };
+}
+
+/**
+ * Aggregates slips for a specific draw period (งวดหวย).
+ * Separates amounts submitted BEFORE the dealer's half-payout cutoff (100% payout)
+ * vs AFTER the dealer's half-payout cutoff (50% payout).
+ */
+function aggregateSlips(slips, settings = {}, restrictedList = []) {
+  const permutationMode = settings.permutationMode || 'expand';
   const limits = settings.riskLimits || {
     threeStraight: 100,
     threeToad: 100,
     threePerm: 132,
-    twoTop: 200,
-    twoBottom: 200
+    twoTop: 30,
+    twoBottom: 100
   };
 
-  // Map key: `${digitCount}_${number}`
   const map = new Map();
 
   function getOrCreate(number, digitCount) {
     const key = `${digitCount}_${number}`;
     if (!map.has(key)) {
+      const rule = (restrictedList || []).find(r => r.number === number) || null;
       map.set(key, {
         key,
         number,
         digitCount,
-        threeStraightAmt: 0, // 3 ตัวบน (ตรง + ที่แตกมาจาก ×6/×3 ถ้าเลือกโหมด expand)
-        threeStraightDirectAmt: 0, // เฉพาะที่เขียนตรงๆ
-        threeStraightFromPermAmt: 0, // เฉพาะที่แตกประตูมาจาก ×6 / ×3
-        threeToadAmt: 0,     // 3 ตัวโต๊ด
-        threePermRawAmt: 0,  // ยอดชุดกลับ ×6 / ×3 กรณีเลือกโหมด keep_raw
-        twoTopAmt: 0,        // 2 ตัวบน
-        twoBottomAmt: 0,     // 2 ตัวล่าง
+        isRestricted: Boolean(rule),
+        restrictedRule: rule,
+        threeStraightAmt: 0,
+        threeStraightDirectAmt: 0,
+        threeStraightFromPermAmt: 0,
+        threeToadAmt: 0,
+        threePermRawAmt: 0,
+        twoTopAmt: 0,
+        twoBottomAmt: 0,
         totalAmt: 0,
-        contributors: []     // รายชื่อลูกค้าที่ส่งเลขนี้มา
+        fullPayout100Amt: 0, // ยอดที่ส่งมาก่อนเวลาเจ้ามืออั้น (จ่ายเต็ม 100%)
+        halfPayout50Amt: 0,  // ยอดที่ส่งมาหลังเวลาเจ้ามืออั้น (จ่ายครึ่ง 50%)
+        contributors: []
       });
     }
     return map.get(key);
+  }
+
+  function addContribution(entry, slip, item, amount, typeLabel, category) {
+    const evalRes = evaluateNumberRestriction(entry.number, slip.createdAt, restrictedList);
+    if (evalRes.payoutPercentForThisSlip === 100) {
+      entry.fullPayout100Amt += amount;
+    } else {
+      entry.halfPayout50Amt += amount;
+    }
+
+    entry.contributors.push({
+      slipId: slip.id,
+      slipTitle: slip.title,
+      customerName: slip.customerName,
+      customerLineId: slip.customerLineId,
+      source: slip.source,
+      col: item.col,
+      row: item.row,
+      originalWrite: `${item.numText} = ${item.amtText}`,
+      typeLabel,
+      category,
+      amount,
+      createdAt: slip.createdAt,
+      payoutPercent: evalRes.payoutPercentForThisSlip,
+      isBeforeCutoff: evalRes.isBeforeCutoff,
+      isRestrictedNumber: evalRes.isRestrictedNumber,
+      cutoffAnnouncedAt: evalRes.restrictionInfo?.announcedAt || null
+    });
   }
 
   for (const slip of slips) {
@@ -338,16 +382,15 @@ function aggregateSlips(slips, settings = {}) {
 
     for (const item of slip.items || []) {
       if (item.isEmpty || !item.baseNumber) continue;
-
       const dCount = item.baseNumber.length;
 
       if (dCount === 3) {
         if (item.permMult && item.permTotalAmt > 0) {
           if (permutationMode === 'expand') {
-            // Mode 1: แยกเลข / กระจายประตูอัตโนมัติ
-            const perms = item.permutations && item.permutations.length > 0
-              ? item.permutations
-              : getUniquePermutations3(item.baseNumber);
+            const perms =
+              item.permutations && item.permutations.length > 0
+                ? item.permutations
+                : getUniquePermutations3(item.baseNumber);
             const eachAmt = +(item.permTotalAmt / perms.length).toFixed(2);
 
             for (const pNum of perms) {
@@ -355,40 +398,27 @@ function aggregateSlips(slips, settings = {}) {
               entry.threeStraightAmt += eachAmt;
               entry.threeStraightFromPermAmt += eachAmt;
               entry.totalAmt += eachAmt;
-              entry.contributors.push({
-                slipId: slip.id,
-                slipTitle: slip.title,
-                customerName: slip.customerName,
-                customerLineId: slip.customerLineId,
-                source: slip.source,
-                col: item.col,
-                row: item.row,
-                originalWrite: `${item.numText} = ${item.amtText}`,
-                typeLabel: `แตกจาก ${item.numText} (ประตูละ ${eachAmt}฿)`,
-                category: '3 ตัวบน (แตกประตู)',
-                amount: eachAmt,
-                createdAt: slip.createdAt
-              });
+              addContribution(
+                entry,
+                slip,
+                item,
+                eachAmt,
+                `แตกจาก ${item.numText} (${eachAmt}฿)`,
+                '3 ตัวบน (แตกประตู)'
+              );
             }
           } else {
-            // Mode 2: คงตามหน้าโพย (ไม่แยกประตู)
             const entry = getOrCreate(item.baseNumber, 3);
             entry.threePermRawAmt += item.permTotalAmt;
             entry.totalAmt += item.permTotalAmt;
-            entry.contributors.push({
-              slipId: slip.id,
-              slipTitle: slip.title,
-              customerName: slip.customerName,
-              customerLineId: slip.customerLineId,
-              source: slip.source,
-              col: item.col,
-              row: item.row,
-              originalWrite: `${item.numText} = ${item.amtText}`,
-              typeLabel: `ชุดกลับ ×${item.permMult}`,
-              category: `3 ตัวชุดกลับ ×${item.permMult}`,
-              amount: item.permTotalAmt,
-              createdAt: slip.createdAt
-            });
+            addContribution(
+              entry,
+              slip,
+              item,
+              item.permTotalAmt,
+              `ชุดกลับ ×${item.permMult}`,
+              `3 ตัวชุดกลับ ×${item.permMult}`
+            );
           }
         } else {
           const entry = getOrCreate(item.baseNumber, 3);
@@ -396,38 +426,12 @@ function aggregateSlips(slips, settings = {}) {
             entry.threeStraightAmt += item.straightAmt;
             entry.threeStraightDirectAmt += item.straightAmt;
             entry.totalAmt += item.straightAmt;
-            entry.contributors.push({
-              slipId: slip.id,
-              slipTitle: slip.title,
-              customerName: slip.customerName,
-              customerLineId: slip.customerLineId,
-              source: slip.source,
-              col: item.col,
-              row: item.row,
-              originalWrite: `${item.numText} = ${item.amtText}`,
-              typeLabel: '3 ตัวบน (ตรง)',
-              category: '3 ตัวบน (ตรง)',
-              amount: item.straightAmt,
-              createdAt: slip.createdAt
-            });
+            addContribution(entry, slip, item, item.straightAmt, '3 ตัวบน (ตรง)', '3 ตัวบน (ตรง)');
           }
           if (item.toadAmt > 0) {
             entry.threeToadAmt += item.toadAmt;
             entry.totalAmt += item.toadAmt;
-            entry.contributors.push({
-              slipId: slip.id,
-              slipTitle: slip.title,
-              customerName: slip.customerName,
-              customerLineId: slip.customerLineId,
-              source: slip.source,
-              col: item.col,
-              row: item.row,
-              originalWrite: `${item.numText} = ${item.amtText}`,
-              typeLabel: '3 ตัวโต๊ด',
-              category: '3 ตัวโต๊ด',
-              amount: item.toadAmt,
-              createdAt: slip.createdAt
-            });
+            addContribution(entry, slip, item, item.toadAmt, '3 ตัวโต๊ด', '3 ตัวโต๊ด');
           }
         }
       } else if (dCount === 2) {
@@ -439,95 +443,48 @@ function aggregateSlips(slips, settings = {}) {
               const entry = getOrCreate(pNum, 2);
               entry.twoTopAmt += eachAmt;
               entry.totalAmt += eachAmt;
-              entry.contributors.push({
-                slipId: slip.id,
-                slipTitle: slip.title,
-                customerName: slip.customerName,
-                customerLineId: slip.customerLineId,
-                source: slip.source,
-                col: item.col,
-                row: item.row,
-                originalWrite: `${item.numText} = ${item.amtText}`,
-                typeLabel: `แตกจาก ${item.numText} (${eachAmt}฿)`,
-                category: '2 ตัวบน (กลับ)',
-                amount: eachAmt,
-                createdAt: slip.createdAt
-              });
+              addContribution(
+                entry,
+                slip,
+                item,
+                eachAmt,
+                `แตกจาก ${item.numText} (${eachAmt}฿)`,
+                '2 ตัวบน (กลับ)'
+              );
             }
           } else {
             const entry = getOrCreate(item.baseNumber, 2);
             entry.twoTopAmt += item.permTotalAmt;
             entry.totalAmt += item.permTotalAmt;
-            entry.contributors.push({
-              slipId: slip.id,
-              slipTitle: slip.title,
-              customerName: slip.customerName,
-              customerLineId: slip.customerLineId,
-              source: slip.source,
-              col: item.col,
-              row: item.row,
-              originalWrite: `${item.numText} = ${item.amtText}`,
-              typeLabel: '2 ตัวชุดกลับ (×2)',
-              category: '2 ตัวชุดกลับ',
-              amount: item.permTotalAmt,
-              createdAt: slip.createdAt
-            });
+            addContribution(entry, slip, item, item.permTotalAmt, '2 ตัวชุดกลับ (×2)', '2 ตัวชุดกลับ');
           }
         } else {
           const entry = getOrCreate(item.baseNumber, 2);
           if (item.straightAmt > 0) {
             entry.twoTopAmt += item.straightAmt;
             entry.totalAmt += item.straightAmt;
-            entry.contributors.push({
-              slipId: slip.id,
-              slipTitle: slip.title,
-              customerName: slip.customerName,
-              customerLineId: slip.customerLineId,
-              source: slip.source,
-              col: item.col,
-              row: item.row,
-              originalWrite: `${item.numText} = ${item.amtText}`,
-              typeLabel: '2 ตัวบน',
-              category: '2 ตัวบน',
-              amount: item.straightAmt,
-              createdAt: slip.createdAt
-            });
+            addContribution(entry, slip, item, item.straightAmt, '2 ตัวบน', '2 ตัวบน');
           }
           if (item.bottomAmt > 0) {
             entry.twoBottomAmt += item.bottomAmt;
             entry.totalAmt += item.bottomAmt;
-            entry.contributors.push({
-              slipId: slip.id,
-              slipTitle: slip.title,
-              customerName: slip.customerName,
-              customerLineId: slip.customerLineId,
-              source: slip.source,
-              col: item.col,
-              row: item.row,
-              originalWrite: `${item.numText} = ${item.amtText}`,
-              typeLabel: '2 ตัวล่าง',
-              category: '2 ตัวล่าง',
-              amount: item.bottomAmt,
-              createdAt: slip.createdAt
-            });
+            addContribution(entry, slip, item, item.bottomAmt, '2 ตัวล่าง', '2 ตัวล่าง');
           }
         }
       }
     }
   }
 
-  // Compute risk & dealer layoff suggestions per aggregated number
   const results = Array.from(map.values()).map(r => {
     const excessThreeStraight = Math.max(0, r.threeStraightAmt - (limits.threeStraight || 100));
     const excessThreeToad = Math.max(0, r.threeToadAmt - (limits.threeToad || 100));
     const excessThreePerm = Math.max(0, r.threePermRawAmt - (limits.threePerm || 132));
-    const excessTwoTop = Math.max(0, r.twoTopAmt - (limits.twoTop || 200));
-    const excessTwoBottom = Math.max(0, r.twoBottomAmt - (limits.twoBottom || 200));
+    const excessTwoTop = Math.max(0, r.twoTopAmt - (limits.twoTop || 30));
+    const excessTwoBottom = Math.max(0, r.twoBottomAmt - (limits.twoBottom || 100));
 
     const totalExcess =
       excessThreeStraight + excessThreeToad + excessThreePerm + excessTwoTop + excessTwoBottom;
 
-    // Count distinct customers who bought this number
     const uniqueCustomers = new Set(r.contributors.map(c => c.customerName)).size;
 
     return {
@@ -544,9 +501,7 @@ function aggregateSlips(slips, settings = {}) {
     };
   });
 
-  // Sort by total amount descending, then number ascending
   results.sort((a, b) => b.totalAmt - a.totalAmt || a.number.localeCompare(b.number));
-
   return results;
 }
 
@@ -557,5 +512,6 @@ module.exports = {
   getUniquePermutations2,
   parseAndValidateRow,
   parseFreeTextMessage,
+  evaluateNumberRestriction,
   aggregateSlips
 };

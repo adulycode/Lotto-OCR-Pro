@@ -3,24 +3,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LottoOCR Pro — ระบบอ่านโพยหวยลายมือ (Gemini 2.5 Pro) & บริหารความเสี่ยงส่งเจ้ามือ</title>
+  <title>ระบบจัดการโพยหวย & อ่านลายมือ AI (แยกตามงวด • เลขอั้น 50% • ตัดยอดส่งเจ้ามือ)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- Top App Header -->
+  <!-- แถบด้านบนสุด: เลือกงวดหวยชัดเจน ดูง่ายตั้งแต่เปิดเว็บ -->
   <header class="topbar no-print">
     <div class="topbar-brand">
       <div class="brand-logo">🎯</div>
       <div>
-        <div class="brand-title">LottoOCR Pro <span class="badge-model" id="headerModelBadge">gemini-2.5-pro</span></div>
-        <div class="brand-subtitle">ระบบอ่านโพยหวยลายมือความแม่นยำสูง 4 ชั้น • รวมยอดรายคน • ตัดยอดส่งเจ้ามือ</div>
+        <div class="brand-title">ระบบรวมโพยหวย AI <span class="badge-model" id="headerModelBadge">gemini-2.5-pro</span></div>
+        <div class="brand-subtitle">แยกข้อมูลตามงวด • เช็คใครส่งอะไรมา • แยกเลขอั้น 100%/50% ตามเวลา • ตัดยอดส่งเจ้ามือ</div>
       </div>
     </div>
 
-    <!-- Global Permutation Mode Switcher (Asked by User: ตั้งค่าได้ทั้ง 2 แบบ) -->
+    <!-- กล่องเลือกงวดหวย (หัวใจหลักของข้อมูลแต่ละชุด) -->
+    <div class="draw-selector-bar">
+      <span class="draw-label">📅 งวดหวยที่กำลังดู:</span>
+      <select id="drawSelect" class="input draw-select" onchange="onSwitchDraw(this.value)"></select>
+      <button class="btn btn-outline btn-sm" onclick="openNewDrawModal()">+ เปิดงวดใหม่</button>
+    </div>
+
+    <!-- สวิตช์เลือกวิธีคิดเลขชุดกลับ (×6, ×3) -->
     <div class="perm-switcher-box">
       <span class="perm-label">วิธีคิดเลขชุดกลับ (×6, ×3):</span>
       <div class="segmented-control">
@@ -32,208 +39,336 @@
         </button>
       </div>
     </div>
-
-    <div class="topbar-stats">
-      <div class="stat-pill">
-        <span class="stat-label">บิลทั้งหมด</span>
-        <span class="stat-val" id="statTotalSlips">0</span>
-      </div>
-      <div class="stat-pill">
-        <span class="stat-label">ยอดเงินรวมทั้งหมด</span>
-        <span class="stat-val highlight-gold" id="statTotalMoney">0 ฿</span>
-      </div>
-      <div class="stat-pill">
-        <span class="stat-label">รอตรวจทาน</span>
-        <span class="stat-val highlight-warn" id="statPendingReview">0 จุด</span>
-      </div>
-    </div>
   </header>
 
-  <!-- Main Navigation Tabs -->
+  <!-- แถบสรุปภาพรวมของงวดนี้ (4 การ์ดใหญ่ อ่านเข้าใจทันที) -->
+  <section class="kpi-strip no-print">
+    <div class="kpi-card">
+      <div class="kpi-title">👥 คนส่งโพยในงวดนี้</div>
+      <div class="kpi-value" id="kpiTotalCustomers">0 คน (0 ใบ)</div>
+      <div class="kpi-sub">คลิกชื่อคนด้านล่างเพื่อดูแยกแต่ละคนได้</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">💰 ยอดเงินรวมทั้งงวด</div>
+      <div class="kpi-value highlight-gold" id="kpiTotalMoney">0 บาท</div>
+      <div class="kpi-sub" id="kpiUniqueNumbers">รวมทั้งหมด 0 เลข</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">🟢 ยอดจ่ายเต็ม 100% vs 🔒 ติดอั้น 50%</div>
+      <div class="kpi-value">
+        <span class="text-success" id="kpiFull100">0 ฿</span>
+        <span style="color:#64748b;margin:0 6px;">/</span>
+        <span class="text-warn" id="kpiHalf50">0 ฿</span>
+      </div>
+      <div class="kpi-sub">แยกตามเวลาที่ส่งโพย (ก่อนประกาศอั้น vs หลังประกาศอั้น)</div>
+    </div>
+    <div class="kpi-card clickable-kpi" onclick="switchTab('tab-restricted')">
+      <div class="kpi-title">🔒 เลขอั้นเจ้ามือประจำงวดนี้ (จ่าย 50%)</div>
+      <div class="kpi-value highlight-warn" id="kpiRestrictedList">-</div>
+      <div class="kpi-sub">คลิกเพื่อเพิ่ม/แก้ไขเลขอั้นและเวลาประกาศ ➔</div>
+    </div>
+  </section>
+
+  <!-- เมนูหลัก เรียงตามลำดับการใช้งานจริง 1 -> 6 -->
   <nav class="main-nav no-print">
     <button class="nav-tab active" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard')">
-      📊 1. ยอดรวมเลข & ตัดยอดส่งเจ้ามือ
+      🏠 1. ภาพรวมงวดนี้ (ใครส่งอะไรมา & ยอดรวมเลข)
+    </button>
+    <button class="nav-tab" data-tab="tab-restricted" onclick="switchTab('tab-restricted')">
+      🔒 2. ตั้งเลขอั้น 50% (ก่อนหวยออก 1 วัน) <span class="tab-badge warn" id="badgeRestrictedCount">5</span>
+    </button>
+    <button class="nav-tab" data-tab="tab-layoff" onclick="switchTab('tab-layoff')">
+      📤 3. ตัดยอดส่งเจ้ามือ (กระจายความเสี่ยง)
     </button>
     <button class="nav-tab" data-tab="tab-inspector" onclick="switchTab('tab-inspector')">
-      🔍 2. ตรวจบิล OCR เทียบรูป (ตาราง 4×30) <span class="tab-badge" id="badgeReviewCount">1</span>
+      🔍 4. ตรวจบิล OCR เทียบรูปกระดาษ <span class="tab-badge" id="badgeReviewCount">1</span>
     </button>
     <button class="nav-tab" data-tab="tab-line" onclick="switchTab('tab-line')">
-      💬 3. จำลองส่งจาก LINE & อัปโหลดรูปโพย
-    </button>
-    <button class="nav-tab" data-tab="tab-customers" onclick="switchTab('tab-customers')">
-      👥 4. ประวัติบิลแยกตามลูกค้า
+      💬 5. ส่งโพยเข้าระบบ / จำลองแชท LINE
     </button>
     <button class="nav-tab" data-tab="tab-template" onclick="switchTab('tab-template')">
-      🖨️ 5. พิมพ์กระดาษโพยมาตรฐาน 4×30
-    </button>
-    <button class="nav-tab" data-tab="tab-settings" onclick="switchTab('tab-settings')">
-      ⚙️ 6. ตั้งค่า AI & เพดานความเสี่ยง
+      🖨️ 6. พิมพ์กระดาษโพย & ตั้งค่า AI
     </button>
   </nav>
 
-  <!-- Main Content Container -->
   <main class="main-container">
 
     <!-- ================================================================= -->
-    <!-- TAB 1: AGGREGATION DASHBOARD & SELECTIVE DEALER LAYOFF            -->
+    <!-- แท็บที่ 1: ภาพรวมงวดนี้ (ซ้าย: งวดนี้ใครส่งอะไรมา | ขวา: ยอดรวมแต่ละเลข) -->
     <!-- ================================================================= -->
     <section id="tab-dashboard" class="tab-panel active no-print">
-      <div class="dashboard-grid">
-        <!-- Left: Aggregated Numbers Table -->
+      <div class="overview-split">
+
+        <!-- ฝั่งซ้าย: งวดนี้ใครส่งอะไรมาบ้าง (กรองดูทีละคนได้ในคลิกเดียว) -->
         <div class="card">
           <div class="card-header">
             <div>
-              <h2>📊 ตารางรวมยอดเงินทุกเลข (รวมจากลูกค้าทุกคนอัตโนมัติ)</h2>
-              <p class="text-muted" id="aggModeSubtitle">
-                โหมดปัจจุบัน: <strong>แยกเลขทุกประตูอัตโนมัติ</strong> (เช่น 072×6 = 66฿ แตกเป็น 072, 027, 207, 270, 702, 720 ตัวละ 11฿ แล้วนำไปรวมกับยอด 3 ตัวบน)
-              </p>
+              <h2>👥 1. งวดนี้ใครส่งอะไรมาบ้าง</h2>
+              <p class="text-muted">คลิกที่ชื่อลูกค้าเพื่อดูเฉพาะเลขที่คนนั้นส่งมา หรือคลิก "ดูทุกคน"</p>
             </div>
-            <div class="header-actions">
-              <button class="btn btn-outline" onclick="selectOverLimitForLayoff()">
-                ⚡ ติ๊กเลือกเลขเกินเพดานทั้งหมด
-              </button>
-              <button class="btn btn-ghost" onclick="clearLayoffSelection()">
-                ล้างที่เลือก
-              </button>
+            <button class="btn btn-ghost btn-sm" id="btnShowAllCustomers" onclick="filterByCustomer(null)">
+              ดูรวมทุกคน
+            </button>
+          </div>
+
+          <!-- รายชื่อลูกค้าที่ส่งในงวดนี้ -->
+          <div id="customerCardsContainer" class="customer-cards-stack"></div>
+        </div>
+
+        <!-- ฝั่งขวา: สรุปผลรวมยอดเงินเดียวของแต่ละเลข (แยกยอด 100% กับ 50% ชัดเจน) -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 id="aggTableTitle">📊 2. สรุปยอดรวมแต่ละเลขในงวดนี้ (ผลรวมยอดเงินเดียว)</h2>
+              <p class="text-muted" id="aggModeSubtitle"></p>
             </div>
           </div>
 
-          <!-- Filter & Search Bar -->
+          <!-- แถบตัวอย่างไฮไลต์ให้เห็นภาพทันที -->
+          <div class="example-highlight-bar" id="exampleHighlightBar"></div>
+
+          <!-- ช่องค้นหาและตัวกรอง -->
           <div class="filter-bar">
             <input type="text" id="searchNumberInput" class="input-search" placeholder="🔎 ค้นหาเลข เช่น 21, 583, 154, 072..." oninput="renderAggregatedTable()" />
             <div class="filter-chips">
               <button class="chip active" data-filter="all" onclick="setAggFilter('all', this)">ทั้งหมด</button>
-              <button class="chip" data-filter="multi_hit" onclick="setAggFilter('multi_hit', this)">🔥 มีส่งซ้ำ/รวมหลายบิล</button>
-              <button class="chip" data-filter="over_limit" onclick="setAggFilter('over_limit', this)">🚨 เกินเพดานความเสี่ยง</button>
-              <button class="chip" data-filter="digit_2" onclick="setAggFilter('digit_2', this)">เลข 2 ตัว (เช่น 21=42฿)</button>
+              <button class="chip" data-filter="multi_hit" onclick="setAggFilter('multi_hit', this)">🔥 มีหลายคนส่งเลขตรงกัน</button>
+              <button class="chip" data-filter="restricted" onclick="setAggFilter('restricted', this)">🔒 เฉพาะเลขอั้น (50%)</button>
+              <button class="chip" data-filter="over_limit" onclick="setAggFilter('over_limit', this)">🚨 เกินเพดานรับเอง</button>
+              <button class="chip" data-filter="digit_2" onclick="setAggFilter('digit_2', this)">เลข 2 ตัว</button>
               <button class="chip" data-filter="digit_3" onclick="setAggFilter('digit_3', this)">เลข 3 ตัว</button>
             </div>
           </div>
-
-          <!-- Highlight Banner showing the user's exact 21 = 22 + 20 = 42 Baht example + 3-digit overlaps -->
-          <div class="example-highlight-bar" id="exampleHighlightBar"></div>
 
           <div class="table-scroll">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th style="width:42px; text-align:center;">
-                    <input type="checkbox" id="chkSelectAllAgg" onchange="toggleSelectAllAgg(this.checked)" />
-                  </th>
                   <th>เลข</th>
-                  <th>ประเภท</th>
-                  <th class="num-col">3 ตัวบน (ตรง)</th>
-                  <th class="num-col">3 ตัวโต๊ด</th>
-                  <th class="num-col" id="thPermCol">ชุดกลับ (×6/×3)</th>
-                  <th class="num-col">2 ตัวบน</th>
-                  <th class="num-col">2 ตัวล่าง</th>
-                  <th class="num-col">ยอดรวมเงินเดียว</th>
-                  <th class="num-col">เกินเพดาน (แนะนำตีออก)</th>
-                  <th>ผู้ส่ง (คลิกดูรายคน)</th>
+                  <th>สถานะอั้น</th>
+                  <th class="num-col">3 ตัวบน / 2 ตัวบน</th>
+                  <th class="num-col">โต๊ด / ล่าง / ชุดกลับ</th>
+                  <th class="num-col">ผลรวมยอดเงินเดียว</th>
+                  <th class="num-col" style="color:#6ee7b7;">🟢 แทงก่อนอั้น (ได้ 100%)</th>
+                  <th class="num-col" style="color:#fdba74;">🔒 แทงหลังอั้น (ได้ 50%)</th>
+                  <th>คนที่ส่งเลขนี้ (คลิกดูรายละเอียด)</th>
                 </tr>
               </thead>
               <tbody id="aggTableBody"></tbody>
             </table>
           </div>
+
+          <!-- กล่องแสดงรายละเอียดผู้ส่งของเลขที่คลิกเลือก -->
+          <div id="selectedNumberBreakdownBox" class="breakdown-drawer"></div>
         </div>
 
-        <!-- Right: Customer Breakdown Drawer & Selective Dealer Layoff Builder -->
-        <div class="side-stack">
-          <!-- Selected Number Contributors Card -->
-          <div class="card" id="numberDetailCard">
-            <div class="card-header">
-              <h3>👤 รายละเอียดว่าใครส่งเลขนี้มาบ้าง</h3>
-            </div>
-            <div id="numberDetailBody" class="detail-body">
-              <div class="empty-hint">คลิกที่แถวตัวเลขในตารางทางซ้าย เพื่อดูว่ามีลูกค้าคนไหนส่งเลขนั้นมาบ้าง คนละกี่บาท</div>
+      </div>
+    </section>
+
+    <!-- ================================================================= -->
+    <!-- แท็บที่ 2: จัดการเลขอั้นเจ้ามือ 50% (แยกเวลาส่งก่อนได้ 100% / ส่งหลังได้ 50%) -->
+    <!-- ================================================================= -->
+    <section id="tab-restricted" class="tab-panel no-print">
+      <div class="two-col-grid">
+        <!-- ซ้าย: ฟอร์มประกาศเลขอั้น -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>🔒 ประกาศเลขอั้นประจำงวด (เช่น ก่อนวันหวยออก 1 วัน)</h2>
+              <p class="text-muted">
+                ระบบจะใช้วัน-เวลาที่ประกาศเป็นตัวตัดอัตโนมัติ: <strong>ใครส่งมาก่อนเวลานี้ได้เต็ม 100%</strong> • <strong>ใครส่งมาหลังเวลานี้ได้ 50%</strong>
+              </p>
             </div>
           </div>
 
-          <!-- Dealer Layoff (ตัดยอดส่งเจ้ามือใหญ่) Card -->
-          <div class="card layoff-card">
-            <div class="card-header">
-              <div>
-                <h3>📤 ระบบเลือกเลขตัดยอดส่งเจ้ามือ (กระจายความเสี่ยง)</h3>
-                <p class="text-muted">ติ๊กเลือกเฉพาะเลขที่ต้องการตีออก และปรับยอดเงินที่จะส่งเจ้ามือได้อย่างอิสระ</p>
+          <div class="settings-form">
+            <div class="form-group">
+              <label>1. ระบุชุดตัวเลขที่เจ้ามือแจ้งอั้น (คั่นด้วยเว้นวรรค หรือลูกน้ำ เช่น 5 ชุด):</label>
+              <input type="text" id="restrictNumbersInput" class="input" placeholder="เช่น 21, 583, 154, 072, 860" value="21, 583, 154, 072, 860" />
+            </div>
+
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>2. วัน-เวลาที่เจ้ามือเริ่มประกาศอั้น:</label>
+                <input type="datetime-local" id="restrictAnnouncedAtInput" class="input" value="2026-11-15T14:00" />
+                <small class="text-muted">บิลที่ส่งก่อนเวลานี้จะได้ 100% / ส่งหลังเวลานี้จะได้ตามเรทอั้น</small>
+              </div>
+              <div class="form-group">
+                <label>3. อัตราจ่ายสำหรับคนที่แทงหลังเวลาประกาศ:</label>
+                <select id="restrictPayoutPercentInput" class="input">
+                  <option value="50">จ่ายครึ่งเดียว (50%)</option>
+                  <option value="70">จ่าย 70%</option>
+                  <option value="0">ปิดรับ (0%)</option>
+                </select>
               </div>
             </div>
 
-            <div class="layoff-controls">
+            <div class="btn-group-full">
+              <button class="btn btn-primary" onclick="addRestrictedNumbersBatch(false)">
+                🔒 บันทึกชุดเลขอั้นตามเวลาที่ระบุ
+              </button>
+              <button class="btn btn-outline" onclick="addRestrictedNumbersBatch(true)">
+                ⚡ ประกาศอั้นตั้งแต่ "เวลานี้ (ตอนนี้)" เป็นต้นไป
+              </button>
+            </div>
+          </div>
+
+          <div class="accuracy-architecture-box" style="margin-top:18px;">
+            <h4>💡 ตัวอย่างการทำงานจริงในระบบตอนนี้ (ดูที่เลข <code>21</code>):</h4>
+            <ul>
+              <li><strong>เฮียพงษ์</strong> ส่งเลข <code>21 = 22 บาท</code> เมื่อวันที่ <strong>14 พ.ย.</strong> (ก่อนเจ้ามือประกาศอั้น) ➔ ระบบบันทึกเป็น 🟢 <strong>ได้เต็ม 100% (22 บาท)</strong></li>
+              <li><strong>เจ้ามือประกาศอั้น</strong> เลข <code>21, 583, 154, 072, 860</code> เมื่อวันที่ <strong>15 พ.ย. เวลา 14:00 น.</strong> (ก่อนหวยออก 1 วัน)</li>
+              <li><strong>ป้านิด</strong> ส่งเลข <code>21 = 20 บาท</code> เมื่อวันที่ <strong>15 พ.ย. เวลา 16:45 น.</strong> (หลังประกาศอั้น) ➔ ระบบบันทึกเป็น 🔒 <strong>จ่ายครึ่ง 50% (20 บาท)</strong></li>
+              <li>เมื่อดูในหน้าสรุปยอดรวม: เลข <code>21</code> มียอดรวม <strong>42 บาท</strong> โดยแยกชัดเจนว่า <strong>จ่าย 100% = 22 บาท</strong> และ <strong>จ่าย 50% = 20 บาท</strong>!</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- ขวา: ตารางรายการเลขอั้นที่ประกาศแล้วในงวดนี้ -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3>📋 รายการเลขอั้นในงวดนี้ & สรุปยอดแยก 100% vs 50%</h3>
+              <p class="text-muted">ตรวจสอบว่าเลขอั้นแต่ละตัว มีใครส่งมาก่อนอั้น (100%) และหลังอั้น (50%) กี่บาท</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="clearAllRestrictions()">ล้างเลขอั้นทั้งหมด</button>
+          </div>
+
+          <div id="restrictedNumbersTableWrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================= -->
+    <!-- แท็บที่ 3: ระบบเลือกเลขตัดยอดส่งเจ้ามือ (กระจายความเสี่ยง)           -->
+    <!-- ================================================================= -->
+    <section id="tab-layoff" class="tab-panel no-print">
+      <div class="two-col-grid">
+        <!-- ซ้าย: ตารางติ๊กเลือกเลขที่จะส่งเจ้ามือ -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>📤 เลือกชุดตัวเลขที่จะตัดยอดส่งเจ้ามือใหญ่</h2>
+              <p class="text-muted">ติ๊กเลือกเฉพาะเลขที่ต้องการลดความเสี่ยง หรือกดปุ่มเลือกเลขที่ยอดเกินเพดานอัตโนมัติ</p>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-outline btn-sm" onclick="selectOverLimitForLayoff()">
+                ⚡ เลือกเลขเกินเพดานทั้งหมด
+              </button>
+              <button class="btn btn-ghost btn-sm" onclick="clearLayoffSelection()">
+                ล้างที่เลือก
+              </button>
+            </div>
+          </div>
+
+          <div class="table-scroll" style="max-height:540px;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width:42px;text-align:center;">
+                    <input type="checkbox" id="chkSelectAllAgg" onchange="toggleSelectAllAgg(this.checked)" />
+                  </th>
+                  <th>เลข</th>
+                  <th class="num-col">ยอดรับมาทั้งหมด</th>
+                  <th class="num-col">ส่วนที่จ่าย 100%</th>
+                  <th class="num-col">ส่วนที่จ่าย 50%</th>
+                  <th class="num-col">ยอดเกินเพดาน</th>
+                </tr>
+              </thead>
+              <tbody id="layoffSelectTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ขวา: ปรับยอดส่งออก & สร้างใบโพยส่งเจ้ามือ -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3>📋 ใบโพยตัดยอดส่งเจ้ามือ</h3>
+              <p class="text-muted">ปรับจำนวนเงินที่จะส่งออกหรือเก็บไว้รับเองได้ตามต้องการ</p>
+            </div>
+          </div>
+
+          <div class="layoff-controls">
+            <div class="form-row-2">
               <div class="form-row">
                 <label>ชื่อเจ้ามือที่จะส่งออก:</label>
                 <input type="text" id="dealerNameInput" class="input" value="เจ้ามือสายใหญ่ #1" />
               </div>
               <div class="form-row">
-                <label>โหมดคำนวณยอดส่ง:</label>
+                <label>วิธีคำนวณยอดที่จะตัดส่ง:</label>
                 <select id="layoffModeSelect" class="input" onchange="renderLayoffBuilder()">
-                  <option value="excess">ตัดส่งเฉพาะ "ยอดส่วนที่เกินเพดาน" (เก็บในเพดานไว้กินเอง)</option>
-                  <option value="full">ส่งออก "เต็มจำนวนทั้งหมด" ของเลขที่ติ๊กเลือก</option>
-                  <option value="half">ส่งออก "ครึ่งหนึ่ง (50%)" เพื่อหารความเสี่ยงคนละครึ่ง</option>
+                  <option value="excess">ตัดส่งเฉพาะ "ยอดส่วนที่เกินเพดาน" (เก็บในเพดานไว้เอง)</option>
+                  <option value="full">ส่งออก "เต็มจำนวนทั้งหมด" ของเลขที่เลือก</option>
+                  <option value="half">ส่งออก "ครึ่งหนึ่ง (50%)" หารความเสี่ยง</option>
                 </select>
               </div>
             </div>
+          </div>
 
-            <div id="layoffItemsList" class="layoff-items-list"></div>
+          <div id="layoffItemsList" class="layoff-items-list"></div>
 
-            <div class="layoff-summary">
-              <div class="layoff-sum-row">
-                <span>จำนวนเลขที่เลือกส่งออก:</span>
-                <strong id="layoffSelectedCount">0 เลข</strong>
-              </div>
-              <div class="layoff-sum-row">
-                <span>ยอดเก็บไว้รับเอง:</span>
-                <strong id="layoffKeepTotal" class="text-success">0 บาท</strong>
-              </div>
-              <div class="layoff-sum-row total">
-                <span>ยอดรวมส่งเจ้ามือ:</span>
-                <strong id="layoffSendTotal" class="text-gold">0 บาท</strong>
-              </div>
+          <div class="layoff-summary">
+            <div class="layoff-sum-row">
+              <span>จำนวนเลขที่เลือกส่งเจ้ามือ:</span>
+              <strong id="layoffSelectedCount">0 เลข</strong>
             </div>
-
-            <div class="layoff-preview-box">
-              <label class="small-label">ข้อความโพยพร้อมส่งต่อให้เจ้ามือทาง LINE:</label>
-              <textarea id="layoffFormattedText" rows="6" class="input mono-textarea" readonly></textarea>
+            <div class="layoff-sum-row">
+              <span>ยอดเก็บไว้รับเองในงวดนี้:</span>
+              <strong id="layoffKeepTotal" class="text-success">0 บาท</strong>
             </div>
-
-            <div class="btn-group-full">
-              <button class="btn btn-primary" onclick="copyAndSaveLayoff()">
-                📋 คัดลอกโพยส่งเจ้ามือ & บันทึกประวัติตัดยอด
-              </button>
+            <div class="layoff-sum-row total">
+              <span>ยอดรวมตัดส่งเจ้ามือ:</span>
+              <strong id="layoffSendTotal" class="text-gold">0 บาท</strong>
             </div>
+          </div>
+
+          <div class="layoff-preview-box">
+            <label class="small-label">ข้อความใบโพยพร้อมคัดลอกส่งเข้า LINE เจ้ามือ:</label>
+            <textarea id="layoffFormattedText" rows="7" class="input mono-textarea" readonly></textarea>
+          </div>
+
+          <div class="btn-group-full">
+            <button class="btn btn-primary" onclick="copyAndSaveLayoff()">
+              📋 คัดลอกโพยส่งเจ้ามือ & บันทึกประวัติตัดยอด
+            </button>
+          </div>
+
+          <div style="margin-top:16px;">
+            <h4>ประวัติการตัดยอดส่งเจ้ามือในงวดนี้</h4>
+            <div id="layoffHistoryList" style="margin-top:8px;"></div>
           </div>
         </div>
       </div>
     </section>
 
     <!-- ================================================================= -->
-    <!-- TAB 2: SIDE-BY-SIDE 4x30 PAPER SLIP INSPECTOR & MATH VALIDATOR    -->
+    <!-- แท็บที่ 4: ตรวจบิล OCR เทียบรูปกระดาษ 4 คอลัมน์ × 30 แถว             -->
     <!-- ================================================================= -->
     <section id="tab-inspector" class="tab-panel no-print">
       <div class="inspector-toolbar card">
         <div class="toolbar-left">
-          <label>เลือกบิล/โพยที่จะตรวจสอบและแก้ไข:</label>
+          <label>เลือกบิล/โพยที่จะตรวจทานหรือแก้ไขตัวเลข:</label>
           <select id="inspectorSlipSelect" class="input select-lg" onchange="selectSlipForInspection(this.value)"></select>
-          <span id="inspectorStatusBadge" class="status-pill"></span>
         </div>
         <div class="toolbar-right">
           <button class="btn btn-outline" onclick="filterInspectorWarningsOnly()" id="btnFilterWarnings">
             ⚠️ ดูเฉพาะแถวที่ระบบแจ้งเตือน
           </button>
           <button class="btn btn-success" onclick="saveAndVerifyCurrentSlip(true)">
-            ✅ ยืนยันความถูกต้องทั้งใบ (Verify 100%)
+            ✅ ยืนยันความถูกต้องทั้งใบ (ตรวจผ่าน 100%)
           </button>
         </div>
       </div>
 
-      <!-- 4-Layer Validation Status Banner -->
       <div id="validationSummaryBanner" class="validation-banner"></div>
 
       <div class="inspector-split">
-        <!-- Left: Zoomable Paper Photo with 4-Column Alignment Overlay -->
+        <!-- ซ้าย: รูปโพยกระดาษต้นฉบับ -->
         <div class="card photo-inspector-card">
           <div class="card-header">
             <div>
-              <h3>📷 รูปกระดาษโพยต้นฉบับ (ซูม/เลื่อนเทียบแถวต่อแถว)</h3>
+              <h3>📷 รูปกระดาษโพยต้นฉบับ</h3>
               <p class="text-muted" id="inspectorMetaText"></p>
             </div>
             <div class="zoom-controls">
@@ -243,7 +378,7 @@
               <button class="btn btn-sm btn-ghost" onclick="adjustZoom(-0.25)">➖</button>
               <span id="zoomLevelText">100%</span>
               <button class="btn btn-sm btn-ghost" onclick="adjustZoom(0.25)">➕</button>
-              <button class="btn btn-sm btn-ghost" onclick="resetZoom()">รีเซ็ต</button>
+              <button class="btn btn-sm btn-ghost" onclick="resetZoom()">ขนาดปกติ</button>
             </div>
           </div>
           <div class="photo-viewport" id="photoViewport">
@@ -259,91 +394,97 @@
           </div>
         </div>
 
-        <!-- Right: 4 Columns x 30 Rows Interactive Editable Grid matching the real paper -->
+        <!-- ขวา: ตาราง 4 คอลัมน์ × 30 แถว แก้ไขได้ทุกช่อง -->
         <div class="card grid-inspector-card">
           <div class="card-header">
             <div>
-              <h3>📝 ตารางโพย 4 คอลัมน์ × 30 แถว (แก้ไขตัวเลขได้ทุกช่อง)</h3>
-              <p class="text-muted">ระบบเช็คกฎคณิตศาสตร์อัตโนมัติ: <code>×6</code> ต้องเลขไม่ซ้ำและหาร 6 ลงตัว • <code>×3</code> ต้องเลขเบิ้ลและหาร 3 ลงตัว • <code>n</code> แปลงเป็น <code>11</code></p>
+              <h3>📝 ตารางโพย 4 คอลัมน์ × 30 แถว (คลิกแก้ไขตัวเลขได้ทุกช่อง)</h3>
+              <p class="text-muted">ระบบเช็คกฎคณิตศาสตร์อัตโนมัติ: <code>×6</code> ต้องเลขไม่ซ้ำและหาร 6 ลงตัว • <code>×3</code> ต้องเลขเบิ้ลและหาร 3 ลงตัว</p>
             </div>
-            <div>
-              <button class="btn btn-primary btn-sm" onclick="saveAndVerifyCurrentSlip(false)">
-                💾 บันทึกการแก้ไข
-              </button>
-            </div>
+            <button class="btn btn-primary btn-sm" onclick="saveAndVerifyCurrentSlip(false)">
+              💾 บันทึกการแก้ไข
+            </button>
           </div>
-
           <div id="paperGridContainer" class="paper-grid-4col"></div>
         </div>
       </div>
     </section>
 
     <!-- ================================================================= -->
-    <!-- TAB 3: LINE MESSAGING SIMULATOR & DIRECT PHOTO OCR UPLOAD         -->
+    <!-- แท็บที่ 5: ส่งโพยเข้าระบบ / จำลองแชท LINE OA                        -->
     <!-- ================================================================= -->
     <section id="tab-line" class="tab-panel no-print">
       <div class="two-col-grid">
-        <!-- Left: Interactive LINE OA Chat Simulator -->
+        <!-- ซ้าย: จำลองลูกค้าส่งหวยผ่าน LINE OA -->
         <div class="card line-chat-card">
           <div class="card-header line-header">
             <div class="line-title-row">
               <span class="line-icon">LINE</span>
               <div>
-                <h3>จำลองลูกค้าส่งหวยผ่าน LINE Official Account</h3>
-                <p>ทดสอบส่งทั้ง "รูปถ่ายโพยลายมือ" และ "พิมพ์ข้อความ" แยกตามชื่อลูกค้า</p>
+                <h3>จำลองลูกค้าส่งหวยผ่าน LINE (เช็คเวลาส่งก่อนอั้น 100% vs หลังอั้น 50%)</h3>
+                <p>เลือกชื่อลูกค้าและเวลาที่ส่ง เพื่อทดสอบการคำนวณเรทจ่าย 100% และ 50% อัตโนมัติ</p>
               </div>
             </div>
           </div>
 
           <div class="line-customer-selector">
-            <label>จำลองส่งในนามลูกค้า:</label>
-            <select id="simCustomerSelect" class="input" onchange="onSimCustomerChange(this.value)">
-              <option value="เฮียพงษ์ (ลูกค้า LINE)">👤 เฮียพงษ์ (ลูกค้า LINE)</option>
-              <option value="ป้านิด (ลูกค้า LINE)">👤 ป้านิด (ลูกค้า LINE)</option>
-              <option value="เจ๊หมวย (สาย A)">👤 เจ๊หมวย (สาย A)</option>
-              <option value="เสี่ยชัย (สาย B)">👤 เสี่ยชัย (สาย B - ลูกค้าใหม่)</option>
-            </select>
-            <input type="text" id="simCustomCustomerInput" class="input" placeholder="หรือพิมพ์ชื่อลูกค้าเอง..." style="max-width: 180px;" />
+            <div style="flex:1;">
+              <label class="small-label">จำลองส่งในนามลูกค้า:</label>
+              <select id="simCustomerSelect" class="input" onchange="onSimCustomerChange(this.value)">
+                <option value="เฮียพงษ์ (ลูกค้า LINE)">👤 เฮียพงษ์ (ลูกค้า LINE)</option>
+                <option value="ป้านิด (ลูกค้า LINE)">👤 ป้านิด (ลูกค้า LINE)</option>
+                <option value="เจ๊หมวย (สาย A)">👤 เจ๊หมวย (สาย A)</option>
+                <option value="เสี่ยชัย (สาย B)">👤 เสี่ยชัย (สาย B)</option>
+              </select>
+            </div>
+            <div style="flex:1;">
+              <label class="small-label">หรือพิมพ์ชื่อลูกค้าใหม่:</label>
+              <input type="text" id="simCustomCustomerInput" class="input" placeholder="เช่น น้าพร..." />
+            </div>
+            <div style="flex:1;">
+              <label class="small-label">ช่วงเวลาที่ลูกค้าส่งบิลนี้:</label>
+              <select id="simTimingSelect" class="input">
+                <option value="after_cutoff">🕒 ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
+                <option value="before_cutoff">⏪ จำลองว่าส่งก่อนประกาศอั้น (วันที่ 14 พ.ย. ➔ ได้เต็ม 100%)</option>
+              </select>
+            </div>
           </div>
 
-          <!-- Chat History Stream -->
           <div id="lineChatStream" class="line-chat-stream"></div>
 
-          <!-- Quick Preset Test Buttons -->
           <div class="line-quick-presets">
-            <span class="small-label">ปุ่มทดสอบด่วน:</span>
+            <span class="small-label">ปุ่มกดทดสอบด่วน:</span>
             <button class="chip-btn" onclick="fillLinePreset('21 = 22\n583 = 55x55\n072x6 = 66')">
-              ตัวอย่าง: 21 = 22 + 3 ตัว
+              ตัวอย่าง: 21 = 22 + 583
             </button>
-            <button class="chip-btn" onclick="fillLinePreset('21 = 20\n426 = 22x22\n979x3 = 66')">
-              ตัวอย่าง: 21 = 20 (รวมเป็น 42฿)
+            <button class="chip-btn" onclick="fillLinePreset('21 = 20\n860 = 22x22\n426 = 22x22')">
+              ตัวอย่าง: 21 = 20 + 860
             </button>
             <button class="chip-btn highlight" onclick="simulateLineSamplePhoto()">
-              📸 จำลองส่ง "รูปโพย 16/11 (120 แถว)" เข้าแชท LINE
+              📸 จำลองส่ง "รูปโพยกระดาษ 16/11 (120 แถว)" เข้าแชท LINE
             </button>
           </div>
 
-          <!-- Chat Input Box -->
           <div class="line-input-area">
             <textarea id="lineMessageInput" rows="3" class="input" placeholder="พิมพ์โพยส่งใน LINE เช่น:&#10;21 = 22&#10;072x6 = 66&#10;583 = 110x110"></textarea>
             <div class="line-send-actions">
               <label class="btn btn-outline btn-upload-label">
-                📷 ส่งรูปโพยใน LINE
+                📷 เลือกรูปโพยส่งใน LINE
                 <input type="file" id="linePhotoInput" accept="image/*" hidden onchange="sendLineCustomPhoto(this)" />
               </label>
               <button class="btn btn-line" onclick="sendLineTextMessage()">
-                ส่งเข้า LINE Bot ➤
+                ส่งบิลเข้า LINE ➤
               </button>
             </div>
           </div>
         </div>
 
-        <!-- Right: Admin Direct Upload + 4-Column Auto-Slicer Preview -->
+        <!-- ขวา: อัปโหลดรูปโพยกระดาษโดยแอดมิน -->
         <div class="card">
           <div class="card-header">
             <div>
-              <h3>📸 อัปโหลดรูปโพยกระดาษ (ระบบตัดแบ่ง 4 คอลัมน์ + Gemini 2.5 Pro)</h3>
-              <p class="text-muted">สำหรับแอดมินถ่ายรูปโพยหรืออัปโหลดไฟล์รูปจากเครื่องโดยตรง</p>
+              <h3>📸 อัปโหลดรูปโพยกระดาษเข้าสู่งวดนี้โดยตรง</h3>
+              <p class="text-muted">ระบบจะตัดแบ่ง 4 คอลัมน์และใช้ Gemini 2.5 Pro อ่านตัวเลขเข้าสู่งวดปัจจุบันทันที</p>
             </div>
           </div>
 
@@ -355,24 +496,30 @@
               </div>
               <div>
                 <label>ชื่อบิล / แผ่นที่:</label>
-                <input type="text" id="uploadSlipTitle" class="input" value="โพยกระดาษ 16/11 แผ่นที่ 2" />
+                <input type="text" id="uploadSlipTitle" class="input" value="โพยกระดาษ แผ่นที่ 2" />
               </div>
+            </div>
+
+            <div class="form-group">
+              <label>เวลาที่ลูกค้านำโพยมาส่ง (ใช้เช็คสิทธิ์จ่ายเต็ม 100% หรือติดอั้น 50%):</label>
+              <select id="uploadTimingSelect" class="input">
+                <option value="after_cutoff">🕒 ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
+                <option value="before_cutoff">⏪ ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100% ทั้งใบ)</option>
+              </select>
             </div>
 
             <div class="dropzone" id="ocrDropzone" onclick="document.getElementById('directFileInput').click()">
               <input type="file" id="directFileInput" accept="image/*" hidden onchange="previewUploadImage(this)" />
               <div class="dropzone-content">
                 <div class="drop-icon">📄🔍</div>
-                <h4>คลิกเพื่อเลือกรูปถ่ายโพยกระดาษ หรือลากไฟล์มาวางที่นี่</h4>
+                <h4>คลิกเพื่อเลือกรูปถ่ายโพยกระดาษจากมือถือหรือคอมพิวเตอร์</h4>
                 <p>รองรับโพยตาราง 4 คอลัมน์ × 30 แถว และโพยเขียนมือทุกชนิด</p>
               </div>
             </div>
 
-            <!-- 4-Column Slicing Visual Preview -->
             <div id="slicePreviewContainer" class="slice-preview-box">
               <div class="slice-header">
-                <span>✂️ ระบบตัดแบ่ง 4 คอลัมน์อัตโนมัติ (4-Column High-Precision Slicing):</span>
-                <span class="badge-success">พร้อมส่งให้ gemini-2.5-pro</span>
+                <span>✂️ ระบบตัดแบ่ง 4 คอลัมน์อัตโนมัติ (ช่วยให้ AI อ่านแม่นยำไม่ข้ามบรรทัด):</span>
               </div>
               <div class="slice-grid" id="slicePreviewGrid">
                 <div class="slice-item">คอลัมน์ 1 (แถว 1–30)</div>
@@ -384,176 +531,113 @@
 
             <div class="btn-group-full">
               <button class="btn btn-primary btn-lg" id="btnRunOcr" onclick="runDirectOcrUpload()">
-                🚀 เริ่มอ่านลายมือด้วย AI (Gemini 2.5 Pro + เช็คกฎคณิตศาสตร์ 4 ชั้น)
+                🚀 เริ่มอ่านลายมือในโพยด้วย AI (Gemini 2.5 Pro)
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-            <div class="accuracy-architecture-box">
-              <h4>🛡️ ระบบป้องกันความผิดพลาด 4 ชั้น (Zero-Error Financial Guard):</h4>
-              <ul>
-                <li><strong>ชั้นที่ 1 (Column Slicing):</strong> แยกอ่านทีละคอลัมน์ (1–30) ป้องกัน AI อ่านข้ามบรรทัด</li>
-                <li><strong>ชั้นที่ 2 (Handwriting Normalization):</strong> แปลงลายมือเลข <code>11</code> ที่เขียนติดกันเหมือนตัว <code>n</code> และ <code>110</code> ที่เหมือน <code>no</code> อัตโนมัติ</li>
-                <li><strong>ชั้นที่ 3 (Math Cross-Check):</strong> เช็คว่าเลข <code>×6</code> ต้องไม่ซ้ำและยอดเงินหาร 6 ลงตัว / เลข <code>×3</code> ต้องเป็นเลขเบิ้ลและหาร 3 ลงตัว</li>
-                <li><strong>ชั้นที่ 4 (Side-by-Side Verification):</strong> ไฮไลต์ช่องที่มีรอยขีดฆ่าให้แอดมินกดยืนยันก่อนตัดยอด</li>
-              </ul>
+    <!-- ================================================================= -->
+    <!-- แท็บที่ 6: พิมพ์กระดาษโพย 4×30 & ตั้งค่า AI / LINE OA                -->
+    <!-- ================================================================= -->
+    <section id="tab-template" class="tab-panel">
+      <div class="two-col-grid no-print" style="margin-bottom:20px;">
+        <div class="card">
+          <div class="card-header">
+            <h3>🤖 ตั้งค่าโมเดล AI OCR & เพดานความเสี่ยง</h3>
+          </div>
+          <div class="settings-form">
+            <div class="form-group">
+              <label>โมเดล AI สำหรับอ่านลายมือ:</label>
+              <select id="settingGeminiModel" class="input">
+                <option value="gemini-2.5-pro">gemini-2.5-pro (ความแม่นยำสูงสุดสำหรับงานเงินทอง แนะนำ)</option>
+                <option value="gemini-2.5-flash">gemini-2.5-flash (ความเร็วสูง)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>รหัสเชื่อมต่อ Gemini API Key (จาก Google AI Studio):</label>
+              <input type="password" id="settingGeminiKey" class="input" placeholder="วาง AIzaSy... ที่นี่เมื่อต้องการอ่านรูปใหม่จริง" />
+            </div>
+            <div class="form-group">
+              <label>วิธีจัดการเลขชุดกลับ (เช่น 072×6 = 66 หรือ 979×3 = 66):</label>
+              <select id="settingPermMode" class="input">
+                <option value="expand">แบบที่ 1: แยกเลขกระจายทุกประตูอัตโนมัติ (072×6=66 แตกเป็น 6 หาง หางละ 11 บาท)</option>
+                <option value="keep_raw">แบบที่ 2: คงตามหน้าโพย (ไม่แยกหาง)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="settingCheck11" checked />
+                เปิดระบบตรวจจับพหูคูณของ 11, 10, 5 บาท
+              </label>
+            </div>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>เพดานรับเอง 3 ตัวบน (บาท/ตัว):</label>
+                <input type="number" id="limitThreeStraight" class="input" value="100" />
+              </div>
+              <div class="form-group">
+                <label>เพดานรับเอง 3 ตัวโต๊ด (บาท/ตัว):</label>
+                <input type="number" id="limitThreeToad" class="input" value="100" />
+              </div>
+              <div class="form-group">
+                <label>เพดานรับเอง 2 ตัวบน (บาท/ตัว):</label>
+                <input type="number" id="limitTwoTop" class="input" value="30" />
+              </div>
+              <div class="form-group">
+                <label>เพดานรับเอง 2 ตัวล่าง (บาท/ตัว):</label>
+                <input type="number" id="limitTwoBottom" class="input" value="100" />
+              </div>
+            </div>
+            <div class="btn-group-full">
+              <button class="btn btn-primary" onclick="saveSettingsFromForm()">💾 บันทึกการตั้งค่า</button>
+              <button class="btn btn-outline" onclick="resetDemoDatabase()">🔄 รีเซ็ตข้อมูลตัวอย่างเริ่มต้น</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>📲 ตั้งค่าเชื่อมต่อ LINE Official Account & พิมพ์ใบโพย</h3>
+          </div>
+          <div class="settings-form">
+            <div class="form-group">
+              <label>ลิงก์ Webhook สำหรับนำไปวางใน LINE Developers Console:</label>
+              <input type="text" class="input mono-input" id="webhookUrlDisplay" readonly value="https://lotto.eflworkspace.com/api/line/webhook" />
+            </div>
+            <div class="form-group">
+              <label>LINE Channel Access Token:</label>
+              <input type="password" id="settingLineToken" class="input" placeholder="วาง Channel Access Token ของ LINE OA" />
+            </div>
+            <div class="form-group">
+              <label>LINE Channel Secret:</label>
+              <input type="password" id="settingLineSecret" class="input" placeholder="วาง Channel Secret ของ LINE OA" />
+            </div>
+            <hr class="divider" style="margin:14px 0;border-color:var(--border);" />
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <h4>🖨️ แบบฟอร์มกระดาษโพยมาตรฐาน 4 คอลัมน์ × 30 แถว</h4>
+                <p class="text-muted">สั่งพิมพ์ลงกระดาษ A4 เพื่อให้คนจดเขียนตามช่อง ช่วยให้อ่านลายมือแม่นยำ 100%</p>
+              </div>
+              <button class="btn btn-primary" onclick="window.print()">🖨️ สั่งพิมพ์กระดาษโพย A4</button>
             </div>
           </div>
         </div>
       </div>
-    </section>
 
-    <!-- ================================================================= -->
-    <!-- TAB 4: CUSTOMER BILLS & DEALER LAYOFF HISTORY                     -->
-    <!-- ================================================================= -->
-    <section id="tab-customers" class="tab-panel no-print">
-      <div class="two-col-grid">
-        <div class="card">
-          <div class="card-header">
-            <h3>👥 รายการบิลแยกตามลูกค้าแต่ละคน</h3>
-          </div>
-          <div id="customerSlipsList" class="customer-slips-list"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <h3>📤 ประวัติใบโพยตัดยอดส่งเจ้ามือใหญ่</h3>
-          </div>
-          <div id="layoffHistoryList" class="customer-slips-list"></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================================================================= -->
-    <!-- TAB 5: PRINTABLE STANDARD 4x30 PAPER SLIP TEMPLATE                -->
-    <!-- ================================================================= -->
-    <section id="tab-template" class="tab-panel">
-      <div class="card no-print" style="margin-bottom: 16px;">
-        <div class="card-header">
-          <div>
-            <h3>🖨️ แบบฟอร์มกระดาษโพยมาตรฐาน 4 คอลัมน์ × 30 แถว (สำหรับพิมพ์แจกคนจด)</h3>
-            <p class="text-muted">ออกแบบตามใบโพยจริงของคุณ (16/11) พร้อมจุดมาร์ค 4 มุม (Alignment Markers) ช่วยให้ AI OCR อ่านแม่นยำ 100%</p>
-          </div>
-          <button class="btn btn-primary" onclick="window.print()">
-            🖨️ สั่งพิมพ์กระดาษโพย (Print A4)
-          </button>
-        </div>
-      </div>
-
-      <!-- Printable A4 Sheet -->
+      <!-- กระดาษโพย A4 สำหรับสั่งพิมพ์ -->
       <div class="printable-sheet" id="printableSheet">
         <div class="corner-mark tl"></div>
         <div class="corner-mark tr"></div>
         <div class="corner-mark bl"></div>
         <div class="corner-mark br"></div>
-
         <div class="sheet-top-meta">
           <div class="meta-line">ชื่อ................................................................................. แผ่นที่.........................</div>
-          <div class="meta-line">วันที่............................................................................... (เขียนตัวเลขให้ชัดเจน หากใช้ ×6 หรือ ×3 ให้ระบุท้ายเลข)</div>
+          <div class="meta-line">งวดวันที่........................................................................ (เขียนตัวเลขให้ชัดเจน หากกลับ 6 ประตูให้เขียน ×6 หรือ 3 ประตูเขียน ×3)</div>
         </div>
-
         <table class="print-table-4x30" id="printTable4x30"></table>
-      </div>
-    </section>
-
-    <!-- ================================================================= -->
-    <!-- TAB 6: SETTINGS (GEMINI 2.5 PRO, PERMUTATION MODE, LINE WEBHOOK)  -->
-    <!-- ================================================================= -->
-    <section id="tab-settings" class="tab-panel no-print">
-      <div class="two-col-grid">
-        <div class="card">
-          <div class="card-header">
-            <h3>🤖 ตั้งค่าโมเดล AI OCR & กติกาการรวมยอดเลข</h3>
-          </div>
-          <div class="settings-form">
-            <div class="form-group">
-              <label>โมเดล AI สำหรับอ่านลายมือโพยหวย:</label>
-              <select id="settingGeminiModel" class="input">
-                <option value="gemini-2.5-pro">gemini-2.5-pro (แนะนำสูงสุด — แม่นยำที่สุดสำหรับงานเงินทอง ~0.25 บาท/ใบ)</option>
-                <option value="gemini-2.5-flash">gemini-2.5-flash (เน้นความเร็วสูง ประหยัดสุด)</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label>Gemini API Key (จาก Google AI Studio):</label>
-              <input type="password" id="settingGeminiKey" class="input" placeholder="AIzaSy... (เว้นว่างไว้เพื่อใช้โหมดจำลองข้อมูลจริง 16/11)" />
-              <small class="text-muted">หากใช้ไม่เกิน 100 ใบ/เดือน สามารถใช้โควต้าฟรีของ Google AI Studio ได้เลย หรือเสียเพียง ~15-25 บาท/เดือน</small>
-            </div>
-
-            <div class="form-group">
-              <label>วิธีจัดการเลขชุดกลับ (เช่น 072×6 = 66 หรือ 979×3 = 66):</label>
-              <select id="settingPermMode" class="input">
-                <option value="expand">แบบที่ 1: แยกเลขกระจายทุกประตูอัตโนมัติ (072×6=66 แตกเป็น 6 หาง หางละ 11 บาท รวมเข้า 3 ตัวบน)</option>
-                <option value="keep_raw">แบบที่ 2: คงตามหน้าโพย (เก็บ 072×6=66 ไว้ในหมวดชุดกลับโดยไม่แตกหาง)</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label class="checkbox-label">
-                <input type="checkbox" id="settingCheck11" checked />
-                เปิดระบบตรวจจับพหูคูณของ 11, 10, 5 บาท (แจ้งเตือนทันทีหากอ่านได้เลขแปลก เช่น 23 หรือ 17 บาท)
-              </label>
-            </div>
-
-            <hr class="divider" />
-            <h4>🛡️ เพดานรับเองสูงสุดต่อตัว (เกินจากนี้ระบบจะเตือนให้ตัดส่งเจ้ามือ)</h4>
-            <div class="form-row-2">
-              <div class="form-group">
-                <label>เพดาน 3 ตัวบน/ตรง (บาท/ตัว):</label>
-                <input type="number" id="limitThreeStraight" class="input" value="100" />
-              </div>
-              <div class="form-group">
-                <label>เพดาน 3 ตัวโต๊ด (บาท/ตัว):</label>
-                <input type="number" id="limitThreeToad" class="input" value="100" />
-              </div>
-              <div class="form-group">
-                <label>เพดาน 2 ตัวบน (บาท/ตัว):</label>
-                <input type="number" id="limitTwoTop" class="input" value="30" />
-              </div>
-              <div class="form-group">
-                <label>เพดาน 2 ตัวล่าง (บาท/ตัว):</label>
-                <input type="number" id="limitTwoBottom" class="input" value="100" />
-              </div>
-            </div>
-
-            <div class="btn-group-full">
-              <button class="btn btn-primary" onclick="saveSettingsFromForm()">
-                💾 บันทึกการตั้งค่าทั้งหมด
-              </button>
-              <button class="btn btn-outline" onclick="resetDemoDatabase()">
-                🔄 รีเซ็ตข้อมูลตัวอย่างเริ่มต้น
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <h3>📲 การเชื่อมต่อ LINE Official Account (LINE Messaging API)</h3>
-          </div>
-          <div class="settings-form">
-            <div class="info-callout">
-              <strong>ทำไมต้องใช้ LINE OA (ฟรี 100%) แทน LINE ส่วนตัว?</strong>
-              <p>LINE OA สร้างฟรีด้วยบัญชี LINE ส่วนตัวของคุณที่ <code>manager.line.biz</code> รับรูปโพยจากลูกค้าผ่าน Webhook ได้ฟรีไม่จำกัด และตอบกลับบิลสรุปอัตโนมัติ (Reply Message) ฟรีโดยไม่หักโควต้ารายเดือน</p>
-            </div>
-
-            <div class="form-group">
-              <label>Webhook URL ของระบบนี้ (นำไปวางใน LINE Developers Console):</label>
-              <div class="copy-row">
-                <input type="text" class="input mono-input" id="webhookUrlDisplay" readonly value="https://your-domain.com/api/line/webhook" />
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label>LINE Channel Access Token (Long-lived):</label>
-              <input type="password" id="settingLineToken" class="input" placeholder="ใส่ Channel Access Token เมื่อต้องการเชื่อม LINE OA จริง" />
-            </div>
-
-            <div class="form-group">
-              <label>LINE Channel Secret:</label>
-              <input type="password" id="settingLineSecret" class="input" placeholder="ใส่ Channel Secret" />
-            </div>
-          </div>
-        </div>
       </div>
     </section>
 
