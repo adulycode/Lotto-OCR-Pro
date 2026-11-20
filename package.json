@@ -1,0 +1,9 @@
+{
+  "name": "lottery-ocr-pro",
+  "version": "1.0.0",
+  "description": "High-Accuracy Handwritten Lottery Slip OCR (Gemini 2.5 Pro), LINE OA Integration, Side-by-Side Verification & Dealer Layoff System",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

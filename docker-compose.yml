@@ -1,0 +1,13 @@
+services:
+  efl-lotto-ocr:
+    build: .
+    container_name: efl-lotto-ocr
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3088:3088"
+    environment:
+      - NODE_ENV=production
+      - PORT=3088
+    volumes:
+      - ./data:/app/data
+      - ./public/uploads:/app/public/uploads
