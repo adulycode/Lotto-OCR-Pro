@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_18" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_19" />
 </head>
 <body>
   <div class="app-shell">
@@ -943,7 +943,34 @@
     </div>
   </div>
 
+  <!-- หน้าต่างเลือกเปิดงวดใหม่ตามปฏิทินกองสลาก (คำนวณวันหยุดและวันเลื่อนหวยอัตโนมัติ) -->
+  <div id="newDrawModalOverlay" class="modal-overlay hidden no-print" onclick="closeNewDrawModal()">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="card-header">
+        <div>
+          <h3>📅 เปิดงวดหวยใหม่ (ปฏิทินสำนักงานสลากกินแบ่งรัฐบาล)</h3>
+          <p class="text-muted">ระบบตรวจสอบวันหยุดพิเศษที่มีการเลื่อนวันออกรางวัลให้ล่วงหน้าอัตโนมัติ (เช่น วันปีใหม่ 30 ธ.ค. • วันครู 17 ม.ค. • วันแรงงาน 2 พ.ค.)</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="closeNewDrawModal()">✕ ปิด</button>
+      </div>
+
+      <div id="upcomingGloDrawsList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
+
+      <div style="padding-top:12px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;">
+          <label class="small-label">หรือกำหนดชื่องวดพิเศษเอง:</label>
+          <input type="text" id="customNewDrawTitleInput" class="input" placeholder="เช่น งวดวันที่ 2 มิ.ย. 2570 (เลื่อนวันวิสาขบูชา)" />
+        </div>
+        <div style="width:150px;">
+          <label class="small-label">วันที่ออกรางวัล:</label>
+          <input type="date" id="customNewDrawDateInput" class="input" value="2026-12-16" />
+        </div>
+        <button class="btn btn-primary" onclick="createCustomNewDraw()">+ สร้างงวดนี้</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_18"></script>
+  <script src="/app.js?v=20261120_19"></script>
 </body>
 </html>

@@ -111,20 +111,69 @@ async function onSwitchDraw(drawId) {
   showToast(`📅 สลับไปยัง "${appState.currentDraw?.title || ''}" เรียบร้อย`);
 }
 
-async function openNewDrawModal() {
-  const title = prompt('ระบุชื่องวดหวยใหม่ (เช่น งวดวันที่ 16 ธ.ค. 2569):', 'งวดวันที่ 16 ธ.ค. 2569');
-  if (!title) return;
+function openNewDrawModal() {
+  const modal = document.getElementById('newDrawModalOverlay');
+  const listEl = document.getElementById('upcomingGloDrawsList');
+  if (!modal || !listEl) return;
+
+  const upcoming = appState.upcomingGloDraws || [];
+  listEl.innerHTML = upcoming
+    .map(u => {
+      return `
+        <div class="contributor-item" style="margin-bottom:0;border-color:${u.isShifted ? 'rgba(245,158,11,0.5)' : 'var(--border)'};background:${u.isShifted ? 'rgba(245,158,11,0.08)' : 'var(--bg-elevated)'};">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <strong style="font-size:15px;color:${u.isShifted ? 'var(--gold)' : '#93c5fd'};">📅 ${u.title}</strong>
+              ${
+                u.isShifted
+                  ? `<span class="badge-50">${u.shiftReason}</span>`
+                  : `<span class="badge-100">🟢 ออกตามวันปกติ</span>`
+              }
+            </div>
+            <div class="text-muted" style="font-size:11.5px;margin-top:2px;">รหัสวันที่กองสลาก: ${u.drawDate}</div>
+          </div>
+          <div>
+            ${
+              u.alreadyCreated
+                ? `<span class="badge-100">เปิดงวดนี้ไว้แล้ว</span>`
+                : `<button class="btn btn-primary btn-sm" onclick="createDrawFromSchedule('${u.title}', '${u.drawDate}')">+ เปิดรับโพยงวดนี้</button>`
+            }
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+
+  modal.classList.remove('hidden');
+}
+
+function closeNewDrawModal() {
+  document.getElementById('newDrawModalOverlay')?.classList.add('hidden');
+}
+
+async function createDrawFromSchedule(title, drawDate) {
   const res = await fetch('/api/draws', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title })
+    body: JSON.stringify({ title, drawDate })
   });
   if (res.ok) {
+    closeNewDrawModal();
     selectedCustomerFilter = null;
     selectedAggNumberKey = null;
     await fetchAppState();
-    showToast(`✅ เปิดงวดใหม่ "${title}" เรียบร้อยแล้ว`);
+    showToast(`✅ เปิด "${title}" ตามปฏิทินกองสลากเรียบร้อยแล้ว!`);
   }
+}
+
+async function createCustomNewDraw() {
+  const title = document.getElementById('customNewDrawTitleInput')?.value.trim();
+  const drawDate = document.getElementById('customNewDrawDateInput')?.value || '';
+  if (!title) {
+    showToast('กรุณาระบุชื่องวดหวยก่อนครับ');
+    return;
+  }
+  await createDrawFromSchedule(title, drawDate);
 }
 
 function renderHeaderAndKpis() {

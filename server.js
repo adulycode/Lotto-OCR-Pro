@@ -11,7 +11,8 @@ const {
   parseFreeTextMessage,
   evaluateNumberRestriction,
   aggregateSlips,
-  checkDrawWinners
+  checkDrawWinners,
+  getUpcomingGloDraws
 } = require('./lotteryEngine');
 const { analyzeSlipImage } = require('./geminiOcr');
 
@@ -29,6 +30,50 @@ function getNextRoundForCustomer(slips, drawId, customerName) {
     s => (s.drawId || 'DRAW-2026-11-16') === drawId && s.customerName === customerName
   );
   return existing.length + 1;
+}
+
+/**
+ * Automatically detects whether the current draw has already passed its draw cutoff time
+ * (15:00 Thai time = 08:00 UTC on drawDate). If the submission arrives AFTER the draw has occurred,
+ * automatically rolls over to the next official GLO draw period (creating it if needed)!
+ */
+function resolveTargetDrawForSubmission(db, submittedAtIso, explicitDrawId = '', allowAutoRollover = false) {
+  let targetDraw =
+    db.draws.find(d => d.id === (explicitDrawId || db.currentDrawId)) || db.draws[0];
+
+  if (!allowAutoRollover || !targetDraw?.drawDate) {
+    return { draw: targetDraw, rolledOver: false };
+  }
+
+  // Cutoff time on draw day: 15:00 ICT (08:00 UTC)
+  const drawCutoffMs = new Date(`${targetDraw.drawDate}T08:00:00.000Z`).getTime();
+  const submitMs = new Date(submittedAtIso || Date.now()).getTime();
+
+  if (submitMs > drawCutoffMs) {
+    // Find or create the next official GLO draw whose drawDate is after submitMs
+    const upcomingList = getUpcomingGloDraws(db.draws, 6);
+    const nextCandidate = upcomingList.find(
+      u => new Date(`${u.drawDate}T08:00:00.000Z`).getTime() > submitMs
+    ) || upcomingList[0];
+
+    if (nextCandidate) {
+      let existingNext = db.draws.find(d => d.drawDate === nextCandidate.drawDate);
+      if (!existingNext) {
+        existingNext = {
+          id: `DRAW-${nextCandidate.drawDate}`,
+          title: nextCandidate.title,
+          drawDate: nextCandidate.drawDate,
+          status: 'open',
+          restrictedNumbers: []
+        };
+        db.draws.unshift(existingNext);
+      }
+      db.currentDrawId = existingNext.id;
+      return { draw: existingNext, rolledOver: true, previousDrawTitle: targetDraw.title };
+    }
+  }
+
+  return { draw: targetDraw, rolledOver: false };
 }
 
 function buildInitialDb() {
@@ -623,6 +668,7 @@ const server = http.createServer(async (req, res) => {
         currentDrawId: currentDraw.id,
         currentDraw,
         draws: db.draws,
+        upcomingGloDraws: getUpcomingGloDraws(db.draws, 6),
         settings: db.settings,
         learnedRules: db.learnedRules || [],
         slips: drawSlips,
@@ -1236,11 +1282,13 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // API: Real LINE Messaging API Webhook
+    // API: Real LINE Messaging API Webhook (Automatically rolls over to next GLO draw if previous draw has passed!)
     if (req.method === 'POST' && pathname === '/api/line/webhook') {
       const body = await parseJsonBody(req);
       const db = loadDb();
-      const currentDraw = db.draws.find(d => d.id === db.currentDrawId) || db.draws[0];
+      const nowIso = new Date().toISOString();
+      const resolved = resolveTargetDrawForSubmission(db, nowIso, db.currentDrawId, true);
+      const currentDraw = resolved.draw;
       const events = body.events || [];
       const token = db.settings.lineChannelAccessToken || process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 
@@ -1251,7 +1299,6 @@ const server = http.createServer(async (req, res) => {
           const customerName = `เด็กโพย LINE (${userId.slice(0, 6)})`;
           const nextRound = getNextRoundForCustomer(db.slips, currentDraw.id, customerName);
           let replyText = '';
-          const nowIso = new Date().toISOString();
 
           if (ev.message.type === 'image' && token) {
             const imgRes = await fetch(`https://api-data.line.me/v2/bot/message/${ev.message.id}/content`, {
