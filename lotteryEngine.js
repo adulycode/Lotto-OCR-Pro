@@ -349,7 +349,7 @@ function aggregateSlips(slips, settings = {}, restrictedList = []) {
     return map.get(key);
   }
 
-  function addContribution(entry, slip, item, amount, typeLabel, category) {
+  function addContribution(entry, slip, item, amount, typeLabel, category, fieldKey) {
     const evalRes = evaluateNumberRestriction(entry.number, slip.createdAt, restrictedList);
     if (evalRes.payoutPercentForThisSlip === 100) {
       entry.fullPayout100Amt += amount;
@@ -359,15 +359,18 @@ function aggregateSlips(slips, settings = {}, restrictedList = []) {
 
     entry.contributors.push({
       slipId: slip.id,
+      roundNumber: slip.roundNumber || 1,
       slipTitle: slip.title,
       customerName: slip.customerName,
       customerLineId: slip.customerLineId,
       source: slip.source,
       col: item.col,
       row: item.row,
+      rowKey: `${slip.id}_${item.col}_${item.row}`,
       originalWrite: `${item.numText} = ${item.amtText}`,
       typeLabel,
       category,
+      fieldKey, // 'threeStraightAmt', 'threeToadAmt', 'threePermRawAmt', 'twoTopAmt', 'twoBottomAmt'
       amount,
       createdAt: slip.createdAt,
       payoutPercent: evalRes.payoutPercentForThisSlip,
@@ -404,7 +407,8 @@ function aggregateSlips(slips, settings = {}, restrictedList = []) {
                 item,
                 eachAmt,
                 `แตกจาก ${item.numText} (${eachAmt}฿)`,
-                '3 ตัวบน (แตกประตู)'
+                '3 ตัวบน (แตกประตู)',
+                'threeStraightAmt'
               );
             }
           } else {
@@ -417,7 +421,8 @@ function aggregateSlips(slips, settings = {}, restrictedList = []) {
               item,
               item.permTotalAmt,
               `ชุดกลับ ×${item.permMult}`,
-              `3 ตัวชุดกลับ ×${item.permMult}`
+              `3 ตัวชุดกลับ ×${item.permMult}`,
+              'threePermRawAmt'
             );
           }
         } else {
@@ -426,12 +431,12 @@ function aggregateSlips(slips, settings = {}, restrictedList = []) {
             entry.threeStraightAmt += item.straightAmt;
             entry.threeStraightDirectAmt += item.straightAmt;
             entry.totalAmt += item.straightAmt;
-            addContribution(entry, slip, item, item.straightAmt, '3 ตัวบน (ตรง)', '3 ตัวบน (ตรง)');
+            addContribution(entry, slip, item, item.straightAmt, '3 ตัวบน (ตรง)', '3 ตัวบน (ตรง)', 'threeStraightAmt');
           }
           if (item.toadAmt > 0) {
             entry.threeToadAmt += item.toadAmt;
             entry.totalAmt += item.toadAmt;
-            addContribution(entry, slip, item, item.toadAmt, '3 ตัวโต๊ด', '3 ตัวโต๊ด');
+            addContribution(entry, slip, item, item.toadAmt, '3 ตัวโต๊ด', '3 ตัวโต๊ด', 'threeToadAmt');
           }
         }
       } else if (dCount === 2) {
@@ -449,26 +454,27 @@ function aggregateSlips(slips, settings = {}, restrictedList = []) {
                 item,
                 eachAmt,
                 `แตกจาก ${item.numText} (${eachAmt}฿)`,
-                '2 ตัวบน (กลับ)'
+                '2 ตัวบน (กลับ)',
+                'twoTopAmt'
               );
             }
           } else {
             const entry = getOrCreate(item.baseNumber, 2);
             entry.twoTopAmt += item.permTotalAmt;
             entry.totalAmt += item.permTotalAmt;
-            addContribution(entry, slip, item, item.permTotalAmt, '2 ตัวชุดกลับ (×2)', '2 ตัวชุดกลับ');
+            addContribution(entry, slip, item, item.permTotalAmt, '2 ตัวชุดกลับ (×2)', '2 ตัวชุดกลับ', 'twoTopAmt');
           }
         } else {
           const entry = getOrCreate(item.baseNumber, 2);
           if (item.straightAmt > 0) {
             entry.twoTopAmt += item.straightAmt;
             entry.totalAmt += item.straightAmt;
-            addContribution(entry, slip, item, item.straightAmt, '2 ตัวบน', '2 ตัวบน');
+            addContribution(entry, slip, item, item.straightAmt, '2 ตัวบน', '2 ตัวบน', 'twoTopAmt');
           }
           if (item.bottomAmt > 0) {
             entry.twoBottomAmt += item.bottomAmt;
             entry.totalAmt += item.bottomAmt;
-            addContribution(entry, slip, item, item.bottomAmt, '2 ตัวล่าง', '2 ตัวล่าง');
+            addContribution(entry, slip, item, item.bottomAmt, '2 ตัวล่าง', '2 ตัวล่าง', 'twoBottomAmt');
           }
         }
       }
@@ -486,11 +492,13 @@ function aggregateSlips(slips, settings = {}, restrictedList = []) {
       excessThreeStraight + excessThreeToad + excessThreePerm + excessTwoTop + excessTwoBottom;
 
     const uniqueCustomers = new Set(r.contributors.map(c => c.customerName)).size;
+    // Count distinct slip rows (so "287 = 110×110" written on 1 line is counted as 1 entry, not 2!)
+    const distinctRowEntries = new Set(r.contributors.map(c => c.rowKey)).size;
 
     return {
       ...r,
       uniqueCustomers,
-      hitCount: r.contributors.length,
+      hitCount: distinctRowEntries,
       excessThreeStraight,
       excessThreeToad,
       excessThreePerm,

@@ -366,18 +366,37 @@ function renderAggregatedTable() {
     let totalAmt = 0;
     let full100 = 0;
     let half50 = 0;
+    let threeStraightAmt = 0;
+    let threeToadAmt = 0;
+    let threePermRawAmt = 0;
+    let twoTopAmt = 0;
+    let twoBottomAmt = 0;
+
     for (const fc of filteredContribs) {
       totalAmt += fc.amount;
       if (fc.payoutPercent === 100) full100 += fc.amount;
       else half50 += fc.amount;
+
+      if (fc.fieldKey === 'threeStraightAmt') threeStraightAmt += fc.amount;
+      else if (fc.fieldKey === 'threeToadAmt') threeToadAmt += fc.amount;
+      else if (fc.fieldKey === 'threePermRawAmt') threePermRawAmt += fc.amount;
+      else if (fc.fieldKey === 'twoTopAmt') twoTopAmt += fc.amount;
+      else if (fc.fieldKey === 'twoBottomAmt') twoBottomAmt += fc.amount;
     }
+
+    const distinctRowCount = new Set(filteredContribs.map(c => c.rowKey || `${c.slipId}_${c.col}_${c.row}`)).size;
 
     return {
       ...item,
+      threeStraightAmt,
+      threeToadAmt,
+      threePermRawAmt,
+      twoTopAmt,
+      twoBottomAmt,
       totalAmt,
       fullPayout100Amt: full100,
       halfPayout50Amt: half50,
-      hitCount: filteredContribs.length,
+      hitCount: distinctRowCount,
       uniqueCustomers: new Set(filteredContribs.map(c => c.customerName)).size,
       contributors: filteredContribs
     };
@@ -416,14 +435,16 @@ function renderAggregatedTable() {
       return `
         <tr class="${isSelected ? 'selected-row' : ''}" onclick="inspectAggNumber('${item.key}')">
           <td>
-            <span class="number-pill">${item.number}</span>
-            ${item.hitCount > 1 ? `<span class="multi-hit-tag">ส่งซ้ำ ${item.hitCount} รอบ</span>` : ''}
+            <div class="num-cell-wrap">
+              <span class="number-pill">${item.number}</span>
+              ${item.hitCount > 1 ? `<span class="multi-hit-tag">ส่งซ้ำ ${item.hitCount} ครั้ง</span>` : ''}
+            </div>
           </td>
           <td>
             ${
               item.isRestricted
-                ? `<span class="badge-50">🔒 เลขอั้น (${item.restrictedRule?.payoutPercent || 50}%)</span>`
-                : `<span class="badge-100">🟢 ปกติ (100%)</span>`
+                ? `<span class="badge-50">🔒 เลขอั้น ${item.restrictedRule?.payoutPercent || 50}%</span>`
+                : `<span class="badge-100">🟢 ปกติ 100%</span>`
             }
           </td>
           <td class="num-col">${topAmt > 0 ? `${topAmt.toLocaleString()} ฿` : '-'}</td>
@@ -445,8 +466,8 @@ function renderAggregatedTable() {
                 : '-'
             }
           </td>
-          <td style="font-size:12px;">
-            <strong>${item.hitCount} รอบ</strong>
+          <td style="font-size:12.5px;">
+            <strong>${item.hitCount} รายการ</strong>
             <span class="text-muted">(${customerNames})</span>
           </td>
         </tr>
