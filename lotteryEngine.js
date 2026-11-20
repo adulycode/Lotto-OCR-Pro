@@ -208,6 +208,7 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
     row,
     numText: cleanNum,
     amtText: cleanAmt,
+    note: note || '',
     isEmpty: false,
     baseNumber,
     digitCount: baseNumber.length,

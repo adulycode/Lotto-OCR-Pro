@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_16" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_17" />
 </head>
 <body>
   <div class="app-shell">
@@ -455,6 +455,8 @@
           <div class="photo-viewport" id="photoViewport">
             <div class="photo-canvas-wrap" id="photoCanvasWrap">
               <img id="inspectorImage" src="/uploads/slip-16-11-page1.jpg" alt="รูปโพยหวย" />
+              <!-- กรอบชี้จุดที่มีปัญหาบนรูปกระดาษโพยอัตโนมัติ -->
+              <div id="photoIssueMarkers" class="photo-issue-markers"></div>
               <div id="gridOverlay4x30" class="grid-overlay-4x30 hidden">
                 <div class="overlay-col"><span>คอลัมน์ 1 (แถว 1-30)</span></div>
                 <div class="overlay-col"><span>คอลัมน์ 2 (แถว 1-30)</span></div>
@@ -959,6 +961,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_16"></script>
+  <script src="/app.js?v=20261120_17"></script>
 </body>
 </html>

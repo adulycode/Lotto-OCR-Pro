@@ -1436,18 +1436,26 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     `👤 ${slip.customerName} | 📌 รอบที่ ${slip.roundNumber || 1} (${formatThaiDateTime(slip.createdAt)}) | ยอดบิล: ${slip.totalMoney.toLocaleString()}฿`;
 
   const banner = document.getElementById('validationSummaryBanner');
-  const warnItems = (slip.items || []).filter(i => i.needsReview);
+  const warnItems = (slip.items || []).filter(
+    i => i.needsReview || (i.warnings && i.warnings.length > 0)
+  );
   if (warnItems.length > 0) {
     banner.className = 'validation-banner warn';
     const warnDesc = warnItems
-      .map(w => `คอลัมน์ ${w.col} แถว ${w.row} (${w.numText}=${w.amtText}): ${w.warnings.join(', ') || 'กรุณาตรวจซ้ำ'}`)
+      .map(w => {
+        const msg =
+          w.warnings && w.warnings.length > 0
+            ? w.warnings.join(', ')
+            : w.note || 'ตรวจพบรอยขีดฆ่า/ตัวเลขไม่ชัดเจน กรุณาตรวจสอบกับรูปจริง';
+        return `<span style="cursor:pointer;text-decoration:underline;font-weight:700;" onclick="focusInspectorCell(${w.col}, ${w.row})">📍 คอลัมน์ ${w.col} แถว ${w.row} (${w.numText}=${w.amtText}): ${msg} (คลิกเพื่อชี้จุด)</span>`;
+      })
       .join(' | ');
     banner.innerHTML = `
       <div>
-        <strong>⚠️ ระบบตรวจสอบความถูกต้อง 4 ชั้น พบจุดที่ควรเช็คเทียบกับรูปกระดาษ ${warnItems.length} จุด:</strong>
-        <div style="margin-top:2px;">${warnDesc}</div>
+        <strong>⚠️ พบจุดที่ควรเช็คเทียบกับรูปกระดาษ ${warnItems.length} จุด:</strong>
+        <div style="margin-top:3px;">${warnDesc}</div>
       </div>
-      <span style="font-family:var(--font-mono);font-weight:700;">ยอดรวมใบนี้: ${slip.totalMoney.toLocaleString()} ฿</span>
+      <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">ยอดรวมใบนี้: ${slip.totalMoney.toLocaleString()} ฿</span>
     `;
   } else {
     banner.className = 'validation-banner ok';
@@ -1456,8 +1464,33 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
         <strong>✅ ผ่านการตรวจสอบกฎคณิตศาสตร์ครบทุกแถว (${slip.totalItems} รายการ):</strong>
         กฎ ×6 (เลขไม่ซ้ำ/หาร 6 ลงตัว) • กฎ ×3 (เลขเบิ้ล/หาร 3 ลงตัว) • กฎพหูคูณ 11 บาท ถูกต้อง 100%
       </div>
-      <span style="font-family:var(--font-mono);font-weight:700;">ยอดรวมใบนี้: ${slip.totalMoney.toLocaleString()} ฿</span>
+      <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">ยอดรวมใบนี้: ${slip.totalMoney.toLocaleString()} ฿</span>
     `;
+  }
+
+  // วาดกรอบชี้ตำแหน่งที่มีปัญหาบนรูปกระดาษโพยต้นฉบับ (สำหรับใบโพยตาราง 4x30)
+  const markersEl = document.getElementById('photoIssueMarkers');
+  if (markersEl) {
+    if (slip.isGrid4x30 && warnItems.length > 0) {
+      markersEl.innerHTML = warnItems
+        .map(w => {
+          const leftPct = ((w.col - 1) / 4) * 100;
+          const widthPct = 25;
+          const topPct = ((w.row - 1) / 30) * 100;
+          const heightPct = 100 / 30;
+          return `
+            <div class="photo-issue-box"
+              style="left:${leftPct}%;width:${widthPct}%;top:${topPct}%;height:${heightPct}%;"
+              onclick="focusInspectorCell(${w.col}, ${w.row})"
+              title="คลิกเพื่อเลื่อนไปยัง คอลัมน์ ${w.col} แถว ${w.row}">
+              <span class="photo-issue-label">⚠️ คอลัมน์ ${w.col} แถว ${w.row} (${w.numText}=${w.amtText})</span>
+            </div>
+          `;
+        })
+        .join('');
+    } else {
+      markersEl.innerHTML = '';
+    }
   }
 
   const container = document.getElementById('paperGridContainer');
@@ -1482,11 +1515,20 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
         };
         colTotal += item.rowTotalMoney || 0;
 
-        if (showWarningsOnlyInInspector && !item.needsReview) continue;
+        const hasIssue = Boolean(
+          item.needsReview || (item.warnings && item.warnings.length > 0)
+        );
+
+        if (showWarningsOnlyInInspector && !hasIssue) continue;
 
         const isHighlighted = highlightCol === colNum && highlightRow === rIdx;
-        const rowClass =
-          item.warnings && item.warnings.length > 0 ? 'row-warn' : isHighlighted ? 'row-warn' : '';
+        const rowClass = hasIssue || isHighlighted ? 'row-warn' : '';
+        const warnMessages =
+          item.warnings && item.warnings.length > 0
+            ? item.warnings
+            : item.needsReview
+              ? [item.note || 'ตรวจพบรอยขีดฆ่า/เขียนทับตรงกลางช่องจำนวนเงิน กรุณาตรวจสอบกับรูปจริง']
+              : [];
 
         rowsHtml.push(`
           <div class="paper-row-item ${rowClass}" id="cell-${colNum}-${rIdx}">
@@ -1498,8 +1540,8 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
               value="${item.amtText || ''}" placeholder="ยอดเงิน"
               onchange="onCellEdit(${colNum}, ${rIdx})" />
             ${
-              item.warnings && item.warnings.length > 0
-                ? `<div class="row-warn-note">⚠️ ${item.warnings.join(' | ')}</div>`
+              warnMessages.length > 0
+                ? `<div class="row-warn-note">⚠️ ${warnMessages.join(' | ')}</div>`
                 : ''
             }
           </div>
@@ -1529,6 +1571,15 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
       const el = document.getElementById(`cell-${highlightCol}-${highlightRow}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 100);
+  }
+}
+
+function focusInspectorCell(col, row) {
+  const el = document.getElementById(`cell-${col}-${row}`);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const inp = el.querySelector('input');
+    if (inp) inp.focus();
   }
 }
 
