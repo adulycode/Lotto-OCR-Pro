@@ -1,5 +1,4 @@
-// Gemini 2.5 Pro High-Precision Lottery Slip OCR Engine
-// Supports both Single-Image 4x30 Grid Extraction and 4-Column Sliced High-Precision Extraction
+// Gemini 2.5 Pro High-Precision Lottery Slip OCR Engine with Self-Learning Handwriting Memory
 
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
@@ -48,14 +47,72 @@ const RESPONSE_SCHEMA = {
   required: ['items']
 };
 
-async function callGeminiVisionAPI({ base64Image, mimeType = 'image/jpeg', apiKey, model = 'gemini-2.5-pro', customPrompt = '' }) {
+/**
+ * Builds dynamic prompt instructions from the self-learning memory database (`learnedRules`)
+ * so Gemini 2.5 Pro learns from every human correction over time!
+ */
+function buildLearnedMemoryPrompt(learnedRules = [], customerName = '') {
+  if (!Array.isArray(learnedRules) || learnedRules.length === 0) return '';
+
+  // Prioritize rules learned from this specific runner + global rules
+  const relevant = learnedRules.filter(
+    r => !customerName || r.customerName === customerName || r.customerName === 'ทุกสาย (Global)'
+  );
+  const rulesToUse = relevant.length > 0 ? relevant : learnedRules.slice(0, 20);
+
+  const lines = rulesToUse.slice(0, 25).map((r, idx) => {
+    return `${idx + 1}. [สาย: ${r.customerName}] หากเห็นลายมือช่อง${r.field === 'amtText' ? 'ยอดเงิน' : 'ตัวเลข'}เขียนคล้าย "${r.wrongText}" ให้แปลงเป็น "${r.correctText}" (${r.reason || 'แอดมินเคยแก้ไขและยืนยันแล้ว'})`;
+  });
+
+  return `\n\n🧠 ความรู้สะสมจากการแก้ไขของแอดมินในอดีต (Self-Learning Memory สำหรับ "${customerName || 'ทั่วไป'}"):\nกรุณาใช้กฎที่เรียนรู้แล้วด้านล่างนี้ในการอ่านลายมือโพยใบนี้ด้วย:\n${lines.join('\n')}`;
+}
+
+/**
+ * Applies deterministic post-OCR corrections based on previously learned rules.
+ */
+function applyLearnedCorrectionsToRow(item, learnedRules = [], customerName = '') {
+  if (!Array.isArray(learnedRules) || learnedRules.length === 0) return item;
+
+  let numText = String(item.numText || '').trim();
+  let amtText = String(item.amtText || '').trim();
+  let appliedNote = item.note || '';
+
+  for (const rule of learnedRules) {
+    const matchesCustomer =
+      !rule.customerName ||
+      rule.customerName === 'ทุกสาย (Global)' ||
+      rule.customerName === customerName;
+    if (!matchesCustomer) continue;
+
+    if (rule.field === 'numText' && numText === rule.wrongText) {
+      numText = rule.correctText;
+      appliedNote = appliedNote
+        ? `${appliedNote} | 🧠 แก้อัตโนมัติจากความจำ AI (${rule.wrongText}➔${rule.correctText})`
+        : `🧠 แก้อัตโนมัติจากความจำ AI (${rule.wrongText}➔${rule.correctText})`;
+    } else if (rule.field === 'amtText' && amtText === rule.wrongText) {
+      amtText = rule.correctText;
+      appliedNote = appliedNote
+        ? `${appliedNote} | 🧠 แก้อัตโนมัติจากความจำ AI (${rule.wrongText}➔${rule.correctText})`
+        : `🧠 แก้อัตโนมัติจากความจำ AI (${rule.wrongText}➔${rule.correctText})`;
+    }
+  }
+
+  return {
+    ...item,
+    numText,
+    amtText,
+    note: appliedNote
+  };
+}
+
+async function callGeminiVisionAPI({ base64Image, mimeType = 'image/jpeg', apiKey, model = 'gemini-2.5-pro', customPrompt = '', learnedMemoryPrompt = '' }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
 
   const body = {
     systemInstruction: {
-      parts: [{ text: LOTTERY_OCR_SYSTEM_PROMPT }]
+      parts: [{ text: LOTTERY_OCR_SYSTEM_PROMPT + learnedMemoryPrompt }]
     },
     contents: [
       {
@@ -70,7 +127,7 @@ async function callGeminiVisionAPI({ base64Image, mimeType = 'image/jpeg', apiKe
           {
             text:
               customPrompt ||
-              'อ่านข้อมูลโพยหวยในภาพนี้ทุกคอลัมน์และทุกแถว (คอลัมน์ 1 ถึง 4, แถว 1 ถึง 30) อย่างละเอียด ห้ามข้ามแม้แต่แถวเดียว และตรวจสอบความถูกต้องตามกฎ ×6 และ ×3'
+              'อ่านข้อมูลโพยหวยในภาพนี้ทุกคอลัมน์และทุกแถว (คอลัมน์ 1 ถึง 4, แถว 1 ถึง 30) อย่างละเอียด ห้ามข้ามแม้แต่แถวเดียว และตรวจสอบความถูกต้องตามกฎ ×6 และ ×3 พร้อมใช้ความรู้สะสมที่แอดมินเคยสอนไว้'
           }
         ]
       }
@@ -104,15 +161,11 @@ async function callGeminiVisionAPI({ base64Image, mimeType = 'image/jpeg', apiKe
   return { parsed, usage };
 }
 
-/**
- * Analyzes a slip image (either via real Gemini 2.5 Pro API if apiKey is configured,
- * or intelligent simulation / multi-column slice processor).
- */
-async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/jpeg', settings = {}, fileName = '' }) {
+async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/jpeg', settings = {}, learnedRules = [], customerName = '' }) {
   const apiKey = (settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
   const model = settings.geminiModel || 'gemini-2.5-pro';
+  const learnedMemoryPrompt = buildLearnedMemoryPrompt(learnedRules, customerName);
 
-  // If user has provided a real Gemini API Key, call Gemini 2.5 Pro (with 4-column slice support if slices provided!)
   if (apiKey) {
     let rawItems = [];
     let sheetDate = '16/11';
@@ -121,7 +174,6 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
     let totalOutputTokens = 0;
 
     if (Array.isArray(columnSlices) && columnSlices.length === 4) {
-      // Layer 1 High-Accuracy Mode: Process each of the 4 vertical columns in parallel
       const colPromises = columnSlices.map((colBase64, idx) => {
         const colNum = idx + 1;
         return callGeminiVisionAPI({
@@ -129,7 +181,8 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
           mimeType: 'image/jpeg',
           apiKey,
           model,
-          customPrompt: `ภาพนี้คือคอลัมน์ที่ ${colNum} ของโพยหวย (มีแถวที่ 1 ถึง 30) กรุณาอ่านตัวเลขช่องซ้ายและจำนวนเงินช่องขวาของคอลัมน์ที่ ${colNum} ให้ครบทั้ง 30 แถว โดยกำหนด col = ${colNum} และ row = 1 ถึง 30 ตามลำดับ`
+          learnedMemoryPrompt,
+          customPrompt: `ภาพนี้คือคอลัมน์ที่ ${colNum} ของโพยหวย (มีแถวที่ 1 ถึง 30) ของ "${customerName || 'เด็กโพย'}" กรุณาอ่านตัวเลขช่องซ้ายและจำนวนเงินช่องขวาของคอลัมน์ที่ ${colNum} ให้ครบทั้ง 30 แถว โดยกำหนด col = ${colNum} และ row = 1 ถึง 30 ตามลำดับ`
         });
       });
 
@@ -144,12 +197,12 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
         }
       }
     } else {
-      // Single full-sheet pass
       const { parsed, usage } = await callGeminiVisionAPI({
         base64Image,
         mimeType,
         apiKey,
-        model
+        model,
+        learnedMemoryPrompt
       });
       sheetDate = parsed.sheetDate || sheetDate;
       sheetPage = parsed.sheetPage || sheetPage;
@@ -158,8 +211,9 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
       totalOutputTokens = usage.candidatesTokenCount || 0;
     }
 
-    const validatedItems = rawItems.map(item =>
-      parseAndValidateRow(
+    const validatedItems = rawItems.map(rawIt => {
+      const item = applyLearnedCorrectionsToRow(rawIt, learnedRules, customerName);
+      const parsedRow = parseAndValidateRow(
         {
           col: item.col || 1,
           row: item.row || 1,
@@ -170,10 +224,14 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
           note: item.note || ''
         },
         settings
-      )
-    );
+      );
+      return {
+        ...parsedRow,
+        ocrOriginalNumText: parsedRow.numText,
+        ocrOriginalAmtText: parsedRow.amtText
+      };
+    });
 
-    // Estimate THB cost for transparency (USD/THB ~ 34.5)
     const inputCostUSD = (totalInputTokens / 1_000_000) * 1.25;
     const outputCostUSD = (totalOutputTokens / 1_000_000) * 10.0;
     const estimatedCostTHB = +((inputCostUSD + outputCostUSD) * 34.5).toFixed(4);
@@ -181,6 +239,7 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
     return {
       mode: 'live_gemini',
       modelUsed: model,
+      learnedRulesApplied: learnedRules.length,
       sheetDate,
       sheetPage,
       items: validatedItems,
@@ -192,32 +251,40 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
     };
   }
 
-  // Fallback Demo Mode (when Gemini API Key is not yet configured in Settings):
-  // Returns the 120 rows from the 16/11 slip so the user can test the entire UI & math validation immediately
+  // Fallback Demo Simulation Mode
   const simulatedItems = [];
   for (const colStr of ['1', '2', '3', '4']) {
     const col = parseInt(colStr, 10);
     for (const r of RAW_COLUMNS_16_11[col]) {
-      simulatedItems.push(
-        parseAndValidateRow(
-          {
-            col,
-            row: r.row,
-            numText: r.numText,
-            amtText: r.amtText,
-            note: r.note || '',
-            needsReview: Boolean(r.needsReview),
-            confidence: r.needsReview ? 0.86 : 0.99
-          },
-          settings
-        )
+      const itemWithMemory = applyLearnedCorrectionsToRow(
+        { col, row: r.row, numText: r.numText, amtText: r.amtText, note: r.note || '', needsReview: Boolean(r.needsReview) },
+        learnedRules,
+        customerName
       );
+      const parsedRow = parseAndValidateRow(
+        {
+          col,
+          row: r.row,
+          numText: itemWithMemory.numText,
+          amtText: itemWithMemory.amtText,
+          note: itemWithMemory.note || '',
+          needsReview: Boolean(itemWithMemory.needsReview),
+          confidence: itemWithMemory.needsReview ? 0.86 : 0.99
+        },
+        settings
+      );
+      simulatedItems.push({
+        ...parsedRow,
+        ocrOriginalNumText: parsedRow.numText,
+        ocrOriginalAmtText: parsedRow.amtText
+      });
     }
   }
 
   return {
     mode: 'demo_simulation',
-    modelUsed: `${model} (โหมดจำลอง - ใส่ API Key ในตั้งค่าเพื่อเชื่อมต่อ Gemini จริง)`,
+    modelUsed: `${model} (พร้อมความจำ AI สะสม ${learnedRules.length} กฎ)`,
+    learnedRulesApplied: learnedRules.length,
     sheetDate: '16/11',
     sheetPage: '1',
     items: simulatedItems,
@@ -231,5 +298,7 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
 
 module.exports = {
   analyzeSlipImage,
+  buildLearnedMemoryPrompt,
+  applyLearnedCorrectionsToRow,
   LOTTERY_OCR_SYSTEM_PROMPT
 };

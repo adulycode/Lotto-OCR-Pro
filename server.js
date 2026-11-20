@@ -142,6 +142,53 @@ function buildInitialDb() {
     currentDrawId: 'DRAW-2026-11-16',
     draws,
     settings: defaultSettings,
+    learnedRules: [
+      {
+        id: 'LEARN-1',
+        customerName: 'เจ๊หมวย (สาย A)',
+        field: 'amtText',
+        wrongText: 'n×n',
+        correctText: '11×11',
+        reason: 'เขียนเลข 1 สองตัวติดกันเร็วๆ จนเส้นเชื่อมคล้ายตัว n (คอลัมน์ 2 แถว 25-30)',
+        learnedAt: tMuayRound1
+      },
+      {
+        id: 'LEARN-2',
+        customerName: 'เจ๊หมวย (สาย A)',
+        field: 'amtText',
+        wrongText: 'no×no',
+        correctText: '110×110',
+        reason: 'เขียนเลข 110 เร็วๆ จนดูคล้ายคำว่า no (คอลัมน์ 4 แถว 19-26)',
+        learnedAt: tMuayRound1
+      },
+      {
+        id: 'LEARN-3',
+        customerName: 'เจ๊หมวย (สาย A)',
+        field: 'amtText',
+        wrongText: '22×n',
+        correctText: '22×11',
+        reason: 'โต๊ด 11 บาทเขียนเหมือนตัว n (คอลัมน์ 3 แถว 23-25)',
+        learnedAt: tMuayRound1
+      },
+      {
+        id: 'LEARN-4',
+        customerName: 'เจ๊หมวย (สาย A)',
+        field: 'amtText',
+        wrongText: '55×no',
+        correctText: '55×110',
+        reason: 'ตรง 55 โต๊ด 110 เขียนตัวหลังคล้าย no (คอลัมน์ 3 แถว 28-30)',
+        learnedAt: tMuayRound1
+      },
+      {
+        id: 'LEARN-5',
+        customerName: 'เจ๊หมวย (สาย A)',
+        field: 'numText',
+        wrongText: 'n3×3',
+        correctText: '113×3',
+        reason: 'เลขเบิ้ล 113 เขียน 11 ติดกันคล้าย n3 (คอลัมน์ 4 แถว 14)',
+        learnedAt: tMuayRound1
+      }
+    ],
     slips: [
       {
         id: 'SLIP-1611-001',
@@ -536,7 +583,9 @@ const server = http.createServer(async (req, res) => {
         currentDraw,
         draws: db.draws,
         settings: db.settings,
+        learnedRules: db.learnedRules || [],
         slips: drawSlips,
+        trainingSlips: db.slips.filter(s => s.isTrainingOnly),
         customersInDraw: Array.from(customerMap.values()),
         aggregated,
         layoffs: (db.layoffs || []).filter(l => (l.drawId || currentDraw.id) === currentDraw.id),
@@ -549,10 +598,39 @@ const server = http.createServer(async (req, res) => {
           totalHalf50Money,
           totalUniqueNumbers: aggregated.length,
           restrictedCount: (currentDraw.restrictedNumbers || []).length,
+          learnedRulesCount: (db.learnedRules || []).length,
           overLimitCount: aggregated.filter(a => a.isOverLimit).length,
           pendingReviewSlips: drawSlips.filter(s => s.reviewCount > 0 && s.status !== 'verified').length
         }
       });
+    }
+
+    // API: Manage Self-Learning OCR Rules (เพิ่ม/ลบกฎความจำลายมือ)
+    if (req.method === 'POST' && pathname === '/api/learning') {
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      db.learnedRules = db.learnedRules || [];
+
+      if (body.action === 'add') {
+        const wrongText = String(body.wrongText || '').trim();
+        const correctText = String(body.correctText || '').trim();
+        if (wrongText && correctText && wrongText !== correctText) {
+          db.learnedRules.unshift({
+            id: `LEARN-${Date.now().toString().slice(-6)}`,
+            customerName: body.customerName || 'ทุกสาย (Global)',
+            field: body.field || 'numText',
+            wrongText,
+            correctText,
+            reason: body.reason || 'แอดมินสอนเพิ่มด้วยตัวเอง',
+            learnedAt: new Date().toISOString()
+          });
+        }
+      } else if (body.action === 'remove' && body.id) {
+        db.learnedRules = db.learnedRules.filter(r => r.id !== body.id);
+      }
+
+      saveDb(db);
+      return sendJson(res, 200, { ok: true, learnedRules: db.learnedRules });
     }
 
     // API: Create or Switch Draw Period
@@ -672,23 +750,27 @@ const server = http.createServer(async (req, res) => {
       const ocrResult = await analyzeSlipImage({
         base64Image: base64Image || fs.readFileSync(path.join(UPLOADS_DIR, 'slip-16-11-page1.jpg')).toString('base64'),
         columnSlices,
-        settings: db.settings
+        settings: db.settings,
+        learnedRules: db.learnedRules || [],
+        customerName
       });
 
       const items = ocrResult.items || [];
       const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
       const reviewCount = items.filter(i => i.needsReview).length;
+      const isTrainingOnly = Boolean(body.isTrainingOnly);
 
       const newSlip = {
-        id: `SLIP-${Date.now().toString().slice(-6)}`,
-        drawId: currentDraw.id,
-        roundNumber: nextRound,
-        title,
+        id: `${isTrainingOnly ? 'TRAIN' : 'SLIP'}-${Date.now().toString().slice(-6)}`,
+        drawId: isTrainingOnly ? 'TRAINING_ARCHIVE' : currentDraw.id,
+        isTrainingOnly,
+        roundNumber: isTrainingOnly ? 0 : nextRound,
+        title: isTrainingOnly ? `[โพยเก่าฝึกสอน AI] ${title}` : title,
         sheetDate: ocrResult.sheetDate || '16/11',
         sheetPage: String(nextRound),
         customerName,
         customerLineId: body.customerLineId || `U_${Date.now().toString().slice(-5)}`,
-        source: body.source || 'อัปโหลดรูปโพย (OCR)',
+        source: isTrainingOnly ? 'โหมดฝึกสอนจากโพยเก่า' : (body.source || 'อัปโหลดรูปโพย (OCR)'),
         imageUrl: savedImageUrl,
         isGrid4x30: items.length > 30,
         status: reviewCount > 0 ? 'needs_review' : 'verified',
@@ -712,11 +794,12 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // API: Update / Verify a Slip
+    // API: Update / Verify a Slip & Auto-Learn Handwriting Corrections!
     if (req.method === 'PUT' && pathname.startsWith('/api/slips/')) {
       const slipId = decodeURIComponent(pathname.replace('/api/slips/', ''));
       const body = await parseJsonBody(req);
       const db = loadDb();
+      db.learnedRules = db.learnedRules || [];
 
       const slip = db.slips.find(s => s.id === slipId);
       if (!slip) return sendJson(res, 404, { error: 'ไม่พบบิลนี้ในระบบ' });
@@ -725,21 +808,83 @@ const server = http.createServer(async (req, res) => {
       if (body.title !== undefined) slip.title = body.title;
       if (body.createdAt !== undefined) slip.createdAt = new Date(body.createdAt).toISOString();
 
+      // Compare previous items against edited items to automatically learn handwriting corrections!
+      const prevMap = new Map();
+      for (const oldIt of slip.items || []) {
+        prevMap.set(`${oldIt.col}_${oldIt.row}`, oldIt);
+      }
+
+      const newlyLearned = [];
+
       if (Array.isArray(body.items)) {
-        slip.items = body.items.map(it =>
-          parseAndValidateRow(
+        slip.items = body.items.map(it => {
+          const key = `${it.col || 1}_${it.row || 1}`;
+          const prev = prevMap.get(key);
+          const origNum = prev?.ocrOriginalNumText || prev?.numText || '';
+          const origAmt = prev?.ocrOriginalAmtText || prev?.amtText || '';
+
+          const newNum = String(it.numText || '').trim();
+          const newAmt = String(it.amtText || '').trim();
+
+          // If admin corrected the number and it differs from what OCR originally read, learn it!
+          if (origNum && newNum && origNum !== newNum) {
+            const exists = db.learnedRules.some(
+              r => r.customerName === slip.customerName && r.field === 'numText' && r.wrongText === origNum
+            );
+            if (!exists) {
+              const rule = {
+                id: `LEARN-${Date.now().toString().slice(-5)}-${it.col}${it.row}`,
+                customerName: slip.customerName,
+                field: 'numText',
+                wrongText: origNum,
+                correctText: newNum,
+                reason: `เรียนรู้จากการแก้บิล ${slip.title} (คอลัมน์ ${it.col} แถว ${it.row})`,
+                learnedAt: new Date().toISOString()
+              };
+              db.learnedRules.unshift(rule);
+              newlyLearned.push(`${origNum} ➔ ${newNum}`);
+            }
+          }
+
+          // If admin corrected the amount and it differs from what OCR originally read, learn it!
+          if (origAmt && newAmt && origAmt !== newAmt) {
+            const exists = db.learnedRules.some(
+              r => r.customerName === slip.customerName && r.field === 'amtText' && r.wrongText === origAmt
+            );
+            if (!exists) {
+              const rule = {
+                id: `LEARN-${Date.now().toString().slice(-5)}-A${it.col}${it.row}`,
+                customerName: slip.customerName,
+                field: 'amtText',
+                wrongText: origAmt,
+                correctText: newAmt,
+                reason: `เรียนรู้จากการแก้ยอดเงินใน ${slip.title} (คอลัมน์ ${it.col} แถว ${it.row})`,
+                learnedAt: new Date().toISOString()
+              };
+              db.learnedRules.unshift(rule);
+              newlyLearned.push(`${origAmt} ➔ ${newAmt}`);
+            }
+          }
+
+          const parsed = parseAndValidateRow(
             {
               col: it.col || 1,
               row: it.row || 1,
-              numText: it.numText || '',
-              amtText: it.amtText || '',
+              numText: newNum,
+              amtText: newAmt,
               note: it.clearedNote ? '' : (it.note || ''),
               needsReview: false,
               confidence: 1.0
             },
             db.settings
-          )
-        );
+          );
+
+          return {
+            ...parsed,
+            ocrOriginalNumText: newNum,
+            ocrOriginalAmtText: newAmt
+          };
+        });
       }
 
       slip.totalItems = slip.items.filter(i => !i.isEmpty).length;
@@ -757,7 +902,12 @@ const server = http.createServer(async (req, res) => {
       }
 
       saveDb(db);
-      return sendJson(res, 200, { ok: true, slip });
+      return sendJson(res, 200, {
+        ok: true,
+        slip,
+        newlyLearnedCount: newlyLearned.length,
+        newlyLearned
+      });
     }
 
     // API: Delete a Slip

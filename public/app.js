@@ -85,6 +85,7 @@ async function fetchAppState(drawIdParam = '') {
   renderRestrictedNumbersTab();
   renderLayoffBuilder();
   renderInspectorSelector();
+  renderLearnedRules();
   renderLineSimulator();
   populateSettingsForm();
 }
@@ -866,22 +867,22 @@ function jumpToSlipInspector(slipId, col, row) {
 
 function renderInspectorSelector() {
   const select = document.getElementById('inspectorSlipSelect');
-  const slips = appState.slips || [];
+  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
   if (!select) return;
-  if (slips.length === 0) {
+  if (allInspectableSlips.length === 0) {
     select.innerHTML = `<option value="">ไม่มีบิลในงวดนี้</option>`;
     return;
   }
 
-  if (!currentInspectedSlipId || !slips.find(s => s.id === currentInspectedSlipId)) {
-    currentInspectedSlipId = slips[0].id;
+  if (!currentInspectedSlipId || !allInspectableSlips.find(s => s.id === currentInspectedSlipId)) {
+    currentInspectedSlipId = allInspectableSlips[0].id;
   }
 
-  select.innerHTML = slips
+  select.innerHTML = allInspectableSlips
     .map(
       s =>
         `<option value="${s.id}" ${s.id === currentInspectedSlipId ? 'selected' : ''}>
-          ${s.title} — ผู้ส่ง: ${s.customerName} (${s.totalItems} รายการ | ${s.totalMoney.toLocaleString()}฿) ${
+          ${s.isTrainingOnly ? '🧠 [โพยเก่าฝึกสอน AI] ' : ''}${s.title} — ผู้ส่ง: ${s.customerName} (${s.totalItems} รายการ | ${s.totalMoney.toLocaleString()}฿) ${
           s.reviewCount > 0 ? `[⚠️ รอตรวจ ${s.reviewCount} จุด]` : '[✅ ยืนยันแล้ว]'
         }
         </option>`
@@ -893,7 +894,8 @@ function renderInspectorSelector() {
 
 function selectSlipForInspection(slipId, highlightCol = null, highlightRow = null) {
   currentInspectedSlipId = slipId;
-  const slip = (appState.slips || []).find(s => s.id === slipId);
+  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+  const slip = allInspectableSlips.find(s => s.id === slipId);
   if (!slip) return;
 
   const imgEl = document.getElementById('inspectorImage');
@@ -1010,7 +1012,8 @@ async function onCellEdit(col, row) {
 }
 
 async function saveAndVerifyCurrentSlip(markVerified = false) {
-  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+  const slip = allInspectableSlips.find(s => s.id === currentInspectedSlipId);
   if (!slip) return;
 
   const numInputs = document.querySelectorAll('.cell-input[data-field="numText"]');
@@ -1057,13 +1060,92 @@ async function saveAndVerifyCurrentSlip(markVerified = false) {
   });
 
   if (res.ok) {
+    const data = await res.json();
     await fetchAppState();
-    showToast(
-      markVerified
-        ? '✅ ยืนยันความถูกต้องของโพยนี้ 100% และอัปเดตยอดรวมทั้งหมดแล้ว!'
-        : '💾 บันทึกการแก้ไขและคำนวณกฎคณิตศาสตร์ใหม่เรียบร้อย'
-    );
+    if (data.newlyLearnedCount > 0) {
+      showToast(`🧠 AI เรียนรู้และจดจำลายมือใหม่ของ "${slip.customerName}" แล้ว: ${data.newlyLearned.join(', ')} (พร้อมใช้ในรอบถัดไป!)`);
+    } else {
+      showToast(
+        markVerified
+          ? '✅ ยืนยันความถูกต้องของโพยนี้ 100% และอัปเดตยอดรวมทั้งหมดแล้ว!'
+          : '💾 บันทึกการแก้ไขและคำนวณกฎคณิตศาสตร์ใหม่เรียบร้อย'
+      );
+    }
   }
+}
+
+function toggleLearnedMemoryPanel() {
+  const panel = document.getElementById('learnedMemoryPanel');
+  if (panel) panel.classList.toggle('hidden');
+}
+
+function renderLearnedRules() {
+  const rules = appState.learnedRules || [];
+  const countEl = document.getElementById('learnedRulesCountText');
+  if (countEl) countEl.textContent = rules.length;
+
+  const container = document.getElementById('learnedRulesListContainer');
+  if (!container) return;
+
+  if (rules.length === 0) {
+    container.innerHTML = `<div class="text-muted">ยังไม่มีประวัติความจำลายมือ</div>`;
+    return;
+  }
+
+  container.innerHTML = rules
+    .map(
+      r => `
+      <div class="contributor-item" style="padding:7px 12px;margin-bottom:6px;font-size:12.5px;">
+        <div>
+          <span class="badge-100" style="margin-right:6px;">👤 ${r.customerName}</span>
+          <span>ช่อง${r.field === 'amtText' ? 'ยอดเงิน' : 'ตัวเลข'}: หากเขียนคล้าย <code style="color:#f87171;font-weight:700;">${r.wrongText}</code> ➔ ให้แปลงเป็น <code style="color:#34d399;font-weight:700;">${r.correctText}</code></span>
+          <span class="text-muted" style="margin-left:8px;">(${r.reason || ''})</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="removeLearnedRule('${r.id}')">ลบ</button>
+      </div>
+    `
+    )
+    .join('');
+}
+
+async function addManualLearnedRule() {
+  const customerName = document.getElementById('learnCustomerInput').value.trim() || 'ทุกสาย (Global)';
+  const field = document.getElementById('learnFieldSelect').value;
+  const wrongText = document.getElementById('learnWrongInput').value.trim();
+  const correctText = document.getElementById('learnCorrectInput').value.trim();
+
+  if (!wrongText || !correctText) {
+    showToast('กรุณาระบุทั้งลายมือที่มักอ่านเพี้ยน และค่าที่ถูกต้องจริงครับ');
+    return;
+  }
+
+  await fetch('/api/learning', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'add',
+      customerName,
+      field,
+      wrongText,
+      correctText,
+      reason: 'แอดมินสอนเพิ่มด้วยตัวเอง'
+    })
+  });
+
+  document.getElementById('learnWrongInput').value = '';
+  document.getElementById('learnCorrectInput').value = '';
+  await fetchAppState();
+  showToast(`🧠 บันทึกเข้าสมอง AI เรียบร้อย: "${wrongText}" ➔ "${correctText}" (${customerName})`);
+}
+
+async function removeLearnedRule(id) {
+  await fetch('/api/learning', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'remove', id })
+  });
+  await fetchAppState();
+  showToast('ลบกฎความจำลายมือเรียบร้อย');
 }
 
 function toggleGridOverlay() {
@@ -1273,10 +1355,14 @@ async function runDirectOcrUpload() {
   const btn = document.getElementById('btnRunOcr');
   const customerName = document.getElementById('uploadCustomerName').value.trim() || 'ลูกค้าทั่วไป';
   const title = document.getElementById('uploadSlipTitle').value.trim() || `โพยกระดาษ - ${customerName}`;
+  const timingMode = document.getElementById('uploadTimingSelect')?.value || 'after_cutoff';
+  const isTrainingOnly = timingMode === 'training_only';
   const submittedAt = getSimSubmittedAt('uploadTimingSelect');
 
   btn.disabled = true;
-  btn.textContent = '⏳ กำลังอ่านลายมือด้วย AI + ตรวจสอบกฎคณิตศาสตร์ 4 ชั้น...';
+  btn.textContent = isTrainingOnly
+    ? '🧠 กำลังอ่านโพยเก่าเพื่อฝึกสอนลายมือให้ AI (ไม่คิดเงินรวมในงวดปัจจุบัน)...'
+    : '⏳ กำลังอ่านลายมือด้วย AI + ตรวจสอบกฎคณิตศาสตร์ 4 ชั้น...';
 
   try {
     const res = await fetch('/api/slips/ocr', {
@@ -1287,6 +1373,7 @@ async function runDirectOcrUpload() {
         customerName,
         title,
         submittedAt,
+        isTrainingOnly,
         base64Image: uploadedBase64Image,
         columnSlices: uploadedColumnSlices
       })
@@ -1298,7 +1385,11 @@ async function runDirectOcrUpload() {
       currentInspectedSlipId = data.slip.id;
       switchTab('tab-inspector');
       renderInspectorSelector();
-      showToast(`✅ อ่านโพยสำเร็จ (${data.slip.totalItems} รายการ รวม ${data.slip.totalMoney.toLocaleString()} บาท)`);
+      showToast(
+        isTrainingOnly
+          ? `🧠 โหลดโพยเก่าเข้าโหมดฝึกสอนสำเร็จ! แก้ไขตัวเลขที่เพี้ยนในตารางเพื่อให้ AI จำลายมือได้เลย (ไม่รวมในยอดเงินงวดปัจจุบัน)`
+          : `✅ อ่านโพยสำเร็จ (${data.slip.totalItems} รายการ รวม ${data.slip.totalMoney.toLocaleString()} บาท)`
+      );
     }
   } catch (err) {
     showToast(`❌ เกิดข้อผิดพลาด: ${err.message}`);

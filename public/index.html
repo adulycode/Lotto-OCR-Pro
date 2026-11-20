@@ -363,6 +363,49 @@
 
       <div id="validationSummaryBanner" class="validation-banner"></div>
 
+      <!-- กล่องสมองความจำ AI (Self-Learning Handwriting Memory) -->
+      <div class="card" style="margin-bottom:14px;background:rgba(59,130,246,0.07);border-color:rgba(59,130,246,0.35);">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div>
+            <h3 style="font-size:14.5px;color:#93c5fd;">
+              🧠 สมองจดจำลายมือ AI (เรียนรู้จากการแก้ไขของคุณอัตโนมัติ — จำได้แล้ว <span id="learnedRulesCountText">5</span> รูปแบบ)
+            </h3>
+            <p class="text-muted">
+              เมื่อคุณแก้ไขตัวเลขหรือยอดเงินในตารางด้านล่าง ระบบจะจำคู่คำผิด➔คำถูกของเด็กโพยคนนี้ เพื่อนำไปสอน AI ในการอ่านโพยรอบถัดไปอัตโนมัติ
+            </p>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="toggleLearnedMemoryPanel()">
+            📖 เปิดดู/สอนเพิ่มสมุดจำลายมือ AI
+          </button>
+        </div>
+
+        <div id="learnedMemoryPanel" class="hidden" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+            <div>
+              <label class="small-label">เด็กโพยเจ้าของลายมือ:</label>
+              <input type="text" id="learnCustomerInput" class="input" style="width:170px;" value="เจ๊หมวย (สาย A)" />
+            </div>
+            <div>
+              <label class="small-label">ช่องข้อมูล:</label>
+              <select id="learnFieldSelect" class="input" style="width:130px;">
+                <option value="numText">ช่องตัวเลข</option>
+                <option value="amtText">ช่องยอดเงิน</option>
+              </select>
+            </div>
+            <div>
+              <label class="small-label">ลายมือที่ AI มักอ่านเพี้ยน:</label>
+              <input type="text" id="learnWrongInput" class="input" style="width:140px;" placeholder="เช่น 533 หรือ n×n" />
+            </div>
+            <div>
+              <label class="small-label">ค่าที่ถูกต้องจริง:</label>
+              <input type="text" id="learnCorrectInput" class="input" style="width:140px;" placeholder="เช่น 583 หรือ 11×11" />
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="addManualLearnedRule()">+ สอนให้ AI จำ</button>
+          </div>
+          <div id="learnedRulesListContainer"></div>
+        </div>
+      </div>
+
       <div class="inspector-split">
         <!-- ซ้าย: รูปโพยกระดาษต้นฉบับ -->
         <div class="card photo-inspector-card">
@@ -501,10 +544,11 @@
             </div>
 
             <div class="form-group">
-              <label>เวลาที่ลูกค้านำโพยมาส่ง (ใช้เช็คสิทธิ์จ่ายเต็ม 100% หรือติดอั้น 50%):</label>
+              <label>โหมดการอัปโหลดและเวลาที่ส่ง:</label>
               <select id="uploadTimingSelect" class="input">
-                <option value="after_cutoff">🕒 ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
-                <option value="before_cutoff">⏪ ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100% ทั้งใบ)</option>
+                <option value="after_cutoff">🕒 โพยจริงงวดนี้ — ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
+                <option value="before_cutoff">⏪ โพยจริงงวดนี้ — ส่งก่อนประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100% ทั้งใบ)</option>
+                <option value="training_only">🧠 โพยเก่าใช้ฝึกสอน AI เท่านั้น (เรียนรู้ลายมือโดยไม่คิดเงินรวมในงวดปัจจุบัน)</option>
               </select>
             </div>
 
@@ -644,6 +688,6 @@
   </main>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_5"></script>
+  <script src="/app.js?v=20261120_6"></script>
 </body>
 </html>
