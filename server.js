@@ -23,11 +23,18 @@ const UPLOADS_DIR = path.join(PUBLIC_DIR, 'uploads');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
+function getNextRoundForCustomer(slips, drawId, customerName) {
+  const existing = (slips || []).filter(
+    s => (s.drawId || 'DRAW-2026-11-16') === drawId && s.customerName === customerName
+  );
+  return existing.length + 1;
+}
+
 function buildInitialDb() {
   const defaultSettings = {
     geminiModel: 'gemini-2.5-pro',
     geminiApiKey: '',
-    permutationMode: 'expand', // 'expand' = แยกเลขทุกประตู, 'keep_raw' = คงตามหน้าโพย
+    permutationMode: 'expand',
     useColumnSlicing: true,
     checkMultiplesOf11: true,
     riskLimits: {
@@ -41,28 +48,27 @@ function buildInitialDb() {
     lineChannelSecret: ''
   };
 
-  // Timestamps to clearly demonstrate the Before-Cutoff (100%) vs After-Cutoff (50%) rule:
-  // 1) เจ๊หมวย & เฮียพงษ์ sent on 14 พ.ย. (2 days before draw -> BEFORE dealer announced 50% cutoff) => Gets 100%!
-  // 2) Dealer announced 5 restricted numbers (21, 583, 154, 072, 860) on 15 พ.ย. 14:00 น. (1 day before draw) => After this time gets 50%!
-  // 3) ป้านิด sent on 15 พ.ย. 16:30 น. (AFTER dealer announcement) => Numbers 21 and 860 in her bill get 50%!
-  const timeBeforeCutoff1 = '2026-11-14T10:15:00.000Z';
-  const timeBeforeCutoff2 = '2026-11-14T15:30:00.000Z';
-  const timeDealerCutoffAnnouncement = '2026-11-15T07:00:00.000Z'; // 14:00 น. เวลาไทย (ก่อนหวยออก 1 วัน)
-  const timeAfterCutoff3 = '2026-11-15T09:45:00.000Z';             // 16:45 น. เวลาไทย (ส่งหลังประกาศอั้น -> ได้ 50%)
+  // เวลาอ้างอิงเพื่อแสดงตัวอย่างเด็กโพย 1 คนส่งหลายรอบ (ทั้งรอบที่ส่งก่อนอั้น ได้ 100% และรอบที่ส่งหลังอั้น ได้ 50%)
+  const tMuayRound1 = '2026-11-14T10:15:00.000Z'; // 14 พ.ย. 17:15 น. (ก่อนอั้น)
+  const tMuayRound2 = '2026-11-15T03:30:00.000Z'; // 15 พ.ย. 10:30 น. (ก่อนอั้น)
+  const tPongRound1 = '2026-11-14T15:30:00.000Z'; // 14 พ.ย. 22:30 น. (ก่อนอั้น)
+  const tDealerCutoff = '2026-11-15T07:00:00.000Z'; // เจ้ามือประกาศอั้น 15 พ.ย. 14:00 น. (ก่อนหวยออก 1 วัน)
+  const tPongRound2 = '2026-11-15T08:10:00.000Z'; // 15 พ.ย. 15:10 น. (หลังอั้น)
+  const tMuayRound3 = '2026-11-15T09:20:00.000Z'; // 15 พ.ย. 16:20 น. (หลังอั้น)
+  const tNidRound1  = '2026-11-15T09:45:00.000Z'; // 15 พ.ย. 16:45 น. (หลังอั้น)
 
   const draws = [
     {
       id: 'DRAW-2026-11-16',
       title: 'งวดวันที่ 16 พ.ย. 2569',
       drawDate: '2026-11-16',
-      status: 'open', // 'open' = เปิดรับแทง, 'closed' = ปิดงวดแล้ว
-      // เลขอั้น 5 ชุดที่เจ้ามือแจ้งก่อนวันหวยออก 1 วัน (แทงก่อนเวลาประกาศได้ 100% / แทงหลังเวลาประกาศได้ 50%)
+      status: 'open',
       restrictedNumbers: [
-        { number: '21', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
-        { number: '583', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
-        { number: '154', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
-        { number: '072', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
-        { number: '860', payoutPercent: 50, announcedAt: timeDealerCutoffAnnouncement, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' }
+        { number: '21', payoutPercent: 50, announcedAt: tDealerCutoff, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
+        { number: '583', payoutPercent: 50, announcedAt: tDealerCutoff, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
+        { number: '154', payoutPercent: 50, announcedAt: tDealerCutoff, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
+        { number: '072', payoutPercent: 50, announcedAt: tDealerCutoff, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' },
+        { number: '860', payoutPercent: 50, announcedAt: tDealerCutoff, note: 'เจ้ามือแจ้งอั้นจ่ายครึ่ง 50%' }
       ]
     },
     {
@@ -74,11 +80,11 @@ function buildInitialDb() {
     }
   ];
 
-  // Slip 1: โพยกระดาษ 16/11 แผ่นที่ 1 (120 รายการ) - ส่งเมื่อ 14 พ.ย. (ก่อนอั้น -> ได้ 100% ทั้งใบ)
-  const slip1Items = [];
+  // เจ๊หมวย รอบที่ 1: โพยกระดาษ 16/11 แผ่นที่ 1 (120 รายการ) ส่งก่อนอั้น
+  const muayR1Items = [];
   for (const colNum of [1, 2, 3, 4]) {
     for (const r of RAW_COLUMNS_16_11[colNum]) {
-      slip1Items.push(
+      muayR1Items.push(
         parseAndValidateRow(
           {
             col: colNum,
@@ -94,24 +100,43 @@ function buildInitialDb() {
       );
     }
   }
-  const slip1Total = slip1Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
+  const muayR1Total = muayR1Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
 
-  // Slip 2: เฮียพงษ์ ส่งเมื่อ 14 พ.ย. (ก่อนเวลาเจ้ามือประกาศอั้น -> เลข 21 = 22 บาท และ 583 ได้เต็ม 100%!)
-  const slip2Items = [
+  // เจ๊หมวย รอบที่ 2: ส่งเพิ่มช่วงเช้า 15 พ.ย. 10:30 น. (ก่อนอั้น -> ได้ 100%)
+  const muayR2Items = [
+    parseAndValidateRow({ col: 1, row: 1, numText: '583', amtText: '22×22', confidence: 0.99 }, defaultSettings),
+    parseAndValidateRow({ col: 1, row: 2, numText: '317', amtText: '22', confidence: 0.99 }, defaultSettings)
+  ];
+  const muayR2Total = muayR2Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
+
+  // เจ๊หมวย รอบที่ 3: ส่งเพิ่มช่วงบ่าย 15 พ.ย. 16:20 น. (หลังเจ้ามือประกาศอั้น -> เลข 154 ได้ 50%, เลข 426 ได้ 100%)
+  const muayR3Items = [
+    parseAndValidateRow({ col: 1, row: 1, numText: '154', amtText: '22×22', confidence: 0.99 }, defaultSettings),
+    parseAndValidateRow({ col: 1, row: 2, numText: '426', amtText: '22', confidence: 0.99 }, defaultSettings)
+  ];
+  const muayR3Total = muayR3Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
+
+  // เฮียพงษ์ รอบที่ 1: ส่งวันที่ 14 พ.ย. (ก่อนอั้น -> เลข 21 = 22 บาท ได้ 100%)
+  const pongR1Items = [
     parseAndValidateRow({ col: 1, row: 1, numText: '21', amtText: '22', confidence: 0.99 }, defaultSettings),
     parseAndValidateRow({ col: 1, row: 2, numText: '583', amtText: '55×55', confidence: 0.99 }, defaultSettings),
-    parseAndValidateRow({ col: 1, row: 3, numText: '154', amtText: '22×22', confidence: 0.99 }, defaultSettings),
-    parseAndValidateRow({ col: 1, row: 4, numText: '072', amtText: '33', confidence: 0.99 }, defaultSettings)
+    parseAndValidateRow({ col: 1, row: 3, numText: '072', amtText: '33', confidence: 0.99 }, defaultSettings)
   ];
-  const slip2Total = slip2Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
+  const pongR1Total = pongR1Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
 
-  // Slip 3: ป้านิด ส่งเมื่อ 15 พ.ย. 16:45 น. (หลังเวลาเจ้ามือประกาศอั้น -> เลข 21 = 20 บาท และ 860 ได้จ่ายครึ่ง 50%!)
-  const slip3Items = [
+  // เฮียพงษ์ รอบที่ 2: ส่งวันที่ 15 พ.ย. 15:10 น. (หลังอั้น -> เลข 154 = 22×22 ติดอั้นได้ 50%)
+  const pongR2Items = [
+    parseAndValidateRow({ col: 1, row: 1, numText: '154', amtText: '22×22', confidence: 0.99 }, defaultSettings)
+  ];
+  const pongR2Total = pongR2Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
+
+  // ป้านิด รอบที่ 1: ส่งวันที่ 15 พ.ย. 16:45 น. (หลังอั้น -> เลข 21 = 20 บาท ได้ 50%, เลข 860 ได้ 50%)
+  const nidR1Items = [
     parseAndValidateRow({ col: 1, row: 1, numText: '21', amtText: '20', confidence: 0.99 }, defaultSettings),
     parseAndValidateRow({ col: 1, row: 2, numText: '860', amtText: '22×22', confidence: 0.99 }, defaultSettings),
     parseAndValidateRow({ col: 1, row: 3, numText: '289', amtText: '22×11', confidence: 0.99 }, defaultSettings)
   ];
-  const slip3Total = slip3Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
+  const nidR1Total = nidR1Items.reduce((sum, i) => sum + (i.rowTotalMoney || 0), 0);
 
   return {
     currentDrawId: 'DRAW-2026-11-16',
@@ -121,7 +146,8 @@ function buildInitialDb() {
       {
         id: 'SLIP-1611-001',
         drawId: 'DRAW-2026-11-16',
-        title: 'โพยกระดาษ แผ่นที่ 1 (120 แถว)',
+        roundNumber: 1,
+        title: 'รอบที่ 1 — โพยกระดาษ แผ่นที่ 1 (120 แถว)',
         sheetDate: '16/11',
         sheetPage: '1',
         customerName: 'เจ๊หมวย (สาย A)',
@@ -131,18 +157,59 @@ function buildInitialDb() {
         isGrid4x30: true,
         status: 'needs_review',
         modelUsed: 'gemini-2.5-pro',
-        totalItems: slip1Items.filter(i => !i.isEmpty).length,
-        totalMoney: slip1Total,
-        reviewCount: slip1Items.filter(i => i.needsReview).length,
-        createdAt: timeBeforeCutoff1,
-        items: slip1Items
+        totalItems: muayR1Items.filter(i => !i.isEmpty).length,
+        totalMoney: muayR1Total,
+        reviewCount: muayR1Items.filter(i => i.needsReview).length,
+        createdAt: tMuayRound1,
+        items: muayR1Items
       },
       {
         id: 'SLIP-1611-002',
         drawId: 'DRAW-2026-11-16',
-        title: 'บิล LINE #2 (ส่งก่อนอั้น — จ่าย 100%)',
+        roundNumber: 2,
+        title: 'รอบที่ 2 — ส่งเพิ่มช่วงเช้า (ก่อนอั้น)',
         sheetDate: '16/11',
-        sheetPage: '-',
+        sheetPage: '2',
+        customerName: 'เจ๊หมวย (สาย A)',
+        customerLineId: 'U_muay_line_01',
+        source: 'LINE ข้อความ',
+        imageUrl: '',
+        isGrid4x30: false,
+        status: 'verified',
+        modelUsed: 'gemini-2.5-pro',
+        totalItems: muayR2Items.length,
+        totalMoney: muayR2Total,
+        reviewCount: 0,
+        createdAt: tMuayRound2,
+        items: muayR2Items
+      },
+      {
+        id: 'SLIP-1611-003',
+        drawId: 'DRAW-2026-11-16',
+        roundNumber: 3,
+        title: 'รอบที่ 3 — ส่งโค้งสุดท้าย (หลังประกาศอั้น)',
+        sheetDate: '16/11',
+        sheetPage: '3',
+        customerName: 'เจ๊หมวย (สาย A)',
+        customerLineId: 'U_muay_line_01',
+        source: 'LINE ข้อความ',
+        imageUrl: '',
+        isGrid4x30: false,
+        status: 'verified',
+        modelUsed: 'gemini-2.5-pro',
+        totalItems: muayR3Items.length,
+        totalMoney: muayR3Total,
+        reviewCount: 0,
+        createdAt: tMuayRound3,
+        items: muayR3Items
+      },
+      {
+        id: 'SLIP-1611-004',
+        drawId: 'DRAW-2026-11-16',
+        roundNumber: 1,
+        title: 'รอบที่ 1 — ส่งก่อนอั้น (21=22฿, 583, 072)',
+        sheetDate: '16/11',
+        sheetPage: '1',
         customerName: 'เฮียพงษ์ (ลูกค้า LINE)',
         customerLineId: 'U_pong_line_02',
         source: 'LINE ข้อความ',
@@ -150,18 +217,39 @@ function buildInitialDb() {
         isGrid4x30: false,
         status: 'verified',
         modelUsed: 'gemini-2.5-pro',
-        totalItems: slip2Items.length,
-        totalMoney: slip2Total,
+        totalItems: pongR1Items.length,
+        totalMoney: pongR1Total,
         reviewCount: 0,
-        createdAt: timeBeforeCutoff2,
-        items: slip2Items
+        createdAt: tPongRound1,
+        items: pongR1Items
       },
       {
-        id: 'SLIP-1611-003',
+        id: 'SLIP-1611-005',
         drawId: 'DRAW-2026-11-16',
-        title: 'บิล LINE #3 (ส่งหลังประกาศอั้น — เลขอั้นจ่าย 50%)',
+        roundNumber: 2,
+        title: 'รอบที่ 2 — ส่งเพิ่มหลังประกาศอั้น (154=22×22)',
         sheetDate: '16/11',
-        sheetPage: '-',
+        sheetPage: '2',
+        customerName: 'เฮียพงษ์ (ลูกค้า LINE)',
+        customerLineId: 'U_pong_line_02',
+        source: 'LINE ข้อความ',
+        imageUrl: '',
+        isGrid4x30: false,
+        status: 'verified',
+        modelUsed: 'gemini-2.5-pro',
+        totalItems: pongR2Items.length,
+        totalMoney: pongR2Total,
+        reviewCount: 0,
+        createdAt: tPongRound2,
+        items: pongR2Items
+      },
+      {
+        id: 'SLIP-1611-006',
+        drawId: 'DRAW-2026-11-16',
+        roundNumber: 1,
+        title: 'รอบที่ 1 — ส่งหลังประกาศอั้น (21=20฿, 860, 289)',
+        sheetDate: '16/11',
+        sheetPage: '1',
         customerName: 'ป้านิด (ลูกค้า LINE)',
         customerLineId: 'U_nid_line_03',
         source: 'LINE ข้อความ',
@@ -169,11 +257,11 @@ function buildInitialDb() {
         isGrid4x30: false,
         status: 'verified',
         modelUsed: 'gemini-2.5-pro',
-        totalItems: slip3Items.length,
-        totalMoney: slip3Total,
+        totalItems: nidR1Items.length,
+        totalMoney: nidR1Total,
         reviewCount: 0,
-        createdAt: timeAfterCutoff3,
-        items: slip3Items
+        createdAt: tNidRound1,
+        items: nidR1Items
       }
     ],
     layoffs: [],
@@ -185,8 +273,8 @@ function buildInitialDb() {
         sender: 'customer',
         type: 'image',
         imageUrl: '/uploads/slip-16-11-page1.jpg',
-        text: 'ส่งโพยกระดาษงวด 16/11 แผ่นที่ 1 ค่ะ (ส่งวันที่ 14 พ.ย. ก่อนเลขอั้น)',
-        timestamp: timeBeforeCutoff1
+        text: 'ส่งโพยกระดาษงวด 16/11 รอบที่ 1 (แผ่นที่ 1) ค่ะ',
+        timestamp: tMuayRound1
       },
       {
         id: 'MSG-2',
@@ -194,44 +282,44 @@ function buildInitialDb() {
         customerName: 'เจ๊หมวย (สาย A)',
         sender: 'bot',
         type: 'text',
-        text: `✅ รับโพย #SLIP-1611-001 (งวดวันที่ 16 พ.ย. 2569)\n👤 ผู้ส่ง: เจ๊หมวย (สาย A)\n🟢 สถานะเรทจ่าย: จ่ายเต็ม 100% ทุกเลข (ส่งก่อนเวลาประกาศเลขอั้น)\n📋 จำนวน: 120 รายการ | ยอดรวม: ${slip1Total.toLocaleString()} บาท`,
-        timestamp: timeBeforeCutoff1
+        text: `✅ รับโพย เจ๊หมวย (สาย A) — รอบที่ 1\n🟢 ส่งก่อนเวลาประกาศอั้น: ได้เต็ม 100% ทุกเลข\n📋 จำนวน: 120 รายการ | ยอดรอบนี้: ${muayR1Total.toLocaleString()} บาท\n📊 ยอดสะสมรวมของเจ๊หมวย (1 รอบ): ${muayR1Total.toLocaleString()} บาท`,
+        timestamp: tMuayRound1
       },
       {
         id: 'MSG-3',
         drawId: 'DRAW-2026-11-16',
-        customerName: 'เฮียพงษ์ (ลูกค้า LINE)',
+        customerName: 'เจ๊หมวย (สาย A)',
         sender: 'customer',
         type: 'text',
-        text: '21 = 22 บาท\n583 = 55x55\n154 = 22x22\n072 = 33',
-        timestamp: timeBeforeCutoff2
+        text: 'ส่งเพิ่มรอบ 2 ค่ะ\n583 = 22x22\n317 = 22',
+        timestamp: tMuayRound2
       },
       {
         id: 'MSG-4',
         drawId: 'DRAW-2026-11-16',
-        customerName: 'เฮียพงษ์ (ลูกค้า LINE)',
+        customerName: 'เจ๊หมวย (สาย A)',
         sender: 'bot',
         type: 'text',
-        text: `✅ บันทึกบิล #SLIP-1611-002 (งวดวันที่ 16 พ.ย. 2569)\n👤 ผู้ส่ง: เฮียพงษ์ (ลูกค้า LINE)\n🟢 ส่งก่อนเวลาประกาศอั้น: ได้เรทจ่ายเต็ม 100% ทุกเลข!\n• 21 = 22 บาท (จ่ายเต็ม 100%)\n• 583 = 55×55 (จ่ายเต็ม 100%)\n• 154 = 22×22 (จ่ายเต็ม 100%)\n• 072 = 33 บาท (จ่ายเต็ม 100%)\n💰 รวมยอดบิลนี้: ${slip2Total.toLocaleString()} บาท`,
-        timestamp: timeBeforeCutoff2
+        text: `✅ รับโพย เจ๊หมวย (สาย A) — รอบที่ 2\n🟢 ส่งก่อนเวลาประกาศอั้น: ได้เต็ม 100% ทุกเลข\n💰 ยอดรอบนี้: ${muayR2Total.toLocaleString()} บาท\n📊 ยอดสะสมรวมของเจ๊หมวย (รวม 2 รอบ): ${(muayR1Total + muayR2Total).toLocaleString()} บาท`,
+        timestamp: tMuayRound2
       },
       {
         id: 'MSG-5',
         drawId: 'DRAW-2026-11-16',
-        customerName: 'ป้านิด (ลูกค้า LINE)',
+        customerName: 'เจ๊หมวย (สาย A)',
         sender: 'customer',
         type: 'text',
-        text: '21 = 20 บาท\n860 = 22x22\n289 = 22x11',
-        timestamp: timeAfterCutoff3
+        text: 'ส่งเพิ่มรอบ 3 โค้งสุดท้ายค่ะ\n154 = 22x22\n426 = 22',
+        timestamp: tMuayRound3
       },
       {
         id: 'MSG-6',
         drawId: 'DRAW-2026-11-16',
-        customerName: 'ป้านิด (ลูกค้า LINE)',
+        customerName: 'เจ๊หมวย (สาย A)',
         sender: 'bot',
         type: 'text',
-        text: `✅ บันทึกบิล #SLIP-1611-003 (งวดวันที่ 16 พ.ย. 2569)\n👤 ผู้ส่ง: ป้านิด (ลูกค้า LINE)\n⚠️ หมายเหตุเลขอั้น (ส่งหลังเวลาประกาศอั้น 15 พ.ย. 14:00 น.):\n• 21 = 20 บาท 🔒 [เลขอั้น จ่าย 50%]\n• 860 = 22×22 🔒 [เลขอั้น จ่าย 50%]\n• 289 = 22×11 🟢 [เลขปกติ จ่ายเต็ม 100%]\n💰 รวมยอดบิลนี้: ${slip3Total.toLocaleString()} บาท`,
-        timestamp: timeAfterCutoff3
+        text: `✅ รับโพย เจ๊หมวย (สาย A) — รอบที่ 3\n• 154 = 22×22 (44฿) 🔒 [เลขอั้น จ่าย 50%]\n• 426 = 22 บาท 🟢 [จ่ายเต็ม 100%]\n💰 ยอดรอบนี้: ${muayR3Total.toLocaleString()} บาท\n📊 ยอดสะสมรวมของเจ๊หมวย (รวม 3 รอบ): ${(muayR1Total + muayR2Total + muayR3Total).toLocaleString()} บาท`,
+        timestamp: tMuayRound3
       }
     ]
   };
@@ -245,7 +333,6 @@ function loadDb() {
   }
   try {
     const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    // Auto-migrate if older schema without `draws`
     if (!Array.isArray(db.draws) || db.draws.length === 0) {
       const initial = buildInitialDb();
       fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf8');
@@ -357,67 +444,81 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // API: Get State for the selected Draw Period (งวดหวย)
+    // API: Get State for the selected Draw Period
     if (req.method === 'GET' && pathname === '/api/state') {
       const db = loadDb();
       const requestedDrawId = parsedUrl.searchParams.get('drawId') || db.currentDrawId || db.draws[0].id;
       const currentDraw = db.draws.find(d => d.id === requestedDrawId) || db.draws[0];
       db.currentDrawId = currentDraw.id;
 
-      const drawSlips = db.slips
+      // Sort slips chronologically to ensure roundNumber is sequential per customer
+      const rawDrawSlips = db.slips
         .filter(s => (s.drawId || 'DRAW-2026-11-16') === currentDraw.id)
-        .map(s => {
-          // Annotate each slip with how many items fall into 100% vs 50% payout
-          let full100Money = 0;
-          let half50Money = 0;
-          const restrictedHits = [];
+        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
-          for (const it of s.items || []) {
-            if (it.isEmpty || !it.baseNumber) continue;
-            const ev = evaluateNumberRestriction(it.baseNumber, s.createdAt, currentDraw.restrictedNumbers);
-            if (ev.payoutPercentForThisSlip === 100) {
-              full100Money += it.rowTotalMoney || 0;
-            } else {
-              half50Money += it.rowTotalMoney || 0;
-              restrictedHits.push(it.baseNumber);
-            }
+      const roundCounter = {};
+      const drawSlips = rawDrawSlips.map(s => {
+        roundCounter[s.customerName] = (roundCounter[s.customerName] || 0) + 1;
+        const roundNumber = s.roundNumber || roundCounter[s.customerName];
+
+        let full100Money = 0;
+        let half50Money = 0;
+        const restrictedHits = [];
+
+        for (const it of s.items || []) {
+          if (it.isEmpty || !it.baseNumber) continue;
+          const ev = evaluateNumberRestriction(it.baseNumber, s.createdAt, currentDraw.restrictedNumbers);
+          if (ev.payoutPercentForThisSlip === 100) {
+            full100Money += it.rowTotalMoney || 0;
+          } else {
+            half50Money += it.rowTotalMoney || 0;
+            restrictedHits.push(it.baseNumber);
           }
+        }
 
-          return {
-            ...s,
-            full100Money,
-            half50Money,
-            restrictedHits: Array.from(new Set(restrictedHits))
-          };
-        });
+        return {
+          ...s,
+          roundNumber,
+          full100Money,
+          half50Money,
+          restrictedHits: Array.from(new Set(restrictedHits))
+        };
+      });
 
       const aggregated = aggregateSlips(drawSlips, db.settings, currentDraw.restrictedNumbers);
       const totalGrandMoney = drawSlips.reduce((sum, s) => sum + (s.totalMoney || 0), 0);
       const totalFull100Money = aggregated.reduce((sum, a) => sum + (a.fullPayout100Amt || 0), 0);
       const totalHalf50Money = aggregated.reduce((sum, a) => sum + (a.halfPayout50Amt || 0), 0);
 
-      // Group customer summary for "งวดนี้ใครส่งอะไรมาบ้าง"
+      // Group customer summary for "เด็กโพย 1 คน ส่งหลายรอบ"
       const customerMap = new Map();
       for (const s of drawSlips) {
         if (!customerMap.has(s.customerName)) {
           customerMap.set(s.customerName, {
             customerName: s.customerName,
             slipCount: 0,
+            beforeCutoffRounds: 0,
+            afterCutoffRounds: 0,
             totalItems: 0,
             totalMoney: 0,
             full100Money: 0,
             half50Money: 0,
+            latestAt: s.createdAt,
             slips: []
           });
         }
         const c = customerMap.get(s.customerName);
         c.slipCount += 1;
+        if (s.half50Money > 0) c.afterCutoffRounds += 1;
+        else c.beforeCutoffRounds += 1;
         c.totalItems += s.totalItems || 0;
         c.totalMoney += s.totalMoney || 0;
         c.full100Money += s.full100Money || 0;
         c.half50Money += s.half50Money || 0;
+        c.latestAt = s.createdAt;
         c.slips.push({
           id: s.id,
+          roundNumber: s.roundNumber,
           title: s.title,
           createdAt: s.createdAt,
           totalItems: s.totalItems,
@@ -454,7 +555,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // API: Create or Switch Draw Period (สร้างงวดใหม่ / สลับงวด)
+    // API: Create or Switch Draw Period
     if (req.method === 'POST' && pathname === '/api/draws') {
       const body = await parseJsonBody(req);
       const db = loadDb();
@@ -480,14 +581,13 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, draw: newDraw });
     }
 
-    // API: Manage Restricted Numbers (เลขอั้น 50% ประจำงวด พร้อมเวลาประกาศ)
+    // API: Manage Restricted Numbers
     if (req.method === 'POST' && pathname === '/api/draws/restrictions') {
       const body = await parseJsonBody(req);
       const db = loadDb();
       const draw = db.draws.find(d => d.id === (body.drawId || db.currentDrawId)) || db.draws[0];
 
       if (body.action === 'add_batch') {
-        // Accepts comma/space/newline separated numbers e.g. "21, 583, 154, 072, 860"
         const rawNums = String(body.numbersText || '')
           .split(/[\s,،\r\n]+/)
           .map(s => s.replace(/[^\d]/g, '').trim())
@@ -551,7 +651,8 @@ const server = http.createServer(async (req, res) => {
       const currentDraw = db.draws.find(d => d.id === drawId) || db.draws[0];
 
       const customerName = (body.customerName || 'ลูกค้าทั่วไป (LINE)').trim();
-      const title = (body.title || `โพยกระดาษ - ${customerName}`).trim();
+      const nextRound = getNextRoundForCustomer(db.slips, currentDraw.id, customerName);
+      const title = (body.title || `รอบที่ ${nextRound} — โพยกระดาษ (${customerName})`).trim();
       const base64Image = body.base64Image || '';
       const columnSlices = body.columnSlices || null;
       const submittedAt = body.submittedAt ? new Date(body.submittedAt).toISOString() : new Date().toISOString();
@@ -581,9 +682,10 @@ const server = http.createServer(async (req, res) => {
       const newSlip = {
         id: `SLIP-${Date.now().toString().slice(-6)}`,
         drawId: currentDraw.id,
+        roundNumber: nextRound,
         title,
         sheetDate: ocrResult.sheetDate || '16/11',
-        sheetPage: ocrResult.sheetPage || '1',
+        sheetPage: String(nextRound),
         customerName,
         customerLineId: body.customerLineId || `U_${Date.now().toString().slice(-5)}`,
         source: body.source || 'อัปโหลดรูปโพย (OCR)',
@@ -600,7 +702,7 @@ const server = http.createServer(async (req, res) => {
         items
       };
 
-      db.slips.unshift(newSlip);
+      db.slips.push(newSlip);
       saveDb(db);
 
       return sendJson(res, 200, {
@@ -667,7 +769,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
-    // API: LINE Simulator (Supports testing sending BEFORE vs AFTER dealer 50% restriction cutoff!)
+    // API: LINE Simulator (Automatically increments Round Number for the runner & reports cumulative total!)
     if (req.method === 'POST' && pathname === '/api/line/simulate') {
       const body = await parseJsonBody(req);
       const db = loadDb();
@@ -677,6 +779,8 @@ const server = http.createServer(async (req, res) => {
       const useSamplePhoto = Boolean(body.useSamplePhoto);
       const base64Image = body.base64Image || '';
       const submittedAt = body.submittedAt ? new Date(body.submittedAt).toISOString() : new Date().toISOString();
+
+      const nextRound = getNextRoundForCustomer(db.slips, currentDraw.id, customerName);
 
       if (useSamplePhoto || base64Image) {
         let savedImageUrl = '/uploads/slip-16-11-page1.jpg';
@@ -697,7 +801,7 @@ const server = http.createServer(async (req, res) => {
           sender: 'customer',
           type: 'image',
           imageUrl: savedImageUrl,
-          text: text || 'ส่งรูปโพยหวยผ่าน LINE',
+          text: text || `ส่งรูปโพย รอบที่ ${nextRound}`,
           timestamp: submittedAt
         });
 
@@ -713,9 +817,10 @@ const server = http.createServer(async (req, res) => {
         const newSlip = {
           id: `SLIP-${Date.now().toString().slice(-6)}`,
           drawId: currentDraw.id,
-          title: `โพยรูป LINE - ${customerName}`,
+          roundNumber: nextRound,
+          title: `รอบที่ ${nextRound} — โพยรูป LINE`,
           sheetDate: ocrResult.sheetDate || '16/11',
-          sheetPage: ocrResult.sheetPage || '1',
+          sheetPage: String(nextRound),
           customerName,
           customerLineId: `U_${customerName}`,
           source: 'LINE รูปโพยกระดาษ',
@@ -730,9 +835,12 @@ const server = http.createServer(async (req, res) => {
           items
         };
 
-        db.slips.unshift(newSlip);
+        db.slips.push(newSlip);
 
-        // Check how many items hit 50% restriction
+        const customerTotalCumulative = db.slips
+          .filter(s => s.drawId === currentDraw.id && s.customerName === customerName)
+          .reduce((sum, s) => sum + (s.totalMoney || 0), 0);
+
         const restrictedHits = [];
         for (const it of items) {
           const ev = evaluateNumberRestriction(it.baseNumber, submittedAt, currentDraw.restrictedNumbers);
@@ -743,15 +851,12 @@ const server = http.createServer(async (req, res) => {
         const uniqueHits = Array.from(new Set(restrictedHits));
 
         const botReply =
-          `✅ รับรูปโพย #${newSlip.id} (${currentDraw.title})\n` +
-          `👤 ผู้ส่ง: ${customerName}\n` +
-          `📋 อ่านได้ทั้งหมด: ${newSlip.totalItems} รายการ | รวม ${totalMoney.toLocaleString()} บาท\n` +
+          `✅ รับรูปโพย ${customerName} — รอบที่ ${nextRound} (${currentDraw.title})\n` +
+          `📋 อ่านได้ทั้งหมด: ${newSlip.totalItems} รายการ | ยอดรอบนี้: ${totalMoney.toLocaleString()} บาท\n` +
           (uniqueHits.length > 0
-            ? `🔒 มีเลขอั้นในโพยนี้ (ส่งหลังเวลาประกาศอั้น): ${uniqueHits.join(', ')}\n`
-            : `🟢 เรทจ่าย: จ่ายเต็ม 100% ทุกรายการ\n`) +
-          (reviewCount > 0
-            ? `⚠️ มี ${reviewCount} จุดที่ส่งให้แอดมินตรวจทานซ้ำ`
-            : `✨ ตรวจสอบกฎคณิตศาสตร์ผ่าน 100%`);
+            ? `🔒 มีเลขอั้นในรอบนี้ (ส่งหลังเวลาประกาศ): ${uniqueHits.join(', ')}\n`
+            : `🟢 เรทจ่ายรอบนี้: จ่ายเต็ม 100% ทุกรายการ\n`) +
+          `📊 ยอดสะสมรวมของ ${customerName} (รวม ${nextRound} รอบ): ${customerTotalCumulative.toLocaleString()} บาท`;
 
         db.lineChats.push({
           id: `MSG-${Date.now()}-2`,
@@ -798,9 +903,10 @@ const server = http.createServer(async (req, res) => {
         const newSlip = {
           id: `SLIP-${Date.now().toString().slice(-6)}`,
           drawId: currentDraw.id,
-          title: `บิลข้อความ LINE - ${customerName}`,
+          roundNumber: nextRound,
+          title: `รอบที่ ${nextRound} — ข้อความ LINE (${items.length} รายการ)`,
           sheetDate: '16/11',
-          sheetPage: '-',
+          sheetPage: String(nextRound),
           customerName,
           customerLineId: `U_${customerName}`,
           source: 'LINE ข้อความ',
@@ -815,7 +921,11 @@ const server = http.createServer(async (req, res) => {
           items
         };
 
-        db.slips.unshift(newSlip);
+        db.slips.push(newSlip);
+
+        const customerTotalCumulative = db.slips
+          .filter(s => s.drawId === currentDraw.id && s.customerName === customerName)
+          .reduce((sum, s) => sum + (s.totalMoney || 0), 0);
 
         const linesSummary = items.map(it => {
           const ev = evaluateNumberRestriction(it.baseNumber, submittedAt, currentDraw.restrictedNumbers);
@@ -829,10 +939,10 @@ const server = http.createServer(async (req, res) => {
         });
 
         const botReply =
-          `✅ บันทึกบิล #${newSlip.id} (${currentDraw.title})\n` +
-          `👤 ผู้ส่ง: ${customerName}\n` +
+          `✅ รับโพย ${customerName} — รอบที่ ${nextRound} (${currentDraw.title})\n` +
           linesSummary.join('\n') +
-          `\n💰 รวมยอดบิลนี้: ${totalMoney.toLocaleString()} บาท`;
+          `\n💰 ยอดรอบนี้: ${totalMoney.toLocaleString()} บาท\n` +
+          `📊 ยอดสะสมรวมของ ${customerName} (รวม ${nextRound} รอบ): ${customerTotalCumulative.toLocaleString()} บาท`;
 
         db.lineChats.push({
           id: `MSG-${Date.now()}-2`,
@@ -861,6 +971,8 @@ const server = http.createServer(async (req, res) => {
         if (ev.type === 'message' && ev.message) {
           const replyToken = ev.replyToken;
           const userId = ev.source?.userId || 'LINE_USER';
+          const customerName = `เด็กโพย LINE (${userId.slice(0, 6)})`;
+          const nextRound = getNextRoundForCustomer(db.slips, currentDraw.id, customerName);
           let replyText = '';
           const nowIso = new Date().toISOString();
 
@@ -885,10 +997,11 @@ const server = http.createServer(async (req, res) => {
               const newSlip = {
                 id: `SLIP-${Date.now().toString().slice(-6)}`,
                 drawId: currentDraw.id,
-                title: `โพย LINE OA (${userId.slice(0, 6)})`,
+                roundNumber: nextRound,
+                title: `รอบที่ ${nextRound} — โพยรูป LINE`,
                 sheetDate: ocrResult.sheetDate || '16/11',
-                sheetPage: ocrResult.sheetPage || '1',
-                customerName: `ลูกค้า LINE (${userId.slice(0, 6)})`,
+                sheetPage: String(nextRound),
+                customerName,
                 customerLineId: userId,
                 source: 'LINE รูปโพยกระดาษ',
                 imageUrl: `/uploads/${fileName}`,
@@ -901,8 +1014,11 @@ const server = http.createServer(async (req, res) => {
                 createdAt: nowIso,
                 items
               };
-              db.slips.unshift(newSlip);
-              replyText = `✅ รับโพย #${newSlip.id} (${currentDraw.title}) จำนวน ${newSlip.totalItems} รายการ รวม ${totalMoney.toLocaleString()} บาท`;
+              db.slips.push(newSlip);
+              const cumTotal = db.slips
+                .filter(s => s.drawId === currentDraw.id && s.customerName === customerName)
+                .reduce((sum, s) => sum + (s.totalMoney || 0), 0);
+              replyText = `✅ รับโพย ${customerName} รอบที่ ${nextRound} (${newSlip.totalItems} รายการ = ${totalMoney.toLocaleString()} บาท)\n📊 ยอดสะสมรวม ${nextRound} รอบ = ${cumTotal.toLocaleString()} บาท`;
             }
           } else if (ev.message.type === 'text') {
             const items = parseFreeTextMessage(ev.message.text, db.settings);
@@ -911,10 +1027,11 @@ const server = http.createServer(async (req, res) => {
               const newSlip = {
                 id: `SLIP-${Date.now().toString().slice(-6)}`,
                 drawId: currentDraw.id,
-                title: `ข้อความ LINE OA (${userId.slice(0, 6)})`,
+                roundNumber: nextRound,
+                title: `รอบที่ ${nextRound} — ข้อความ LINE`,
                 sheetDate: '16/11',
-                sheetPage: '-',
-                customerName: `ลูกค้า LINE (${userId.slice(0, 6)})`,
+                sheetPage: String(nextRound),
+                customerName,
                 customerLineId: userId,
                 source: 'LINE ข้อความ',
                 imageUrl: '',
@@ -927,14 +1044,11 @@ const server = http.createServer(async (req, res) => {
                 createdAt: nowIso,
                 items
               };
-              db.slips.unshift(newSlip);
-
-              const linesSummary = items.map(it => {
-                const evRes = evaluateNumberRestriction(it.baseNumber, nowIso, currentDraw.restrictedNumbers);
-                const tag = evRes.isRestrictedNumber && !evRes.isBeforeCutoff ? ` 🔒(อั้นจ่าย ${evRes.payoutPercentForThisSlip}%)` : ` 🟢(จ่าย 100%)`;
-                return `• ${it.numText} = ${it.rowTotalMoney}฿${tag}`;
-              });
-              replyText = `✅ บันทึกบิล #${newSlip.id} (${currentDraw.title})\n${linesSummary.join('\n')}\n💰 รวม ${totalMoney.toLocaleString()} บาท`;
+              db.slips.push(newSlip);
+              const cumTotal = db.slips
+                .filter(s => s.drawId === currentDraw.id && s.customerName === customerName)
+                .reduce((sum, s) => sum + (s.totalMoney || 0), 0);
+              replyText = `✅ บันทึกรอบที่ ${nextRound} (${items.length} รายการ = ${totalMoney.toLocaleString()} บาท)\n📊 ยอดสะสมรวม ${nextRound} รอบ = ${cumTotal.toLocaleString()} บาท`;
             }
           }
 

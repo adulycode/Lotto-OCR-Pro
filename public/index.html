@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_2" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_3" />
 </head>
 <body>
   <!-- แถบด้านบนสุด: เลือกงวดหวยชัดเจน ดูง่ายตั้งแต่เปิดเว็บ -->
@@ -99,15 +99,15 @@
     <section id="tab-dashboard" class="tab-panel active no-print">
       <div class="overview-split">
 
-        <!-- ฝั่งซ้าย: งวดนี้ใครส่งอะไรมาบ้าง (กรองดูทีละคนได้ในคลิกเดียว) -->
+        <!-- ฝั่งซ้าย: เด็กโพย 1 คน ส่งหลายรอบ (รวมยอดรายคน & กางดูทีละรอบได้) -->
         <div class="card">
           <div class="card-header">
             <div>
-              <h2>👥 1. งวดนี้ใครส่งอะไรมาบ้าง</h2>
-              <p class="text-muted">คลิกที่ชื่อลูกค้าเพื่อดูเฉพาะเลขที่คนนั้นส่งมา หรือคลิก "ดูทุกคน"</p>
+              <h2>👥 1. เด็กโพยในงวดนี้ (รวมทุกรอบของแต่ละคน)</h2>
+              <p class="text-muted">คลิกชื่อคนเพื่อดูยอดรวมทุกใบของเขา หรือกด "📂 กางดูแต่ละรอบ" เพื่อเช็คทีละใบ</p>
             </div>
             <button class="btn btn-ghost btn-sm" id="btnShowAllCustomers" onclick="filterByCustomer(null)">
-              ดูรวมทุกคน
+              🌐 ดูรวมทุกคน
             </button>
           </div>
 
@@ -644,6 +644,6 @@
   </main>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_2"></script>
+  <script src="/app.js?v=20261120_3"></script>
 </body>
 </html>

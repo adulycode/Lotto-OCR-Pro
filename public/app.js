@@ -14,7 +14,9 @@ let appState = {
 };
 
 let currentAggFilter = 'all';
-let selectedCustomerFilter = null; // กรองดูเฉพาะคนที่คลิกเลือกในงวดนี้
+let selectedCustomerFilter = null; // กรองดูเฉพาะเด็กโพยที่คลิกเลือก (รวมทุกรอบของคนนั้น)
+let selectedSlipRoundFilter = null; // กรองดูเฉพาะบิล/รอบที่คลิกเลือก (เฉพาะรอบนั้นใบเดียว)
+let expandedRunnerCards = new Set(); // เก็บรายชื่อเด็กโพยที่กดกางดูรายการแต่ละรอบ
 let selectedAggNumberKey = null;
 let selectedLayoffKeys = new Set();
 let customLayoffAmounts = {};
@@ -180,12 +182,30 @@ async function setPermutationMode(mode) {
 }
 
 // ============================================================================
-// แท็บที่ 1 (ฝั่งซ้าย): งวดนี้ใครส่งอะไรมาบ้าง
+// แท็บที่ 1 (ฝั่งซ้าย): เด็กโพย 1 คน ส่งหลายรอบ (พับ/กางดูทีละรอบ + กรองดูได้ทั้งระดับคนและระดับรอบ)
 // ============================================================================
 function filterByCustomer(customerName) {
+  selectedSlipRoundFilter = null;
   selectedCustomerFilter = selectedCustomerFilter === customerName ? null : customerName;
   renderCustomersInDraw();
   renderAggregatedTable();
+}
+
+function filterBySingleRound(customerName, slipId, roundNumber) {
+  selectedCustomerFilter = customerName;
+  selectedSlipRoundFilter = selectedSlipRoundFilter === slipId ? null : slipId;
+  expandedRunnerCards.add(customerName);
+  renderCustomersInDraw();
+  renderAggregatedTable();
+}
+
+function toggleRunnerRoundsDrawer(customerName) {
+  if (expandedRunnerCards.has(customerName)) {
+    expandedRunnerCards.delete(customerName);
+  } else {
+    expandedRunnerCards.add(customerName);
+  }
+  renderCustomersInDraw();
 }
 
 function renderCustomersInDraw() {
@@ -193,30 +213,41 @@ function renderCustomersInDraw() {
   const customers = appState.customersInDraw || [];
 
   if (customers.length === 0) {
-    container.innerHTML = `<div class="text-muted" style="text-align:center;padding:24px;">ยังไม่มีใครส่งโพยในงวดนี้ (กดที่แท็บ "💬 5. ส่งโพยเข้าระบบ" เพื่อเพิ่มบิลแรกได้เลย)</div>`;
+    container.innerHTML = `<div class="text-muted" style="text-align:center;padding:24px;">ยังไม่มีเด็กโพยส่งบิลในงวดนี้ (กดที่แท็บ "💬 5. ส่งโพยเข้าระบบ" เพื่อเพิ่มบิลแรกได้เลย)</div>`;
     return;
   }
 
   container.innerHTML = customers
     .map(c => {
       const isActive = selectedCustomerFilter === c.customerName;
+      const isExpanded = expandedRunnerCards.has(c.customerName);
+
       const slipsHtml = c.slips
-        .map(sl => {
+        .map((sl, idx) => {
+          const rNum = sl.roundNumber || idx + 1;
           const has50 = sl.half50Money > 0;
+          const isRoundSelected = selectedSlipRoundFilter === sl.id;
+
           return `
-            <div class="slip-mini-row" onclick="event.stopPropagation(); jumpToSlipInspector('${sl.id}', 1, 1)">
+            <div class="slip-mini-row ${isRoundSelected ? 'active-round' : ''}"
+              onclick="event.stopPropagation(); filterBySingleRound('${c.customerName}', '${sl.id}', ${rNum})">
               <div>
-                <div style="font-weight:600;color:#e2e8f0;">📄 ${sl.title}</div>
+                <div style="font-weight:700;color:#fde68a;">
+                  📌 รอบที่ ${rNum}: <span style="color:#e2e8f0;font-weight:600;">${sl.title.replace(/^รอบที่ \d+ — /, '')}</span>
+                </div>
                 <div class="text-muted">ส่งเมื่อ: ${formatThaiDateTime(sl.createdAt)} (${sl.totalItems} รายการ)</div>
                 ${
                   has50
-                    ? `<div style="margin-top:3px;"><span class="badge-50">🔒 มีเลขอั้นส่งหลังเวลาประกาศ (${sl.restrictedHits.join(', ')}) = ${sl.half50Money.toLocaleString()}฿ จ่าย 50%</span></div>`
-                    : `<div style="margin-top:3px;"><span class="badge-100">🟢 ส่งก่อนอั้น จ่ายเต็ม 100% ทั้งใบ</span></div>`
+                    ? `<div style="margin-top:3px;"><span class="badge-50">🔒 มีเลขอั้นส่งหลังประกาศ (${sl.restrictedHits.join(', ')}) = ${sl.half50Money.toLocaleString()}฿ จ่าย 50%</span></div>`
+                    : `<div style="margin-top:3px;"><span class="badge-100">🟢 ส่งก่อนอั้น จ่ายเต็ม 100%</span></div>`
                 }
               </div>
-              <div style="text-align:right;">
+              <div style="text-align:right;min-width:92px;">
                 <div style="font-family:var(--font-mono);font-weight:700;color:var(--gold);">${sl.totalMoney.toLocaleString()} ฿</div>
-                <span style="font-size:11px;color:#60a5fa;">เปิดดูโพย ➔</span>
+                <button type="button" class="btn btn-ghost btn-sm" style="margin-top:4px;padding:2px 7px;font-size:11px;color:#60a5fa;"
+                  onclick="event.stopPropagation(); jumpToSlipInspector('${sl.id}', 1, 1)">
+                  🔍 ตรวจใบนี้
+                </button>
               </div>
             </div>
           `;
@@ -225,22 +256,52 @@ function renderCustomersInDraw() {
 
       return `
         <div class="customer-card ${isActive ? 'active-customer' : ''}" onclick="filterByCustomer('${c.customerName}')">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div>
-              <div style="font-size:15px;font-weight:700;color:#93c5fd;">👤 ${c.customerName}</div>
-              <div class="text-muted">ส่งทั้งหมด ${c.slipCount} บิล (${c.totalItems} รายการ)</div>
+              <div style="font-size:15px;font-weight:700;color:#93c5fd;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
+                <span>👤 ${c.customerName}</span>
+                <span class="runner-rounds-badge">ส่งแล้ว ${c.slipCount} รอบ</span>
+              </div>
+              <div class="text-muted" style="margin-top:3px;">
+                รวมทุกรอบ: <strong>${c.totalItems} รายการ</strong> • ส่งล่าสุด: ${formatThaiDateTime(c.latestAt)}
+              </div>
             </div>
             <div style="text-align:right;">
-              <div style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--gold);">
+              <div style="font-size:10.5px;color:var(--text-muted);">ยอดสะสมรวม ${c.slipCount} รอบ</div>
+              <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--gold);">
                 ${c.totalMoney.toLocaleString()} ฿
-              </div>
-              <div style="font-size:11px;">
-                <span class="text-success">100%: ${c.full100Money.toLocaleString()}฿</span>
-                ${c.half50Money > 0 ? ` | <span class="text-warn">50%: ${c.half50Money.toLocaleString()}฿</span>` : ''}
               </div>
             </div>
           </div>
-          ${slipsHtml}
+
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:11.5px;">
+            <div>
+              <span class="badge-100">🟢 ได้ 100%: ${c.full100Money.toLocaleString()} ฿</span>
+              ${
+                c.half50Money > 0
+                  ? `<span class="badge-50" style="margin-left:4px;">🔒 ติดอั้น 50%: ${c.half50Money.toLocaleString()} ฿</span>`
+                  : ''
+              }
+            </div>
+          </div>
+
+          <div class="runner-actions-bar" onclick="event.stopPropagation()">
+            <button type="button" class="btn ${isActive && !selectedSlipRoundFilter ? 'btn-primary' : 'btn-outline'} btn-sm" style="flex:1;"
+              onclick="filterByCustomer('${c.customerName}')">
+              📊 ${isActive && !selectedSlipRoundFilter ? 'กำลังดูยอดรวมทุกใบของคนนี้' : `ดูยอดรวมทั้ง ${c.slipCount} รอบ`}
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm"
+              onclick="toggleRunnerRoundsDrawer('${c.customerName}')">
+              📂 ${isExpanded ? 'พับเก็บ ▲' : `กางดูทีละรอบ (${c.slipCount}) ▼`}
+            </button>
+          </div>
+
+          <div class="rounds-drawer ${isExpanded ? '' : 'hidden'}">
+            <div style="font-size:11px;color:var(--text-muted);padding:2px 4px 4px 4px;">
+              คลิกที่รอบใดก็ได้เพื่อกรองดูตารางตัวเลขเฉพาะรอบนั้น หรือกด "🔍 ตรวจใบนี้" เพื่อดูรูปโพย:
+            </div>
+            ${slipsHtml}
+          </div>
         </div>
       `;
     })
@@ -248,7 +309,7 @@ function renderCustomersInDraw() {
 }
 
 // ============================================================================
-// แท็บที่ 1 (ฝั่งขวา): สรุปยอดรวมแต่ละเลขในงวดนี้ (แยก 100% vs 50% ชัดเจน)
+// แท็บที่ 1 (ฝั่งขวา): สรุปยอดรวมแต่ละเลขในงวดนี้ (รองรับกรอง 3 ระดับ: ทั้งงวด / รายคนทุกรอบ / เฉพาะรอบ)
 // ============================================================================
 function setAggFilter(filter, btnEl) {
   currentAggFilter = filter;
@@ -262,36 +323,65 @@ function renderAggregatedTable() {
   const search = (document.getElementById('searchNumberInput')?.value || '').trim();
   const titleEl = document.getElementById('aggTableTitle');
 
-  if (selectedCustomerFilter) {
-    titleEl.innerHTML = `📊 2. รายการเลขเฉพาะของ: <span style="color:#60a5fa;">${selectedCustomerFilter}</span> <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="filterByCustomer(null)">✕ แสดงรวมทุกคน</button>`;
+  if (selectedSlipRoundFilter) {
+    const slipObj = (appState.slips || []).find(s => s.id === selectedSlipRoundFilter);
+    titleEl.innerHTML = `📄 2. กำลังดูเฉพาะ: <span style="color:var(--gold);">${selectedCustomerFilter} — รอบที่ ${slipObj?.roundNumber || ''} (${(slipObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-outline btn-sm" style="margin-left:8px;" onclick="filterByCustomer('${selectedCustomerFilter}')">📊 ดูรวมทุกรอบของคนนี้</button> <button class="btn btn-ghost btn-sm" onclick="filterByCustomer(null)">🌐 ดูรวมทุกคน</button>`;
+  } else if (selectedCustomerFilter) {
+    const custObj = (appState.customersInDraw || []).find(c => c.customerName === selectedCustomerFilter);
+    titleEl.innerHTML = `👤 2. ยอดรวมทุกรอบของ: <span style="color:#60a5fa;">${selectedCustomerFilter} (รวม ${custObj?.slipCount || 1} รอบ = ${(custObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="filterByCustomer(null)">🌐 กลับไปดูรวมทุกคนทั้งงวด</button>`;
   } else {
-    titleEl.textContent = `📊 2. สรุปยอดรวมแต่ละเลขในงวดนี้ (รวมจากทุกคนเป็นยอดเงินเดียว)`;
+    titleEl.textContent = `📊 2. สรุปยอดรวมแต่ละเลขในงวดนี้ (รวมเด็กโพยทุกคน ทุกรอบ เป็นยอดเงินเดียว)`;
   }
 
   // แถบตัวอย่างไฮไลต์ด้านบนตาราง
   const highlightBar = document.getElementById('exampleHighlightBar');
   const num21 = (appState.aggregated || []).find(a => a.number === '21');
   const num583 = (appState.aggregated || []).find(a => a.number === '583');
-  const num860 = (appState.aggregated || []).find(a => a.number === '860');
+  const num154 = (appState.aggregated || []).find(a => a.number === '154');
 
-  let hlHtml = `<span>💡 <strong>คลิกดูตัวอย่างเลขที่รวมยอดและแยกเวลาส่งก่อนอั้น (100%) vs หลังอั้น (50%):</strong></span>`;
+  let hlHtml = `<span>💡 <strong>คลิกดูตัวอย่างเลขที่ส่งมาหลายรอบและแยกเวลาส่งก่อนอั้น (100%) vs หลังอั้น (50%):</strong></span>`;
   if (num21) {
-    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num21.key}')">เลข <strong>21</strong> รวม = ${num21.totalAmt}฿ (ได้ 100% = ${num21.fullPayout100Amt}฿ | ได้ 50% = ${num21.halfPayout50Amt}฿)</span>`;
+    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num21.key}')">เลข <strong>21</strong> รวม = ${num21.totalAmt}฿ (100% = ${num21.fullPayout100Amt}฿ | 50% = ${num21.halfPayout50Amt}฿)</span>`;
   }
-  if (num860) {
-    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num860.key}')">เลข <strong>860</strong> รวม = ${num860.totalAmt}฿ (ได้ 100% = ${num860.fullPayout100Amt}฿ | ได้ 50% = ${num860.halfPayout50Amt}฿)</span>`;
+  if (num154) {
+    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num154.key}')">เลข <strong>154</strong> รวม = ${num154.totalAmt}฿ (100% = ${num154.fullPayout100Amt}฿ | 50% = ${num154.halfPayout50Amt}฿)</span>`;
   }
   if (num583) {
-    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num583.key}')">เลข <strong>583</strong> รวม = ${num583.totalAmt}฿ (${num583.hitCount} รายการ)</span>`;
+    hlHtml += `<span class="hl-badge" onclick="inspectAggNumber('${num583.key}')">เลข <strong>583</strong> รวม = ${num583.totalAmt}฿ (รวม ${num583.hitCount} รอบ)</span>`;
   }
   highlightBar.innerHTML = hlHtml;
 
-  let list = appState.aggregated || [];
+  // คำนวณรายการตัวเลขตามระดับตัวกรอง (ทั้งงวด vs เฉพาะเด็กโพยคนเดียวรวมทุกรอบ vs เฉพาะรอบเดียว)
+  let list = (appState.aggregated || []).map(item => {
+    if (!selectedCustomerFilter && !selectedSlipRoundFilter) return item;
 
-  // หากคลิกเลือกชื่อลูกค้าทางซ้าย ให้กรองเฉพาะเลขที่ลูกค้าคนนั้นส่งมา
-  if (selectedCustomerFilter) {
-    list = list.filter(item => item.contributors.some(c => c.customerName === selectedCustomerFilter));
-  }
+    const filteredContribs = item.contributors.filter(c => {
+      if (selectedSlipRoundFilter) return c.slipId === selectedSlipRoundFilter;
+      if (selectedCustomerFilter) return c.customerName === selectedCustomerFilter;
+      return true;
+    });
+
+    if (filteredContribs.length === 0) return null;
+
+    let totalAmt = 0;
+    let full100 = 0;
+    let half50 = 0;
+    for (const fc of filteredContribs) {
+      totalAmt += fc.amount;
+      if (fc.payoutPercent === 100) full100 += fc.amount;
+      else half50 += fc.amount;
+    }
+
+    return {
+      ...item,
+      totalAmt,
+      fullPayout100Amt: full100,
+      halfPayout50Amt: half50,
+      hitCount: filteredContribs.length,
+      uniqueCustomers: new Set(filteredContribs.map(c => c.customerName)).size,
+      contributors: filteredContribs
+    };
+  }).filter(Boolean);
 
   if (search) {
     list = list.filter(item => item.number.includes(search));
@@ -327,7 +417,7 @@ function renderAggregatedTable() {
         <tr class="${isSelected ? 'selected-row' : ''}" onclick="inspectAggNumber('${item.key}')">
           <td>
             <span class="number-pill">${item.number}</span>
-            ${item.hitCount > 1 ? `<span class="multi-hit-tag">รวม ${item.hitCount} รายการ</span>` : ''}
+            ${item.hitCount > 1 ? `<span class="multi-hit-tag">ส่งซ้ำ ${item.hitCount} รอบ</span>` : ''}
           </td>
           <td>
             ${
@@ -356,7 +446,7 @@ function renderAggregatedTable() {
             }
           </td>
           <td style="font-size:12px;">
-            <strong>${item.uniqueCustomers} คน</strong>
+            <strong>${item.hitCount} รอบ</strong>
             <span class="text-muted">(${customerNames})</span>
           </td>
         </tr>

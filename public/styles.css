@@ -191,14 +191,54 @@ body {
   background: rgba(59, 130, 246, 0.16);
 }
 
-.slip-mini-row {
-  margin-top: 8px;
+.runner-rounds-badge {
+  background: rgba(59, 130, 246, 0.22);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-left: 6px;
+}
+
+.runner-actions-bar {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px dashed var(--border);
+  border-top: 1px solid rgba(56, 73, 102, 0.5);
+}
+
+.rounds-drawer {
+  margin-top: 8px;
+  background: rgba(11, 15, 22, 0.65);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.rounds-drawer.hidden {
+  display: none;
+}
+
+.slip-mini-row {
+  padding: 8px 6px;
+  border-bottom: 1px dashed var(--border);
   font-size: 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  border-radius: 6px;
+}
+
+.slip-mini-row:last-child {
+  border-bottom: none;
+}
+
+.slip-mini-row.active-round {
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid var(--gold);
 }
 
 .badge-100 {
