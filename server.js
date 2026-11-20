@@ -311,7 +311,36 @@ function buildInitialDb() {
         items: nidR1Items
       }
     ],
-    layoffs: [],
+    layoffs: [
+      {
+        id: 'LAYOFF-ROUND-1',
+        drawId: 'DRAW-2026-11-16',
+        roundNumber: 1,
+        dealerName: 'เจ้ามือสายใหญ่ #1',
+        itemCount: 4,
+        sentItemCount: 3,
+        keptItemCount: 2,
+        totalLayoffMoney: 494,
+        totalKeptMoney: 320,
+        formattedText:
+          '📋 ใบตัดยอดส่ง: เจ้ามือสายใหญ่ #1 (รอบที่ 1)\n' +
+          '📅 งวดวันที่ 16 พ.ย. 2569\n' +
+          '-------------------------\n' +
+          '583 = 252 บ. (เก็บไว้ที่เรา 100 บ.)\n' +
+          '287 = 220 บ. (ส่งเจ้ามือทั้งหมด)\n' +
+          '21 = 22 บ. (ส่งเจ้ามือทั้งหมด)\n' +
+          '486 = 0 บ. (เก็บไว้ที่เราทั้งหมด 220 บ.)\n' +
+          '-------------------------\n' +
+          'รวมส่งเจ้ามือรอบที่ 1 = 494 บาท | เก็บไว้ที่เรา = 320 บาท',
+        items: [
+          { number: '583', sendTotal: 252, keepTotal: 100, typeDesc: '3 ตัวบน+โต๊ด' },
+          { number: '287', sendTotal: 220, keepTotal: 0, typeDesc: '110×110' },
+          { number: '21', sendTotal: 22, keepTotal: 0, typeDesc: '2 ตัวบน' },
+          { number: '486', sendTotal: 0, keepTotal: 220, typeDesc: 'เก็บไว้ที่เรา' }
+        ],
+        createdAt: '2026-11-14T16:00:00.000Z'
+      }
+    ],
     lineChats: [
       {
         id: 'MSG-1',
@@ -532,10 +561,15 @@ const server = http.createServer(async (req, res) => {
         };
       });
 
-      const aggregated = aggregateSlips(drawSlips, db.settings, currentDraw.restrictedNumbers);
+      const drawLayoffs = (db.layoffs || []).filter(l => (l.drawId || currentDraw.id) === currentDraw.id);
+      const aggregated = aggregateSlips(drawSlips, db.settings, currentDraw.restrictedNumbers, drawLayoffs);
       const totalGrandMoney = drawSlips.reduce((sum, s) => sum + (s.totalMoney || 0), 0);
       const totalFull100Money = aggregated.reduce((sum, a) => sum + (a.fullPayout100Amt || 0), 0);
       const totalHalf50Money = aggregated.reduce((sum, a) => sum + (a.halfPayout50Amt || 0), 0);
+      const totalSentToDealerMoney = aggregated.reduce((sum, a) => sum + (a.alreadySentAmt || 0), 0);
+      const totalKeptByUsMoney = aggregated.reduce((sum, a) => sum + (a.alreadyKeptAmt || 0), 0);
+      const totalNewPendingMoney = aggregated.reduce((sum, a) => sum + (a.newPendingAmt || 0), 0);
+      const pendingNumbersCount = aggregated.filter(a => a.hasNewPending).length;
 
       // Group customer summary for "เด็กโพย 1 คน ส่งหลายรอบ"
       const customerMap = new Map();
@@ -588,7 +622,7 @@ const server = http.createServer(async (req, res) => {
         trainingSlips: db.slips.filter(s => s.isTrainingOnly),
         customersInDraw: Array.from(customerMap.values()),
         aggregated,
-        layoffs: (db.layoffs || []).filter(l => (l.drawId || currentDraw.id) === currentDraw.id),
+        layoffs: drawLayoffs,
         lineChats: (db.lineChats || []).filter(m => (m.drawId || currentDraw.id) === currentDraw.id),
         summary: {
           totalSlips: drawSlips.length,
@@ -596,6 +630,11 @@ const server = http.createServer(async (req, res) => {
           totalGrandMoney,
           totalFull100Money,
           totalHalf50Money,
+          totalSentToDealerMoney,
+          totalKeptByUsMoney,
+          totalNewPendingMoney,
+          pendingNumbersCount,
+          nextLayoffRound: drawLayoffs.length + 1,
           totalUniqueNumbers: aggregated.length,
           restrictedCount: (currentDraw.restrictedNumbers || []).length,
           learnedRulesCount: (db.learnedRules || []).length,
@@ -1222,29 +1261,53 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { status: 'ok' });
     }
 
-    // API: Save Dealer Layoff Bill
+    // API: Save Dealer Layoff Bill (ทยอยส่งเจ้ามือเป็นรอบๆ + บันทึกยอดส่งและยอดเก็บไว้ที่เราเพื่อไม่ให้ส่งซ้ำ)
     if (req.method === 'POST' && pathname === '/api/layoffs') {
       const body = await parseJsonBody(req);
       const db = loadDb();
+      const drawId = body.drawId || db.currentDrawId;
+      const existingInDraw = (db.layoffs || []).filter(l => (l.drawId || drawId) === drawId);
+      const roundNumber = existingInDraw.length + 1;
+
       const dealerName = (body.dealerName || 'เจ้ามือสายใหญ่ #1').trim();
-      const items = body.items || [];
-      const totalLayoffMoney = items.reduce((s, i) => s + (Number(i.sendTotal) || 0), 0);
+      const items = (body.items || []).map(it => ({
+        number: String(it.number || '').trim(),
+        sendTotal: Math.max(0, Number(it.sendTotal) || 0),
+        keepTotal: Math.max(0, Number(it.keepTotal) || 0),
+        typeDesc: it.typeDesc || ''
+      }));
+
+      const totalLayoffMoney = items.reduce((s, i) => s + i.sendTotal, 0);
+      const totalKeptMoney = items.reduce((s, i) => s + i.keepTotal, 0);
 
       const newLayoff = {
         id: `LAYOFF-${Date.now().toString().slice(-6)}`,
-        drawId: body.drawId || db.currentDrawId,
+        drawId,
+        roundNumber,
         dealerName,
         itemCount: items.length,
+        sentItemCount: items.filter(i => i.sendTotal > 0).length,
+        keptItemCount: items.filter(i => i.keepTotal > 0).length,
         totalLayoffMoney,
+        totalKeptMoney,
         formattedText: body.formattedText || '',
         items,
         createdAt: new Date().toISOString()
       };
 
       db.layoffs = db.layoffs || [];
-      db.layoffs.unshift(newLayoff);
+      db.layoffs.push(newLayoff);
       saveDb(db);
       return sendJson(res, 200, { ok: true, layoff: newLayoff });
+    }
+
+    // API: Delete / Undo a Layoff Round
+    if (req.method === 'DELETE' && pathname.startsWith('/api/layoffs/')) {
+      const layoffId = decodeURIComponent(pathname.replace('/api/layoffs/', ''));
+      const db = loadDb();
+      db.layoffs = (db.layoffs || []).filter(l => l.id !== layoffId);
+      saveDb(db);
+      return sendJson(res, 200, { ok: true });
     }
 
     let filePath = pathname === '/' ? path.join(PUBLIC_DIR, 'index.html') : path.join(PUBLIC_DIR, pathname);

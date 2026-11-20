@@ -309,9 +309,10 @@ function evaluateNumberRestriction(number, slipCreatedAt, restrictedList = []) {
 /**
  * Aggregates slips for a specific draw period (งวดหวย).
  * Separates amounts submitted BEFORE the dealer's half-payout cutoff (100% payout)
- * vs AFTER the dealer's half-payout cutoff (50% payout).
+ * vs AFTER the dealer's half-payout cutoff (50% payout),
+ * AND calculates Incremental Layoff Ledger (ส่งเจ้ามือไปแล้ว / เก็บไว้ที่เราแล้ว / ยอดเข้ามาใหม่รอดำเนินการ).
  */
-function aggregateSlips(slips, settings = {}, restrictedList = []) {
+function aggregateSlips(slips, settings = {}, restrictedList = [], layoffs = []) {
   const permutationMode = settings.permutationMode || 'expand';
   const limits = settings.riskLimits || {
     threeStraight: 100,
@@ -320,6 +321,33 @@ function aggregateSlips(slips, settings = {}, restrictedList = []) {
     twoTop: 30,
     twoBottom: 100
   };
+
+  // Build cumulative allocated map from previous dealer layoff rounds in this draw
+  // Each layoff round records: { number, sendTotal, keepTotal }
+  const allocatedMap = new Map();
+  for (const lf of layoffs || []) {
+    for (const it of lf.items || []) {
+      const num = String(it.number || '').trim();
+      if (!num) continue;
+      if (!allocatedMap.has(num)) {
+        allocatedMap.set(num, { sentToDealerAmt: 0, keptByUsAmt: 0, roundsSent: [] });
+      }
+      const acc = allocatedMap.get(num);
+      const sAmt = Number(it.sendTotal) || 0;
+      const kAmt = Number(it.keepTotal) || 0;
+      acc.sentToDealerAmt += sAmt;
+      acc.keptByUsAmt += kAmt;
+      if (sAmt > 0 || kAmt > 0) {
+        acc.roundsSent.push({
+          roundNumber: lf.roundNumber || 1,
+          dealerName: lf.dealerName,
+          sentAmt: sAmt,
+          keptAmt: kAmt,
+          createdAt: lf.createdAt
+        });
+      }
+    }
+  }
 
   const map = new Map();
 
@@ -495,10 +523,22 @@ function aggregateSlips(slips, settings = {}, restrictedList = []) {
     // Count distinct slip rows (so "287 = 110×110" written on 1 line is counted as 1 entry, not 2!)
     const distinctRowEntries = new Set(r.contributors.map(c => c.rowKey)).size;
 
+    const alloc = allocatedMap.get(r.number) || { sentToDealerAmt: 0, keptByUsAmt: 0, roundsSent: [] };
+    const alreadySentAmt = alloc.sentToDealerAmt;
+    const alreadyKeptAmt = alloc.keptByUsAmt;
+    const alreadyHandledAmt = alreadySentAmt + alreadyKeptAmt;
+    const newPendingAmt = Math.max(0, r.totalAmt - alreadyHandledAmt);
+
     return {
       ...r,
       uniqueCustomers,
       hitCount: distinctRowEntries,
+      alreadySentAmt,
+      alreadyKeptAmt,
+      alreadyHandledAmt,
+      newPendingAmt,
+      hasNewPending: newPendingAmt > 0,
+      roundsSent: alloc.roundsSent,
       excessThreeStraight,
       excessThreeToad,
       excessThreePerm,
