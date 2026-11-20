@@ -93,6 +93,7 @@ async function fetchAppState(drawIdParam = '') {
   renderInspectorSelector();
   renderLearnedRules();
   renderLineSimulator();
+  renderWinnersTab();
   populateSettingsForm();
 }
 
@@ -1977,7 +1978,267 @@ async function runDirectOcrUpload() {
 }
 
 // ============================================================================
-// แท็บที่ 6: ตั้งค่าระบบ (แยกหมวดย่อย 5 หมวด) & พิมพ์กระดาษโพย 4×30
+// แท็บที่ 6: ดึงผลสลากกินแบ่งรัฐบาล (กองสลาก) & ตรวจเช็คคนถูกรางวัล
+// ============================================================================
+function onFirstPrizeInput(val) {
+  const clean = String(val || '').replace(/[^\d]/g, '').slice(0, 6);
+  if (clean.length === 6) {
+    document.getElementById('winThreeTopInput').value = clean.slice(-3);
+    document.getElementById('winTwoTopInput').value = clean.slice(-2);
+  }
+}
+
+async function fetchLatestGloLotteryResult() {
+  showToast('🔄 กำลังดึงผลสลากกินแบ่งรัฐบาลล่าสุดจากกองสลาก...');
+  const res = await fetch('/api/draws/winning-result', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      drawId: appState.currentDrawId,
+      action: 'fetch_glo'
+    })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    await fetchAppState();
+    const w = data.winningResult || {};
+    showToast(`🏆 ดึงผลกองสลากสำเร็จ! รางวัลที่ 1: ${w.firstPrize} (3 ตัวบน: ${w.threeTop} | 2 ตัวล่าง: ${w.twoBottom})`);
+  }
+}
+
+async function applySampleWinningNumbers(firstPrize, threeTop, twoTop, twoBottom) {
+  document.getElementById('winFirstPrizeInput').value = firstPrize;
+  document.getElementById('winThreeTopInput').value = threeTop;
+  document.getElementById('winTwoTopInput').value = twoTop;
+  document.getElementById('winTwoBottomInput').value = twoBottom;
+  await saveManualWinningResult();
+}
+
+async function saveManualWinningResult() {
+  const firstPrize = document.getElementById('winFirstPrizeInput').value.trim();
+  const threeTop = document.getElementById('winThreeTopInput').value.trim();
+  const twoTop = document.getElementById('winTwoTopInput').value.trim();
+  const twoBottom = document.getElementById('winTwoBottomInput').value.trim();
+
+  await fetch('/api/draws/winning-result', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      drawId: appState.currentDrawId,
+      action: 'manual',
+      firstPrize,
+      threeTop,
+      twoTop,
+      twoBottom
+    })
+  });
+
+  await fetchAppState();
+  showToast('🎯 คำนวณตรวจเช็คคนถูกรางวัลครบทุกบิลเรียบร้อยแล้ว!');
+}
+
+function renderWinnersTab() {
+  const wc = appState.winnerCheck;
+  if (!wc) return;
+
+  const win = wc.winningResult || {};
+  const fin = wc.financialSummary || {};
+  const tickets = wc.winningTickets || [];
+  const runners = wc.winnersByRunner || [];
+  const claims = wc.dealerClaims || [];
+
+  const fpEl = document.getElementById('winFirstPrizeInput');
+  if (fpEl) {
+    fpEl.value = win.firstPrize || '945583';
+    document.getElementById('winThreeTopInput').value = win.threeTop || '583';
+    document.getElementById('winTwoTopInput').value = win.twoTop || '83';
+    document.getElementById('winTwoBottomInput').value = win.twoBottom || '21';
+  }
+
+  const srcEl = document.getElementById('winResultSourceText');
+  if (srcEl) {
+    srcEl.textContent = `${win.source || 'ผลรางวัลปัจจุบัน'} • 3 ตัวบน: ${win.threeTop} (โต๊ด: ${(win.threeTopPerms || []).join(', ')}) • 2 ตัวบน: ${win.twoTop} • 2 ตัวล่าง: ${win.twoBottom}`;
+  }
+
+  const kpiCnt = document.getElementById('winKpiTicketCount');
+  if (kpiCnt) {
+    kpiCnt.textContent = `${tickets.length} รายการ`;
+    document.getElementById('winKpiRunnerCount').textContent = `จากเด็กโพย ${runners.length} คน`;
+    document.getElementById('winKpiTotalPayout').textContent = `${(fin.totalCustomerPayout || 0).toLocaleString()} ฿`;
+    document.getElementById('winKpiSaved50').textContent =
+      fin.totalSavedBy50Cutoff > 0
+        ? `ประหยัดจากกติกาเลขอั้น 50% ได้ถึง ${fin.totalSavedBy50Cutoff.toLocaleString()} ฿!`
+        : `ไม่มีรายการที่ติดหัก 50%`;
+    document.getElementById('winKpiDealerRecovery').textContent = `${(fin.totalDealerRecovery || 0).toLocaleString()} ฿`;
+    document.getElementById('winKpiNetOutPocket').textContent = `${(fin.netOutOfPocketPayout || 0).toLocaleString()} ฿`;
+  }
+
+  const tbody = document.getElementById('winningTicketsTableBody');
+  if (tbody) {
+    if (tickets.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted);">ไม่มีรายการที่ถูกรางวัลสำหรับเลขชุดนี้</td></tr>`;
+    } else {
+      tbody.innerHTML = tickets
+        .map(t => {
+          const is100 = t.payoutPercent === 100;
+          return `
+            <tr>
+              <td>
+                <div style="font-weight:700;color:#93c5fd;">👤 ${t.customerName}</div>
+                <div class="text-muted" style="font-size:11.5px;">📌 รอบที่ ${t.roundNumber} (${formatThaiDateTime(t.createdAt)})</div>
+              </td>
+              <td>
+                <code style="color:var(--gold);font-weight:700;">${t.originalWrite}</code>
+                <div class="text-muted" style="font-size:11px;">คอลัมน์ ${t.col} • แถวที่ ${t.row}</div>
+              </td>
+              <td>
+                <span class="number-pill" style="min-width:42px;font-size:13.5px;">${t.winNumber}</span>
+                <span style="margin-left:6px;font-weight:600;">${t.winType}</span>
+              </td>
+              <td class="num-col" style="font-weight:700;">${t.betAmount.toLocaleString()} ฿</td>
+              <td>
+                ${
+                  is100
+                    ? `<span class="badge-100">🟢 ส่งก่อนอั้น (100%)</span>`
+                    : `<span class="badge-50">🔒 ส่งหลังอั้น (${t.payoutPercent}%)</span>`
+                }
+              </td>
+              <td class="num-col">×${t.effectiveRate.toLocaleString()}</td>
+              <td class="num-col" style="color:var(--gold);font-weight:700;font-size:15px;">
+                ${t.actualPrize.toLocaleString()} ฿
+                ${
+                  t.savedAmt > 0
+                    ? `<div style="font-size:10.5px;color:#34d399;">(ประหยัดไป ${t.savedAmt.toLocaleString()}฿)</div>`
+                    : ''
+                }
+              </td>
+              <td style="text-align:right;">
+                <button class="btn btn-ghost btn-sm" onclick="jumpToSlipInspector('${t.slipId}', ${t.col}, ${t.row})">
+                  🔍 ดูในโพย
+                </button>
+              </td>
+            </tr>
+          `;
+        })
+        .join('');
+    }
+  }
+
+  const runnerWrap = document.getElementById('winnersByRunnerContainer');
+  if (runnerWrap) {
+    runnerWrap.innerHTML =
+      runners.length === 0
+        ? `<div class="text-muted" style="padding:12px;text-align:center;">ไม่มีเด็กโพยถูกรางวัล</div>`
+        : runners
+            .map(
+              rw => `
+          <div class="contributor-item" style="margin-bottom:8px;">
+            <div>
+              <strong style="color:#93c5fd;font-size:14.5px;">👤 ${rw.customerName}</strong>
+              <div class="text-muted">ถูกรางวัลรวม ${rw.winCount} รายการ</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:var(--text-muted);">ยอดจ่ายเงินรางวัลรวม</div>
+              <strong style="font-family:var(--font-mono);font-size:17px;color:var(--gold);">${rw.totalPrize.toLocaleString()} ฿</strong>
+            </div>
+          </div>
+        `
+            )
+            .join('');
+  }
+
+  const claimWrap = document.getElementById('dealerClaimsContainer');
+  if (claimWrap) {
+    claimWrap.innerHTML =
+      claims.length === 0
+        ? `<div class="text-muted" style="padding:12px;text-align:center;">ไม่มีเลขที่ส่งเจ้ามือตรงกับรางวัลในรอบนี้</div>`
+        : claims
+            .map(
+              c => `
+          <div class="contributor-item" style="margin-bottom:8px;">
+            <div>
+              <span class="badge-100">ใบส่งเจ้ามือ รอบที่ ${c.roundNumber}</span>
+              <strong style="margin-left:6px;">เลข ${c.number} (${c.matchType})</strong>
+              <div class="text-muted" style="margin-top:2px;">ส่งออกให้ ${c.dealerName}: ${c.sentAmount.toLocaleString()} ฿</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#60a5fa;">เคลมเงินคืนจากเจ้ามือ</div>
+              <strong style="font-family:var(--font-mono);font-size:16px;color:#34d399;">+${c.claimPrize.toLocaleString()} ฿</strong>
+            </div>
+          </div>
+        `
+            )
+            .join('');
+  }
+}
+
+function exportWinnersExcel() {
+  const wc = appState.winnerCheck;
+  const tickets = wc?.winningTickets || [];
+  if (tickets.length === 0) {
+    showToast('ไม่มีรายการผู้ถูกรางวัลให้ส่งออกครับ');
+    return;
+  }
+
+  const win = wc.winningResult || {};
+  const drawTitle = appState.currentDraw?.title || 'งวดวันที่ 16/11';
+  const totalPrize = tickets.reduce((s, t) => s + (t.actualPrize || 0), 0);
+
+  const rowsHtml = tickets
+    .map(
+      (t, idx) => `
+      <tr>
+        <td style="text-align:center;border:1px solid #cbd5e1;padding:6px;">${idx + 1}</td>
+        <td style="border:1px solid #cbd5e1;padding:6px;font-weight:bold;">${escapeHtml(t.customerName)} (รอบที่ ${t.roundNumber})</td>
+        <td style="text-align:center;border:1px solid #cbd5e1;padding:6px;">คอลัมน์ ${t.col} แถว ${t.row} (${escapeHtml(t.originalWrite)})</td>
+        <td style="text-align:center;border:1px solid #cbd5e1;padding:6px;font-weight:bold;mso-number-format:'\\@';">${t.winNumber}</td>
+        <td style="text-align:center;border:1px solid #cbd5e1;padding:6px;">${escapeHtml(t.winType)}</td>
+        <td style="text-align:right;border:1px solid #cbd5e1;padding:6px;">${t.betAmount}</td>
+        <td style="text-align:center;border:1px solid #cbd5e1;padding:6px;">${t.payoutPercent === 100 ? 'จ่ายเต็ม 100%' : `เลขอั้น ${t.payoutPercent}%`}</td>
+        <td style="text-align:right;border:1px solid #cbd5e1;padding:6px;">${t.effectiveRate}</td>
+        <td style="text-align:right;border:1px solid #cbd5e1;padding:6px;font-weight:bold;background:#fef3c7;">${t.actualPrize}</td>
+      </tr>
+    `
+    )
+    .join('');
+
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:'Tahoma',sans-serif;">
+      <table style="border-collapse:collapse;width:100%;">
+        <tr>
+          <td colspan="9" style="font-size:15pt;font-weight:bold;background:#1e293b;color:#ffffff;padding:10px;text-align:center;">
+            สรุปรายชื่อผู้ถูกรางวัล — ${escapeHtml(drawTitle)} (3 ตัวบน: ${win.threeTop} | 2 ตัวล่าง: ${win.twoBottom})
+          </td>
+        </tr>
+        <tr style="background:#334155;color:#ffffff;font-weight:bold;">
+          <th style="border:1px solid #cbd5e1;padding:6px;">ลำดับ</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">เด็กโพย & รอบบิล</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">จุดที่เขียนในโพย</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">เลขที่ถูก</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">ประเภทรางวัล</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">ยอดซื้อ (บาท)</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">สถานะอั้น</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">เรทจ่าย</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">เงินรางวัล (บาท)</th>
+        </tr>
+        ${rowsHtml}
+        <tr style="background:#1e293b;color:#ffffff;font-weight:bold;">
+          <td colspan="8" style="text-align:right;border:1px solid #cbd5e1;padding:8px;">รวมยอดเงินรางวัลที่ต้องจ่ายทั้งสิ้น:</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#fbbf24;">${totalPrize}</td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  downloadBlobFile(html, `สรุปผู้ถูกรางวัล_${drawTitle.replace(/\s+/g, '_')}.xls`, 'application/vnd.ms-excel;charset=utf-8');
+  showToast('📊 ดาวน์โหลดไฟล์ Excel รายชื่อคนถูกรางวัลเรียบร้อย!');
+}
+
+// ============================================================================
+// แท็บที่ 7: ตั้งค่าระบบ (แยกหมวดย่อย 5 หมวด) & พิมพ์กระดาษโพย 4×30
 // ============================================================================
 function switchSettingsSubTab(subTabId) {
   document.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));

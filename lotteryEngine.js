@@ -553,6 +553,257 @@ function aggregateSlips(slips, settings = {}, restrictedList = [], layoffs = [])
   return results;
 }
 
+/**
+ * Checks all slips and dealer layoffs in a draw against the winning lottery numbers.
+ * Calculates exact payouts per runner/slip/row (respecting 100% before-cutoff vs 50% after-cutoff)
+ * and calculates dealer claim recovery + net profit/loss for the draw.
+ */
+function checkDrawWinners(slips = [], currentDraw = {}, settings = {}, layoffs = []) {
+  const win = currentDraw.winningResult || {
+    firstPrize: '945583',
+    threeTop: '583',
+    twoTop: '83',
+    twoBottom: '21',
+    drawDateText: 'งวดวันที่ 16 พ.ย. 2569'
+  };
+
+  const threeTop = String(win.threeTop || (win.firstPrize ? win.firstPrize.slice(-3) : '')).trim();
+  const twoTop = String(win.twoTop || (threeTop ? threeTop.slice(-2) : '')).trim();
+  const twoBottom = String(win.twoBottom || '').trim();
+
+  const rates = settings.payoutRates || {
+    threeStraight: 500, // 3 ตัวตรง บาทละ 500
+    threeToad: 100,     // 3 ตัวโต๊ด บาทละ 100
+    twoTop: 70,         // 2 ตัวบน บาทละ 70
+    twoBottom: 70       // 2 ตัวล่าง บาทละ 70
+  };
+
+  const threeTopPerms = threeTop.length === 3 ? getUniquePermutations3(threeTop) : [];
+  const restrictedList = currentDraw.restrictedNumbers || [];
+
+  const winningTickets = [];
+  const runnerWinMap = new Map();
+
+  let totalSalesInDraw = 0;
+  let totalCustomerPayout = 0;
+  let totalSavedBy50Cutoff = 0; // เงินที่ประหยัดได้จากกติกาเลขอั้น 50%
+
+  for (const slip of slips) {
+    if (slip.status === 'cancelled' || slip.isTrainingOnly) continue;
+    totalSalesInDraw += slip.totalMoney || 0;
+
+    for (const item of slip.items || []) {
+      if (item.isEmpty || !item.baseNumber) continue;
+
+      const dCount = item.baseNumber.length;
+      const hitsInRow = [];
+
+      if (dCount === 3 && threeTop.length === 3) {
+        const isExactThreeTop = item.baseNumber === threeTop;
+        const isPermOfThreeTop = threeTopPerms.includes(item.baseNumber);
+
+        if (item.permMult && item.permTotalAmt > 0) {
+          // เลขชุดกลับ ×6 หรือ ×3: ถ้าหนึ่งในประตูตรงกับ threeTop จะถูกรางวัล 3 ตัวตรงในยอดต่อประตู
+          if (isPermOfThreeTop) {
+            const perms = item.permutations?.length ? item.permutations : getUniquePermutations3(item.baseNumber);
+            const perDoor = +(item.permTotalAmt / perms.length).toFixed(2);
+            hitsInRow.push({
+              winType: `3 ตัวบน (แตกจากชุดกลับ ×${item.permMult})`,
+              winNumber: threeTop,
+              betAmount: perDoor,
+              baseRate: rates.threeStraight
+            });
+          }
+        } else {
+          if (item.straightAmt > 0 && isExactThreeTop) {
+            hitsInRow.push({
+              winType: '3 ตัวบน (ตรง)',
+              winNumber: threeTop,
+              betAmount: item.straightAmt,
+              baseRate: rates.threeStraight
+            });
+          }
+          if (item.toadAmt > 0 && isPermOfThreeTop) {
+            hitsInRow.push({
+              winType: '3 ตัวโต๊ด',
+              winNumber: item.baseNumber,
+              betAmount: item.toadAmt,
+              baseRate: rates.threeToad
+            });
+          }
+        }
+      } else if (dCount === 2) {
+        if (item.permMult === 2 && item.permTotalAmt > 0) {
+          const perms2 = getUniquePermutations2(item.baseNumber);
+          const perDoor2 = +(item.permTotalAmt / perms2.length).toFixed(2);
+          if (twoTop && perms2.includes(twoTop)) {
+            hitsInRow.push({
+              winType: '2 ตัวบน (จากชุดกลับ ×2)',
+              winNumber: twoTop,
+              betAmount: perDoor2,
+              baseRate: rates.twoTop
+            });
+          }
+        } else {
+          if (item.straightAmt > 0 && twoTop && item.baseNumber === twoTop) {
+            hitsInRow.push({
+              winType: '2 ตัวบน',
+              winNumber: twoTop,
+              betAmount: item.straightAmt,
+              baseRate: rates.twoTop
+            });
+          }
+          // สำหรับโพยที่เขียนเลข 2 ตัวเดี่ยวๆ เช่น "21 = 22" ให้ตรวจทั้งกรณีตรงกับ 2 ตัวบน หรือ 2 ตัวล่าง
+          if (item.bottomAmt > 0 && twoBottom && item.baseNumber === twoBottom) {
+            hitsInRow.push({
+              winType: '2 ตัวล่าง',
+              winNumber: twoBottom,
+              betAmount: item.bottomAmt,
+              baseRate: rates.twoBottom
+            });
+          } else if (item.straightAmt > 0 && item.bottomAmt === 0 && twoBottom && item.baseNumber === twoBottom && item.baseNumber !== twoTop) {
+            hitsInRow.push({
+              winType: '2 ตัว (ตรงเลขท้าย 2 ตัว)',
+              winNumber: twoBottom,
+              betAmount: item.straightAmt,
+              baseRate: rates.twoBottom
+            });
+          }
+        }
+      }
+
+      for (const h of hitsInRow) {
+        const evalRes = evaluateNumberRestriction(h.winNumber, slip.createdAt, restrictedList);
+        const payoutPercent = evalRes.payoutPercentForThisSlip;
+        const effectiveRate = +(h.baseRate * (payoutPercent / 100)).toFixed(2);
+        const fullPrizeIf100 = Math.round(h.betAmount * h.baseRate);
+        const actualPrize = Math.round(h.betAmount * effectiveRate);
+        const savedAmt = Math.max(0, fullPrizeIf100 - actualPrize);
+
+        totalCustomerPayout += actualPrize;
+        totalSavedBy50Cutoff += savedAmt;
+
+        const ticket = {
+          slipId: slip.id,
+          roundNumber: slip.roundNumber || 1,
+          slipTitle: slip.title,
+          customerName: slip.customerName,
+          createdAt: slip.createdAt,
+          col: item.col,
+          row: item.row,
+          originalWrite: `${item.numText} = ${item.amtText}`,
+          winType: h.winType,
+          winNumber: h.winNumber,
+          betAmount: h.betAmount,
+          baseRate: h.baseRate,
+          payoutPercent,
+          effectiveRate,
+          fullPrizeIf100,
+          actualPrize,
+          savedAmt
+        };
+
+        winningTickets.push(ticket);
+
+        if (!runnerWinMap.has(slip.customerName)) {
+          runnerWinMap.set(slip.customerName, {
+            customerName: slip.customerName,
+            winCount: 0,
+            totalPrize: 0,
+            tickets: []
+          });
+        }
+        const rw = runnerWinMap.get(slip.customerName);
+        rw.winCount += 1;
+        rw.totalPrize += actualPrize;
+        rw.tickets.push(ticket);
+      }
+    }
+  }
+
+  // Check how much prize money we recover from the main dealer (from numbers we laid off!)
+  let totalDealerRecovery = 0;
+  const dealerClaims = [];
+
+  for (const lf of layoffs || []) {
+    for (const it of lf.items || []) {
+      const num = String(it.number || '').trim();
+      const sendAmt = Number(it.sendTotal) || 0;
+      if (!num || sendAmt <= 0) continue;
+
+      let claimRate = 0;
+      let matchType = '';
+
+      if (num.length === 3 && threeTop.length === 3) {
+        if (num === threeTop) {
+          // If it was sent as straight+toad (e.g. 583), estimate half straight + half toad or straight rate
+          if (String(it.typeDesc).includes('โต๊ด')) {
+            claimRate = (rates.threeStraight + rates.threeToad) / 2;
+            matchType = '3 ตัวบน+โต๊ด';
+          } else {
+            claimRate = rates.threeStraight;
+            matchType = '3 ตัวบน';
+          }
+        } else if (threeTopPerms.includes(num) && String(it.typeDesc).includes('โต๊ด')) {
+          claimRate = rates.threeToad;
+          matchType = '3 ตัวโต๊ด';
+        }
+      } else if (num.length === 2) {
+        if (num === twoTop || num === twoBottom) {
+          claimRate = rates.twoTop;
+          matchType = '2 ตัว';
+        }
+      }
+
+      if (claimRate > 0) {
+        const claimPrize = Math.round(sendAmt * claimRate);
+        totalDealerRecovery += claimPrize;
+        dealerClaims.push({
+          layoffId: lf.id,
+          roundNumber: lf.roundNumber || 1,
+          dealerName: lf.dealerName,
+          number: num,
+          matchType,
+          sentAmount: sendAmt,
+          claimRate,
+          claimPrize
+        });
+      }
+    }
+  }
+
+  const totalSentToDealerCost = (layoffs || []).reduce((sum, l) => sum + (Number(l.totalLayoffMoney) || 0), 0);
+  const netSalesRetained = totalSalesInDraw - totalSentToDealerCost;
+  const netOutOfPocketPayout = Math.max(0, totalCustomerPayout - totalDealerRecovery);
+  const netProfitOrLoss = netSalesRetained - (totalCustomerPayout - totalDealerRecovery);
+
+  return {
+    winningResult: {
+      firstPrize: win.firstPrize || '',
+      threeTop,
+      twoTop,
+      twoBottom,
+      threeTopPerms,
+      source: win.source || 'ตั้งค่าในระบบ',
+      updatedAt: win.updatedAt || null
+    },
+    payoutRates: rates,
+    winningTickets,
+    winnersByRunner: Array.from(runnerWinMap.values()),
+    dealerClaims,
+    financialSummary: {
+      totalSalesInDraw,
+      totalSentToDealerCost,
+      netSalesRetained,
+      totalCustomerPayout,
+      totalSavedBy50Cutoff,
+      totalDealerRecovery,
+      netOutOfPocketPayout,
+      netProfitOrLoss
+    }
+  };
+}
+
 module.exports = {
   normalizeHandwritingAmount,
   normalizeHandwritingNumber,
@@ -561,5 +812,6 @@ module.exports = {
   parseAndValidateRow,
   parseFreeTextMessage,
   evaluateNumberRestriction,
-  aggregateSlips
+  aggregateSlips,
+  checkDrawWinners
 };

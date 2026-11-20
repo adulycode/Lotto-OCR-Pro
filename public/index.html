@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_15" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_16" />
 </head>
 <body>
   <div class="app-shell">
@@ -56,9 +56,13 @@
           title="อัปโหลดรูปโพยกระดาษเข้าระบบ หรือจำลองการส่งโพยจากแชท LINE">
           <span>💬 5. ส่งโพย / LINE</span>
         </button>
+        <button class="nav-tab" data-tab="tab-winners" onclick="switchTab('tab-winners')"
+          title="ดึงผลสลากกินแบ่งรัฐบาล (กองสลาก) เพื่อตรวจเช็คคนถูกรางวัลและคำนวณยอดจ่ายแยกเรท 100% / 50%">
+          <span>🏆 6. ตรวจผลกองสลาก</span>
+        </button>
         <button class="nav-tab" data-tab="tab-template" onclick="switchTab('tab-template')"
           title="ตั้งค่าระบบ แยกตามหมวดหมู่: กติกาหวย, โมเดล AI, ความจำลายมือ, LINE OA และพิมพ์กระดาษโพย A4">
-          <span>⚙️ 6. ตั้งค่าระบบ</span>
+          <span>⚙️ 7. ตั้งค่าระบบ</span>
         </button>
       </nav>
 
@@ -618,7 +622,134 @@
     </section>
 
     <!-- ================================================================= -->
-    <!-- แท็บที่ 6: ตั้งค่าระบบ (แยกเมนูย่อย 5 หมวดอย่างเป็นระเบียบ)          -->
+    <!-- แท็บที่ 6: ดึงผลสลากกินแบ่งรัฐบาล (กองสลาก) & ตรวจเช็คคนถูกรางวัล   -->
+    <!-- ================================================================= -->
+    <section id="tab-winners" class="tab-panel no-print">
+      <!-- แผงดึงผลรางวัลจากกองสลาก & กรอกเลขรางวัล -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">
+          <div>
+            <h2>🏆 ดึงผลสลากกินแบ่งรัฐบาล (กองสลาก) & ตรวจเช็คคนถูกรางวัลอัตโนมัติ</h2>
+            <p class="text-muted" id="winResultSourceText">ระบบตรวจทุกบิล ทุกคอลัมน์ ทุกแถว พร้อมคำนวณแยกเรทจ่ายเต็ม 100% (ส่งก่อนอั้น) และจ่ายครึ่ง 50% (ส่งหลังอั้น)</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="fetchLatestGloLotteryResult()">
+              🔄 ดึงผลกองสลากงวดล่าสุดอัตโนมัติ
+            </button>
+            <button class="btn btn-outline" onclick="applySampleWinningNumbers('945583', '583', '83', '21')">
+              🎯 ทดสอบออกเลข 583 / 21
+            </button>
+            <button class="btn btn-outline" onclick="applySampleWinningNumbers('120072', '072', '72', '21')">
+              🎯 ทดสอบออกเลข 072 / 21
+            </button>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));gap:12px;align-items:end;background:var(--bg-input);padding:14px;border-radius:10px;border:1px solid var(--border);">
+          <div>
+            <label class="small-label">รางวัลที่ 1 (6 หลัก):</label>
+            <input type="text" id="winFirstPrizeInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--gold);text-align:center;" maxlength="6" placeholder="945583" oninput="onFirstPrizeInput(this.value)" />
+          </div>
+          <div>
+            <label class="small-label">3 ตัวบน / ท้ายรางวัลที่ 1:</label>
+            <input type="text" id="winThreeTopInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:#60a5fa;text-align:center;" maxlength="3" placeholder="583" />
+          </div>
+          <div>
+            <label class="small-label">2 ตัวบน (2 ตัวท้ายรางวัลที่ 1):</label>
+            <input type="text" id="winTwoTopInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:#34d399;text-align:center;" maxlength="2" placeholder="83" />
+          </div>
+          <div>
+            <label class="small-label">2 ตัวล่าง (เลขท้าย 2 ตัวกองสลาก):</label>
+            <input type="text" id="winTwoBottomInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:#fb923c;text-align:center;" maxlength="2" placeholder="21" />
+          </div>
+          <div>
+            <button class="btn btn-success" style="width:100%;height:40px;" onclick="saveManualWinningResult()">
+              🔍 คำนวณตรวจคนถูกทันที
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- การ์ดสรุปยอดเงินรางวัล & กำไรสุทธิ 4 ช่อง -->
+      <div class="kpi-strip" style="padding:0 0 16px 0;">
+        <div class="kpi-card">
+          <div class="kpi-title">🎯 จำนวนรายการที่ถูกรางวัล</div>
+          <div class="kpi-value highlight-gold" id="winKpiTicketCount">0 รายการ</div>
+          <div class="kpi-sub" id="winKpiRunnerCount">จากเด็กโพย 0 คน</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">💸 ยอดจ่ายเงินรางวัลให้ลูกค้า</div>
+          <div class="kpi-value" style="color:#f87171;" id="winKpiTotalPayout">0 ฿</div>
+          <div class="kpi-sub" id="winKpiSaved50">ประหยัดจากเลขอั้น 50% ไป 0 ฿</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">🏦 เคลมเงินรางวัลคืนจากเจ้ามือใหญ่</div>
+          <div class="kpi-value" style="color:#60a5fa;" id="winKpiDealerRecovery">0 ฿</div>
+          <div class="kpi-sub">จากเลขที่เราตัดยอดส่งเจ้ามือไปแล้ว</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">📊 สรุปยอดจ่ายเองสุทธิ (หลังหักเคลมเจ้ามือ)</div>
+          <div class="kpi-value text-success" id="winKpiNetOutPocket">0 ฿</div>
+          <div class="kpi-sub" id="winKpiTierRates">เรทจ่าย: 3 ตัวตรง×500 | โต๊ด×100 | 2 ตัว×70</div>
+        </div>
+      </div>
+
+      <div class="two-col-grid" style="grid-template-columns: 1.55fr 1fr;">
+        <!-- ซ้าย: ตารางรายชื่อคนถูกรางวัลทั้งหมด (ระบุบิล คอลัมน์ แถว และเรท 100% vs 50%) -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3>📋 รายการบิลและแถวที่ถูกรางวัลในงวดนี้</h3>
+              <p class="text-muted">คลิกที่ปุ่ม "🔍 ดูในโพย" เพื่อเปิดรูปกระดาษโพยและชี้ไปยังแถวที่ถูกรางวัลทันที</p>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="exportWinnersExcel()">
+              📊 Export Excel คนถูกรางวัล
+            </button>
+          </div>
+
+          <div class="table-scroll" style="max-height:540px;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>เด็กโพย & รอบบิล</th>
+                  <th>จุดที่เขียนในโพย</th>
+                  <th>รางวัลที่ถูก</th>
+                  <th class="num-col">ยอดซื้อ</th>
+                  <th>สถานะอั้น</th>
+                  <th class="num-col">เรทจ่าย</th>
+                  <th class="num-col">เงินรางวัลที่ได้รับ</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="winningTicketsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ขวา: สรุปยอดจ่ายแยกตามสายเด็กโพย & ยอดเคลมคืนจากเจ้ามือใหญ่ -->
+        <div class="side-stack">
+          <div class="card">
+            <div class="card-header">
+              <h3>👥 สรุปยอดจ่ายเงินรางวัลแยกตามเด็กโพย</h3>
+            </div>
+            <div id="winnersByRunnerContainer"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3>🏦 รายการที่เราเคลมเงินรางวัลจากเจ้ามือใหญ่ได้</h3>
+                <p class="text-muted">คำนวณจากใบตัดยอดที่เราส่งเจ้ามือไปแล้วในงวดนี้</p>
+              </div>
+            </div>
+            <div id="dealerClaimsContainer"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================= -->
+    <!-- แท็บที่ 7: ตั้งค่าระบบ (แยกเมนูย่อย 5 หมวดอย่างเป็นระเบียบ)          -->
     <!-- ================================================================= -->
     <section id="tab-template" class="tab-panel">
       <div class="settings-layout no-print">
@@ -828,6 +959,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_15"></script>
+  <script src="/app.js?v=20261120_16"></script>
 </body>
 </html>
