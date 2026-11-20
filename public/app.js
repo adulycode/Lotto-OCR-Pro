@@ -1057,6 +1057,7 @@ function onInspectorRunnerChange(runnerName) {
 }
 
 function renderInspectorSelector() {
+  const runnerTabsBar = document.getElementById('inspectorRunnerTabsBar');
   const runnerSelect = document.getElementById('inspectorRunnerSelect');
   const slipSelect = document.getElementById('inspectorSlipSelect');
   const roundPillsBar = document.getElementById('inspectorRoundPillsBar');
@@ -1064,8 +1065,7 @@ function renderInspectorSelector() {
 
   if (!slipSelect) return;
   if (allInspectableSlips.length === 0) {
-    if (runnerSelect) runnerSelect.innerHTML = `<option value="">ไม่มีเด็กโพยในงวดนี้</option>`;
-    slipSelect.innerHTML = `<option value="">ไม่มีบิลในงวดนี้</option>`;
+    if (runnerTabsBar) runnerTabsBar.innerHTML = `<span class="text-muted">ไม่มีเด็กโพยในงวดนี้</span>`;
     if (roundPillsBar) roundPillsBar.innerHTML = '';
     return;
   }
@@ -1087,14 +1087,19 @@ function renderInspectorSelector() {
     currentInspectorRunner = activeSlip.customerName;
   }
 
-  // 1) Render Runner Dropdown (เลือกชื่อเด็กโพย)
-  if (runnerSelect) {
-    runnerSelect.innerHTML = Array.from(runnerGroups.entries())
+  // 1) Render Runner Buttons (ขั้นที่ 1: คลิกเลือกชื่อเด็กโพย)
+  if (runnerTabsBar) {
+    runnerTabsBar.innerHTML = Array.from(runnerGroups.entries())
       .map(([name, list]) => {
         const totalM = list.reduce((sum, x) => sum + (x.totalMoney || 0), 0);
-        return `<option value="${name}" ${name === currentInspectorRunner ? 'selected' : ''}>
-          👤 ${name} — ส่งแล้ว ${list.length} รอบ (รวม ${totalM.toLocaleString()}฿)
-        </option>`;
+        const warnCnt = list.reduce((sum, x) => sum + (x.reviewCount || 0), 0);
+        const isCurrentRunner = name === currentInspectorRunner;
+        return `<button type="button" class="btn ${isCurrentRunner ? 'btn-primary' : 'btn-outline'}"
+          onclick="onInspectorRunnerChange('${name}')">
+          👤 ${name}
+          <span class="runner-rounds-badge" style="background:rgba(15,23,42,0.5);color:#fde68a;">${list.length} รอบ (${totalM.toLocaleString()}฿)</span>
+          ${warnCnt > 0 ? `<span class="tab-badge">${warnCnt}</span>` : ''}
+        </button>`;
       })
       .join('');
   }
@@ -1105,36 +1110,46 @@ function renderInspectorSelector() {
     currentInspectedSlipId = runnerSlips[0].id;
   }
 
-  // 3) Render Round & Date-Time Dropdown for this runner
-  slipSelect.innerHTML = runnerSlips
+  selectSlipForInspection(currentInspectedSlipId);
+}
+
+function renderRoundCardsForActiveRunner() {
+  const roundPillsBar = document.getElementById('inspectorRoundPillsBar');
+  if (!roundPillsBar) return;
+  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+  const runnerSlips = allInspectableSlips.filter(s => s.customerName === currentInspectorRunner);
+
+  roundPillsBar.innerHTML = runnerSlips
     .map((s, idx) => {
       const rNum = s.roundNumber || idx + 1;
-      const dtText = formatThaiDateTime(s.createdAt);
-      const statusText = s.reviewCount > 0 ? `⚠️ รอตรวจ ${s.reviewCount} จุด` : `✅ ยืนยันแล้ว`;
-      return `<option value="${s.id}" ${s.id === currentInspectedSlipId ? 'selected' : ''}>
-        📌 รอบที่ ${rNum} | ส่งเมื่อ: ${dtText} | ${s.totalItems} รายการ (${s.totalMoney.toLocaleString()}฿) [${statusText}]
-      </option>`;
+      const isCurrent = s.id === currentInspectedSlipId;
+      const hasWarn = (s.reviewCount || 0) > 0;
+      return `
+        <div class="customer-card ${isCurrent ? 'active-customer' : ''}" style="padding:10px 14px;"
+          onclick="selectSlipForInspection('${s.id}')">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong style="color:${isCurrent ? '#fde68a' : '#93c5fd'};font-size:14px;">
+              📌 รอบที่ ${rNum} ${isCurrent ? '(กำลังเปิดดู)' : ''}
+            </strong>
+            ${
+              hasWarn
+                ? `<span class="badge-50">⚠️ รอเช็ค ${s.reviewCount} จุด</span>`
+                : `<span class="badge-100">✅ ยอดบิลตรงแล้ว</span>`
+            }
+          </div>
+          <div class="text-muted" style="margin-top:4px;font-size:12px;">
+            📅 ส่งเมื่อ: <strong>${formatThaiDateTime(s.createdAt)}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);">
+            <span style="font-size:12px;">จำนวน <strong>${s.totalItems} รายการ</strong></span>
+            <strong style="font-family:var(--font-mono);font-size:15px;color:var(--gold);">
+              ยอดบิล: ${s.totalMoney.toLocaleString()} ฿
+            </strong>
+          </div>
+        </div>
+      `;
     })
     .join('');
-
-  // 4) Render Quick Round Pills Bar (คลิกสลับรอบของคนนี้ได้ทันที พร้อมเห็นวันเวลาชัดเจน)
-  if (roundPillsBar) {
-    roundPillsBar.innerHTML =
-      `<span class="small-label" style="margin-right:4px;">สลับดูแต่ละรอบของ <strong>${currentInspectorRunner}</strong>:</span>` +
-      runnerSlips
-        .map((s, idx) => {
-          const rNum = s.roundNumber || idx + 1;
-          const isCurrent = s.id === currentInspectedSlipId;
-          const warnDot = s.reviewCount > 0 ? ' ⚠️' : ' ✅';
-          return `<button type="button" class="chip ${isCurrent ? 'active' : ''}"
-            onclick="selectSlipForInspection('${s.id}')">
-            📌 รอบที่ ${rNum} • ${formatThaiDateTime(s.createdAt)} (${s.totalMoney.toLocaleString()}฿)${warnDot}
-          </button>`;
-        })
-        .join('');
-  }
-
-  selectSlipForInspection(currentInspectedSlipId);
 }
 
 function selectSlipForInspection(slipId, highlightCol = null, highlightRow = null) {
@@ -1147,27 +1162,7 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   const learnInput = document.getElementById('learnCustomerInput');
   if (learnInput) learnInput.value = slip.customerName;
 
-  // Sync dropdown & round pills highlight
-  const slipSelect = document.getElementById('inspectorSlipSelect');
-  if (slipSelect && slipSelect.value !== slipId) slipSelect.value = slipId;
-  const roundPillsBar = document.getElementById('inspectorRoundPillsBar');
-  if (roundPillsBar) {
-    const runnerSlips = allInspectableSlips.filter(s => s.customerName === currentInspectorRunner);
-    roundPillsBar.innerHTML =
-      `<span class="small-label" style="margin-right:4px;">สลับดูแต่ละรอบของ <strong>${currentInspectorRunner}</strong>:</span>` +
-      runnerSlips
-        .map((s, idx) => {
-          const rNum = s.roundNumber || idx + 1;
-          const isCurrent = s.id === currentInspectedSlipId;
-          const warnDot = s.reviewCount > 0 ? ' ⚠️' : ' ✅';
-          return `<button type="button" class="chip ${isCurrent ? 'active' : ''}"
-            onclick="selectSlipForInspection('${s.id}')">
-            📌 รอบที่ ${rNum} • ${formatThaiDateTime(s.createdAt)} (${s.totalMoney.toLocaleString()}฿)${warnDot}
-          </button>`;
-        })
-        .join('');
-  }
-
+  renderRoundCardsForActiveRunner();
   renderLearnedRules();
 
   const imgEl = document.getElementById('inspectorImage');
@@ -1351,6 +1346,18 @@ function toggleLearnedMemoryPanel() {
   if (panel) panel.classList.toggle('hidden');
 }
 
+function jumpFromLearnedRule(customerName, roundNumber) {
+  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+  const target =
+    allInspectableSlips.find(s => s.customerName === customerName && (s.roundNumber || 1) === roundNumber) ||
+    allInspectableSlips.find(s => s.customerName === customerName);
+  if (target) {
+    currentInspectorRunner = target.customerName;
+    currentInspectedSlipId = target.id;
+    renderInspectorSelector();
+    showToast(`🔍 เปิดบิลของ "${target.customerName} — รอบที่ ${target.roundNumber || 1}" เรียบร้อย`);
+  }
+}
 function setLearnedRunnerFilter(filterVal) {
   currentLearnedRunnerFilter = filterVal;
   renderLearnedRules();
@@ -1400,9 +1407,9 @@ function renderLearnedRules() {
       r => `
       <div class="contributor-item" style="padding:8px 12px;margin-bottom:6px;font-size:12.5px;flex-wrap:wrap;gap:8px;">
         <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
-          <span class="badge-100">👤 ${r.customerName}</span>
-          <span class="runner-rounds-badge" style="margin-left:0;">
-            📌 รอบที่ ${r.roundNumber || 1} • 📅 ${formatThaiDateTime(r.learnedAt)}
+          <span class="badge-100" style="cursor:pointer;" onclick="jumpFromLearnedRule('${r.customerName}', ${r.roundNumber || 1})">👤 ${r.customerName}</span>
+          <span class="runner-rounds-badge" style="margin-left:0;cursor:pointer;" onclick="jumpFromLearnedRule('${r.customerName}', ${r.roundNumber || 1})" title="คลิกเพื่อเปิดดูบิลรอบนี้">
+            📌 รอบที่ ${r.roundNumber || 1} • 📅 ${formatThaiDateTime(r.learnedAt)} (คลิกดูบิล ➔)
           </span>
           <span>
             ช่อง${r.field === 'amtText' ? 'ยอดเงิน' : 'ตัวเลข'}: หากเขียนคล้าย
