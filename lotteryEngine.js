@@ -820,23 +820,17 @@ const THAI_MONTHS_SHORT = [
  * - May 1 -> shifts to May 2 (National Labor Day / วันแรงงาน)
  * - Major Buddhist holidays / special GLO rescheduled dates lookup table
  */
-function getUpcomingGloDraws(existingDraws = [], count = 6) {
-  // Known special Buddhist / GLO shifted dates (YYYY-MM-DD -> { shiftedTo, reason })
-  const SPECIAL_SHIFTS = {
-    '2026-05-01': { shiftedTo: '2026-05-02', reason: 'เลื่อนจาก 1 พ.ค. (วันแรงงานแห่งชาติ)' },
-    '2026-07-31': { shiftedTo: '2026-07-31', reason: 'เลื่อนจาก 1 ส.ค. (วันอาสาฬหบูชา/เข้าพรรษา)' },
-    '2027-01-01': { shiftedTo: '2026-12-30', reason: 'เลื่อนจาก 1 ม.ค. (วันหยุดสิ้นปีและวันขึ้นปีใหม่)' },
-    '2027-01-16': { shiftedTo: '2027-01-17', reason: 'เลื่อนจาก 16 ม.ค. (วันครูแห่งชาติ)' },
-    '2027-05-01': { shiftedTo: '2027-05-02', reason: 'เลื่อนจาก 1 พ.ค. (วันแรงงานแห่งชาติ)' }
-  };
-
+function getUpcomingGloDraws(existingDraws = [], count = 12) {
   const existingDates = new Set((existingDraws || []).map(d => d.drawDate));
-  const candidateSlots = [];
+  const now = new Date();
+  const startYear = now.getFullYear();
+  // Filter out past draws older than 5 days ago so old dates like Nov 1 don't clutter the list
+  const minIsoDate = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  // Generate candidate (year, month 1..12, nominalDay 1 or 16) from Nov 2026 through Dec 2027
-  for (let y = 2026; y <= 2027; y++) {
+  const candidateSlots = [];
+  // Dynamically roll 5 years into the future from current year (never runs out!)
+  for (let y = startYear; y <= startYear + 5; y++) {
     for (let m = 1; m <= 12; m++) {
-      if (y === 2026 && m < 11) continue;
       candidateSlots.push({ y, m, d: 1 });
       candidateSlots.push({ y, m, d: 16 });
     }
@@ -849,27 +843,27 @@ function getUpcomingGloDraws(existingDraws = [], count = 6) {
     let actualD = slot.d;
     let shiftReason = '';
 
-    // Rule 1: Jan 1 always shifts to Dec 30 of the previous year
+    // Rule 1: Jan 1 always shifts to Dec 30 of the previous year (New Year Holiday)
     if (slot.m === 1 && slot.d === 1) {
       actualY = slot.y - 1;
       actualM = 12;
       actualD = 30;
       shiftReason = '⚠️ เลื่อนเร็วขึ้นจาก 1 ม.ค. (วันหยุดเทศกาลปีใหม่)';
     }
-    // Rule 2: Jan 16 always shifts to Jan 17 (Teachers' Day)
+    // Rule 2: Jan 16 always shifts to Jan 17 (National Teachers' Day / วันครู)
     else if (slot.m === 1 && slot.d === 16) {
       actualD = 17;
       shiftReason = '⚠️ เลื่อนจาก 16 ม.ค. (วันครูแห่งชาติ)';
     }
-    // Rule 3: May 1 always shifts to May 2 (Labor Day)
+    // Rule 3: May 1 always shifts to May 2 (National Labor Day / วันแรงงาน)
     else if (slot.m === 5 && slot.d === 1) {
       actualD = 2;
       shiftReason = '⚠️ เลื่อนจาก 1 พ.ค. (วันแรงงานแห่งชาติ)';
     }
 
     const isoDate = `${actualY}-${String(actualM).padStart(2, '0')}-${String(actualD).padStart(2, '0')}`;
-    if (SPECIAL_SHIFTS[isoDate] && !shiftReason) {
-      shiftReason = `⚠️ ${SPECIAL_SHIFTS[isoDate].reason}`;
+    if (isoDate < minIsoDate && !existingDates.has(isoDate)) {
+      continue;
     }
 
     const buddhistYear = actualY + 543;
@@ -880,7 +874,7 @@ function getUpcomingGloDraws(existingDraws = [], count = 6) {
       drawDate: isoDate,
       title,
       isShifted: Boolean(shiftReason),
-      shiftReason: shiftReason || 'ออกรางวัลตามกำหนดปกติ (วันที่ 1 และ 16)',
+      shiftReason: shiftReason || 'ออกรางวัลตามวันปกติ (วันที่ 1 และ 16)',
       alreadyCreated: existingDates.has(isoDate)
     });
 

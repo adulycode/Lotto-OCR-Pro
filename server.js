@@ -689,7 +689,7 @@ const server = http.createServer(async (req, res) => {
         currentDrawId: currentDraw.id,
         currentDraw,
         draws: db.draws,
-        upcomingGloDraws: getUpcomingGloDraws(db.draws, 6),
+        upcomingGloDraws: getUpcomingGloDraws(db.draws, 16),
         settings: db.settings,
         learnedRules: db.learnedRules || [],
         slips: drawSlips,
