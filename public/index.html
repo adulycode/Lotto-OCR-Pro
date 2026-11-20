@@ -132,7 +132,7 @@
             <input type="text" id="searchNumberInput" class="input-search" placeholder="🔎 ค้นหาเลข เช่น 21, 583, 154, 072..." oninput="renderAggregatedTable()" />
             <div class="filter-chips">
               <button class="chip active" data-filter="all" onclick="setAggFilter('all', this)">ทั้งหมด</button>
-              <button class="chip" data-filter="multi_hit" onclick="setAggFilter('multi_hit', this)">🔥 มีหลายคนส่งเลขตรงกัน</button>
+              <button class="chip" data-filter="multi_hit" onclick="setAggFilter('multi_hit', this)">🔥 เลขที่รวมมาจากหลายรายการ</button>
               <button class="chip" data-filter="restricted" onclick="setAggFilter('restricted', this)">🔒 เฉพาะเลขอั้น (50%)</button>
               <button class="chip" data-filter="over_limit" onclick="setAggFilter('over_limit', this)">🚨 เกินเพดานรับเอง</button>
               <button class="chip" data-filter="digit_2" onclick="setAggFilter('digit_2', this)">เลข 2 ตัว</button>
@@ -644,6 +644,6 @@
   </main>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_4"></script>
+  <script src="/app.js?v=20261120_5"></script>
 </body>
 </html>

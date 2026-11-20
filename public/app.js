@@ -435,10 +435,7 @@ function renderAggregatedTable() {
       return `
         <tr class="${isSelected ? 'selected-row' : ''}" onclick="inspectAggNumber('${item.key}')">
           <td>
-            <div class="num-cell-wrap">
-              <span class="number-pill">${item.number}</span>
-              ${item.hitCount > 1 ? `<span class="multi-hit-tag">ส่งซ้ำ ${item.hitCount} ครั้ง</span>` : ''}
-            </div>
+            <span class="number-pill">${item.number}</span>
           </td>
           <td>
             ${
@@ -467,7 +464,7 @@ function renderAggregatedTable() {
             }
           </td>
           <td style="font-size:12.5px;">
-            <strong>${item.hitCount} รายการ</strong>
+            <strong>รวม ${item.hitCount} รายการ</strong>
             <span class="text-muted">(${customerNames})</span>
           </td>
         </tr>
