@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_19" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_20" />
 </head>
 <body>
   <div class="app-shell">
@@ -791,6 +791,28 @@
               </div>
 
               <hr class="divider" style="margin:16px 0;border-color:var(--border);" />
+              <h4 style="margin-bottom:10px;color:var(--gold);">⏰ ตั้งเวลาปิดรอบรับโพยในวันหวยออก & การตัดเข้างวดถัดไป</h4>
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label>เวลาปิดรับโพยของวันหวยออก (เช่น 14:30 น.):</label>
+                  <input type="time" id="settingDrawCutoffTime" class="input" value="14:30" />
+                  <small class="text-muted">เมื่อถึงเวลานี้ในวันหวยออก ระบบจะปิดรับโพยของงวดปัจจุบันทันที</small>
+                </div>
+                <div class="form-group">
+                  <label>เวลาเริ่มเปิดรับโพยเป็น "งวดถัดไป" (เช่น 17:00 น.):</label>
+                  <input type="time" id="settingNextDrawOpenTime" class="input" value="17:00" />
+                  <small class="text-muted">บิลที่ส่งเข้า LINE หลังเวลานี้จะถูกปัดเข้าเป็นรอบที่ 1 ของงวดหน้าอัตโนมัติ</small>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>กรณีลูกค้าส่งโพยเข้ามาในช่วงปิดรอบ (ระหว่างเวลาปิดรับ ถึง เวลาเปิดงวดหน้า):</label>
+                <select id="settingAfterCutoffAction" class="input">
+                  <option value="reject_until_open">⛔ ปฏิเสธการรับบิลช่วงหวยออก และให้บอท LINE ตอบแจ้งว่า "ปิดรับโพยงวดนี้แล้ว"</option>
+                  <option value="auto_next_draw">⏩ ปัดบิลที่ส่งหลังเวลาปิดรับ เข้าเป็นโพยของ "งวดถัดไป" ทันที</option>
+                </select>
+              </div>
+
+              <hr class="divider" style="margin:16px 0;border-color:var(--border);" />
               <h4 style="margin-bottom:10px;color:#93c5fd;">เพดานรับเองสูงสุดต่อตัวเลข (บาท)</h4>
               <div class="form-row-2">
                 <div class="form-group">
@@ -971,6 +993,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_19"></script>
+  <script src="/app.js?v=20261120_20"></script>
 </body>
 </html>

@@ -33,27 +33,40 @@ function getNextRoundForCustomer(slips, drawId, customerName) {
 }
 
 /**
- * Automatically detects whether the current draw has already passed its draw cutoff time
- * (15:00 Thai time = 08:00 UTC on drawDate). If the submission arrives AFTER the draw has occurred,
- * automatically rolls over to the next official GLO draw period (creating it if needed)!
+ * Evaluates submission timestamp against the admin's configured Draw Cutoff Time (`settings.drawCutoffTime`, e.g. "14:30")
+ * and Next Draw Open Time (`settings.nextDrawOpenTime`, e.g. "17:00") in Thai Time (UTC+7).
  */
 function resolveTargetDrawForSubmission(db, submittedAtIso, explicitDrawId = '', allowAutoRollover = false) {
   let targetDraw =
     db.draws.find(d => d.id === (explicitDrawId || db.currentDrawId)) || db.draws[0];
 
   if (!allowAutoRollover || !targetDraw?.drawDate) {
-    return { draw: targetDraw, rolledOver: false };
+    return { draw: targetDraw, rolledOver: false, rejectedClosed: false };
   }
 
-  // Cutoff time on draw day: 15:00 ICT (08:00 UTC)
-  const drawCutoffMs = new Date(`${targetDraw.drawDate}T08:00:00.000Z`).getTime();
+  const cutoffTimeStr = db.settings?.drawCutoffTime || '14:30';
+  const nextOpenTimeStr = db.settings?.nextDrawOpenTime || '17:00';
+  const afterCutoffAction = db.settings?.afterCutoffAction || 'reject_until_open';
+
+  // Parse ICT (+07:00) timestamps on the draw day
+  const drawCutoffMs = new Date(`${targetDraw.drawDate}T${cutoffTimeStr}:00+07:00`).getTime();
+  const nextOpenMs = new Date(`${targetDraw.drawDate}T${nextOpenTimeStr}:00+07:00`).getTime();
   const submitMs = new Date(submittedAtIso || Date.now()).getTime();
 
+  // If submitted between Cutoff Time (e.g. 14:30) and Next Draw Open Time (e.g. 17:00) on draw day:
+  if (afterCutoffAction === 'reject_until_open' && submitMs > drawCutoffMs && submitMs < nextOpenMs) {
+    return {
+      draw: targetDraw,
+      rolledOver: false,
+      rejectedClosed: true,
+      rejectMessage: `⛔ ปิดรับโพย ${targetDraw.title} แล้วครับ (ปิดรับเวลา ${cutoffTimeStr} น. และจะเปิดรับงวดถัดไปเวลา ${nextOpenTimeStr} น.)`
+    };
+  }
+
   if (submitMs > drawCutoffMs) {
-    // Find or create the next official GLO draw whose drawDate is after submitMs
     const upcomingList = getUpcomingGloDraws(db.draws, 6);
     const nextCandidate = upcomingList.find(
-      u => new Date(`${u.drawDate}T08:00:00.000Z`).getTime() > submitMs
+      u => new Date(`${u.drawDate}T${cutoffTimeStr}:00+07:00`).getTime() > submitMs
     ) || upcomingList[0];
 
     if (nextCandidate) {
@@ -69,11 +82,16 @@ function resolveTargetDrawForSubmission(db, submittedAtIso, explicitDrawId = '',
         db.draws.unshift(existingNext);
       }
       db.currentDrawId = existingNext.id;
-      return { draw: existingNext, rolledOver: true, previousDrawTitle: targetDraw.title };
+      return {
+        draw: existingNext,
+        rolledOver: true,
+        rejectedClosed: false,
+        previousDrawTitle: targetDraw.title
+      };
     }
   }
 
-  return { draw: targetDraw, rolledOver: false };
+  return { draw: targetDraw, rolledOver: false, rejectedClosed: false };
 }
 
 function buildInitialDb() {
@@ -83,6 +101,9 @@ function buildInitialDb() {
     permutationMode: 'expand',
     useColumnSlicing: true,
     checkMultiplesOf11: true,
+    drawCutoffTime: '14:30',        // เวลาปิดรับโพยในวันหวยออก (เช่น 14:30 น.)
+    nextDrawOpenTime: '17:00',      // เวลาเริ่มตัดเข้าเป็นงวดถัดไปอัตโนมัติ (เช่น หลัง 17:00 น. ของวันหวยออก)
+    afterCutoffAction: 'reject_until_open', // 'reject_until_open' = ปิดรับช่วงหวยออก แล้วเปิดรับงวดใหม่ตามเวลา, 'auto_next_draw' = ปัดเข้างวดหน้าทันที
     riskLimits: {
       threeStraight: 100,
       threeToad: 100,
@@ -1300,7 +1321,9 @@ const server = http.createServer(async (req, res) => {
           const nextRound = getNextRoundForCustomer(db.slips, currentDraw.id, customerName);
           let replyText = '';
 
-          if (ev.message.type === 'image' && token) {
+          if (resolved.rejectedClosed) {
+            replyText = resolved.rejectMessage;
+          } else if (ev.message.type === 'image' && token) {
             const imgRes = await fetch(`https://api-data.line.me/v2/bot/message/${ev.message.id}/content`, {
               headers: { Authorization: `Bearer ${token}` }
             });

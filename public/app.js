@@ -2472,6 +2472,11 @@ function populateSettingsForm() {
   document.getElementById('settingGeminiKey').value = s.geminiApiKey || '';
   document.getElementById('settingPermMode').value = s.permutationMode || 'expand';
   document.getElementById('settingCheck11').checked = s.checkMultiplesOf11 !== false;
+  if (document.getElementById('settingDrawCutoffTime')) {
+    document.getElementById('settingDrawCutoffTime').value = s.drawCutoffTime || '14:30';
+    document.getElementById('settingNextDrawOpenTime').value = s.nextDrawOpenTime || '17:00';
+    document.getElementById('settingAfterCutoffAction').value = s.afterCutoffAction || 'reject_until_open';
+  }
 
   const lim = s.riskLimits || {};
   document.getElementById('limitThreeStraight').value = lim.threeStraight ?? 100;
@@ -2489,6 +2494,9 @@ async function saveSettingsFromForm() {
     geminiApiKey: document.getElementById('settingGeminiKey').value.trim(),
     permutationMode: document.getElementById('settingPermMode').value,
     checkMultiplesOf11: document.getElementById('settingCheck11').checked,
+    drawCutoffTime: document.getElementById('settingDrawCutoffTime')?.value || '14:30',
+    nextDrawOpenTime: document.getElementById('settingNextDrawOpenTime')?.value || '17:00',
+    afterCutoffAction: document.getElementById('settingAfterCutoffAction')?.value || 'reject_until_open',
     riskLimits: {
       threeStraight: Number(document.getElementById('limitThreeStraight').value) || 100,
       threeToad: Number(document.getElementById('limitThreeToad').value) || 100,
