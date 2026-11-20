@@ -2140,6 +2140,71 @@ body.light-mode .nav-tab.active .nav-icon-badge {
   }
 }
 
+/* Draw Allocation Summary Strip (Kept by Us vs Sent to Dealer vs New Pending) */
+.draw-alloc-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 1100px) {
+  .draw-alloc-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+.draw-alloc-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.draw-alloc-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--primary);
+}
+
+.draw-alloc-card.active-filter {
+  box-shadow: 0 0 0 2px var(--primary);
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.draw-alloc-card.alloc-kept {
+  border-left: 3px solid #34d399;
+}
+
+.draw-alloc-card.alloc-sent {
+  border-left: 3px solid #60a5fa;
+}
+
+.draw-alloc-card.alloc-pending {
+  border-left: 3px solid #fbbf24;
+}
+
+.alloc-mini-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.alloc-mini-pill {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #e2e8f0;
+}
+
 @media print {
   body { background: #fff; color: #000; }
   .no-print { display: none !important; }
