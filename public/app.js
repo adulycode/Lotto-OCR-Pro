@@ -458,11 +458,20 @@ function renderCustomersInDraw() {
                   📌 รอบที่ ${rNum}: <span style="color:#e2e8f0;font-weight:600;">${sl.title.replace(/^รอบที่ \d+ — /, '')}</span>
                 </div>
                 <div class="text-muted">ส่งเมื่อ: ${formatThaiDateTime(sl.createdAt)} (${sl.totalItems} รายการ)</div>
-                ${
-                  has50
-                    ? `<div style="margin-top:4px;"><span class="badge-50">🔒 ติดอั้น 50% (${sl.restrictedHits.join(', ')}) = ${sl.half50Money.toLocaleString()}฿</span></div>`
-                    : `<div style="margin-top:4px;"><span class="badge-100">🟢 ส่งก่อนอั้น จ่ายเต็ม 100%</span></div>`
-                }
+                <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">
+                  ${
+                    has50
+                      ? `<span class="badge-50">🔒 ติดอั้น 50% (${sl.restrictedHits.join(', ')}) = ${sl.half50Money.toLocaleString()}฿</span>`
+                      : `<span class="badge-100">🟢 ส่งก่อนอั้น จ่ายเต็ม 100%</span>`
+                  }
+                  ${
+                    (sl.reviewCount || 0) > 0
+                      ? `<span class="badge-50" title="AI พบจุดที่ควรตรวจสอบเทียบกับรูปกระดาษ">⚠️ รอเช็ค ${sl.reviewCount} จุด</span>`
+                      : sl.humanApproved
+                        ? `<span class="badge-100" title="คนตรวจและกดยืนยันแล้วโดย ${escapeHtml(sl.approvedBy || 'แอดมิน')}">✅ คนยืนยันแล้ว</span>`
+                        : `<span class="badge-ai" title="AI อ่านและตรวจกฎคณิตศาสตร์ผ่านอัตโนมัติ (รอคนกดปุ่มยืนยัน)">🤖 AI อ่านผ่าน</span>`
+                  }
+                </div>
               </div>
               <div style="flex-shrink:0;text-align:right;">
                 <div style="font-family:var(--font-mono);font-weight:700;color:var(--gold);white-space:nowrap;">${sl.totalMoney.toLocaleString()} ฿</div>
@@ -1859,22 +1868,31 @@ function renderSidebarListForInspector() {
           const rNum = s.roundNumber || idx + 1;
           const isCurrent = s.id === currentInspectedSlipId;
           const hasWarn = (s.reviewCount || 0) > 0;
+          let statusBadgeHtml = '';
+          if (hasWarn) {
+            statusBadgeHtml = `<span class="badge-50" style="padding:1px 7px;font-size:10.5px;" title="AI พบจุดที่ควรตรวจสอบเทียบกับรูปกระดาษ">⚠️ รอเช็ค ${s.reviewCount} จุด</span>`;
+          } else if (s.humanApproved) {
+            statusBadgeHtml = `<span class="badge-100" style="padding:1px 7px;font-size:10.5px;" title="คนตรวจและกดยืนยันแล้วโดย ${escapeHtml(s.approvedBy || 'แอดมิน')}">✅ คนยืนยันแล้ว</span>`;
+          } else {
+            statusBadgeHtml = `<span class="badge-ai" style="padding:1px 7px;font-size:10.5px;" title="AI อ่านและตรวจกฎคณิตศาสตร์ผ่านอัตโนมัติ (รอคนกดปุ่มยืนยัน)">🤖 AI อ่านผ่าน</span>`;
+          }
           return `
             <div class="round-list-item ${isCurrent ? 'active' : ''}" onclick="selectSlipForInspection('${s.id}')">
               <div style="display:flex;justify-content:space-between;align-items:center;">
                 <strong style="color:${isCurrent ? '#fde68a' : '#e2e8f0'};font-size:13px;">
                   📌 รอบที่ ${rNum}
                 </strong>
-                ${
-                  hasWarn
-                    ? `<span class="badge-50" style="padding:1px 7px;font-size:10.5px;">⚠️ รอเช็ค ${s.reviewCount} จุด</span>`
-                    : `<span class="badge-100" style="padding:1px 7px;font-size:10.5px;">✅ ตรงแล้ว</span>`
-                }
+                ${statusBadgeHtml}
               </div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:11.5px;">
                 <span class="text-muted">${formatThaiDateTime(s.createdAt)} (${s.totalItems} รายการ)</span>
                 <strong style="font-family:var(--font-mono);color:var(--gold);">${s.totalMoney.toLocaleString()} ฿</strong>
               </div>
+              ${
+                !hasWarn && s.humanApproved && s.approvedBy
+                  ? `<div style="font-size:10.5px;color:#34d399;margin-top:3px;">👤 ยืนยันโดย: ${escapeHtml(s.approvedBy)}${s.approvedAt ? ` (${formatThaiDateTime(s.approvedAt)})` : ''}</div>`
+                  : ''
+              }
             </div>
           `;
         })
@@ -1933,12 +1951,21 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
       </div>
       <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">ยอดรวมใบนี้: ${slip.totalMoney.toLocaleString()} ฿</span>
     `;
-  } else {
+  } else if (slip.humanApproved) {
     banner.className = 'validation-banner ok';
     banner.innerHTML = `
       <div>
-        <strong>✅ ผ่านการตรวจสอบกฎคณิตศาสตร์ครบทุกแถว (${slip.totalItems} รายการ):</strong>
+        <strong>✅ คนตรวจยืนยันความถูกต้องแล้ว (Human Approved โดย ${escapeHtml(slip.approvedBy || 'แอดมิน')}${slip.approvedAt ? ` เมื่อ ${formatThaiDateTime(slip.approvedAt)}` : ''}) — ผ่านกฎคณิตศาสตร์ครบทุกแถว (${slip.totalItems} รายการ):</strong>
         กฎ ×6 (เลขไม่ซ้ำ/หาร 6 ลงตัว) • กฎ ×3 (เลขเบิ้ล/หาร 3 ลงตัว) • กฎพหูคูณ 11 บาท ถูกต้อง 100%
+      </div>
+      <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">ยอดรวมใบนี้: ${slip.totalMoney.toLocaleString()} ฿</span>
+    `;
+  } else {
+    banner.className = 'validation-banner ai';
+    banner.innerHTML = `
+      <div>
+        <strong>🤖 AI อ่านและตรวจกฎคณิตศาสตร์ 4 ชั้นผ่านอัตโนมัติครบ ${slip.totalItems} รายการ:</strong>
+        (ยังไม่ได้กดยืนยันโดยคน — กรุณาตรวจทานแล้วกดปุ่ม <strong>"✅ ยืนยันยอดบิลรอบนี้"</strong> ด้านบน)
       </div>
       <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">ยอดรวมใบนี้: ${slip.totalMoney.toLocaleString()} ฿</span>
     `;

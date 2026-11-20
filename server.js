@@ -349,6 +349,9 @@ function buildInitialDb() {
         imageUrl: '/uploads/slip-16-11-page1.jpg',
         isGrid4x30: true,
         status: 'needs_review',
+        humanApproved: false,
+        approvedBy: null,
+        approvedAt: null,
         modelUsed: 'gemini-2.5-pro',
         totalItems: muayR1Items.filter(i => !i.isEmpty).length,
         totalMoney: muayR1Total,
@@ -368,7 +371,10 @@ function buildInitialDb() {
         source: 'LINE ข้อความ',
         imageUrl: '',
         isGrid4x30: false,
-        status: 'verified',
+        status: 'ai_passed',
+        humanApproved: false,
+        approvedBy: null,
+        approvedAt: null,
         modelUsed: 'gemini-2.5-pro',
         totalItems: muayR2Items.length,
         totalMoney: muayR2Total,
@@ -388,7 +394,10 @@ function buildInitialDb() {
         source: 'LINE ข้อความ',
         imageUrl: '',
         isGrid4x30: false,
-        status: 'verified',
+        status: 'ai_passed',
+        humanApproved: false,
+        approvedBy: null,
+        approvedAt: null,
         modelUsed: 'gemini-2.5-pro',
         totalItems: muayR3Items.length,
         totalMoney: muayR3Total,
@@ -408,7 +417,10 @@ function buildInitialDb() {
         source: 'LINE ข้อความ',
         imageUrl: '',
         isGrid4x30: false,
-        status: 'verified',
+        status: 'ai_passed',
+        humanApproved: false,
+        approvedBy: null,
+        approvedAt: null,
         modelUsed: 'gemini-2.5-pro',
         totalItems: pongR1Items.length,
         totalMoney: pongR1Total,
@@ -428,7 +440,10 @@ function buildInitialDb() {
         source: 'LINE ข้อความ',
         imageUrl: '',
         isGrid4x30: false,
-        status: 'verified',
+        status: 'ai_passed',
+        humanApproved: false,
+        approvedBy: null,
+        approvedAt: null,
         modelUsed: 'gemini-2.5-pro',
         totalItems: pongR2Items.length,
         totalMoney: pongR2Total,
@@ -448,7 +463,10 @@ function buildInitialDb() {
         source: 'LINE ข้อความ',
         imageUrl: '',
         isGrid4x30: false,
-        status: 'verified',
+        status: 'ai_passed',
+        humanApproved: false,
+        approvedBy: null,
+        approvedAt: null,
         modelUsed: 'gemini-2.5-pro',
         totalItems: nidR1Items.length,
         totalMoney: nidR1Total,
@@ -547,6 +565,25 @@ function buildInitialDb() {
   };
 }
 
+function normalizeSlipVerificationStatus(slip) {
+  const revCount = Number(slip.reviewCount) || 0;
+  if (revCount > 0) {
+    slip.status = 'needs_review';
+    slip.humanApproved = false;
+  } else if (slip.humanApproved === true) {
+    slip.status = 'human_verified';
+    slip.humanApproved = true;
+    slip.approvedBy = slip.approvedBy || 'แอดมิน';
+    slip.approvedAt = slip.approvedAt || slip.createdAt;
+  } else {
+    slip.status = 'ai_passed';
+    slip.humanApproved = false;
+    slip.approvedBy = null;
+    slip.approvedAt = null;
+  }
+  return slip;
+}
+
 function loadDb() {
   if (!fs.existsSync(DB_FILE)) {
     const initial = buildInitialDb();
@@ -559,6 +596,9 @@ function loadDb() {
       const initial = buildInitialDb();
       fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf8');
       return initial;
+    }
+    if (Array.isArray(db.slips)) {
+      db.slips.forEach(normalizeSlipVerificationStatus);
     }
     return db;
   } catch (e) {
@@ -703,7 +743,11 @@ const server = http.createServer(async (req, res) => {
           roundNumber,
           full100Money,
           half50Money,
-          restrictedHits: Array.from(new Set(restrictedHits))
+          restrictedHits: Array.from(new Set(restrictedHits)),
+          humanApproved: Boolean(s.humanApproved),
+          approvedBy: s.approvedBy || null,
+          approvedAt: s.approvedAt || null,
+          status: (s.reviewCount || 0) > 0 ? 'needs_review' : s.humanApproved ? 'human_verified' : 'ai_passed'
         };
       });
 
@@ -754,7 +798,11 @@ const server = http.createServer(async (req, res) => {
           full100Money: s.full100Money,
           half50Money: s.half50Money,
           restrictedHits: s.restrictedHits,
-          reviewCount: s.reviewCount,
+          reviewCount: s.reviewCount || 0,
+          status: s.status,
+          humanApproved: Boolean(s.humanApproved),
+          approvedBy: s.approvedBy || null,
+          approvedAt: s.approvedAt || null,
           source: s.source
         });
       }
@@ -795,7 +843,9 @@ const server = http.createServer(async (req, res) => {
           restrictedCount: (currentDraw.restrictedNumbers || []).length,
           learnedRulesCount: (db.learnedRules || []).length,
           overLimitCount: aggregated.filter(a => a.isOverLimit).length,
-          pendingReviewSlips: drawSlips.filter(s => s.reviewCount > 0 && s.status !== 'verified').length
+          pendingReviewSlips: drawSlips.filter(s => (s.reviewCount || 0) > 0 && !s.humanApproved).length,
+          aiPassedSlips: drawSlips.filter(s => (s.reviewCount || 0) === 0 && !s.humanApproved).length,
+          humanVerifiedSlips: drawSlips.filter(s => (s.reviewCount || 0) === 0 && s.humanApproved).length
         }
       });
     }
@@ -1130,7 +1180,10 @@ const server = http.createServer(async (req, res) => {
         source: isTrainingOnly ? 'โหมดฝึกสอนจากโพยเก่า' : (body.source || 'อัปโหลดรูปโพย (OCR)'),
         imageUrl: savedImageUrl,
         isGrid4x30: items.length > 30,
-        status: reviewCount > 0 ? 'needs_review' : 'verified',
+        status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
+        humanApproved: false,
+        approvedBy: null,
+        approvedAt: null,
         modelUsed: ocrResult.modelUsed,
         ocrMode: ocrResult.mode,
         usage: ocrResult.usage,
@@ -1256,23 +1309,34 @@ const server = http.createServer(async (req, res) => {
       slip.totalMoney = slip.items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
       slip.reviewCount = slip.items.filter(i => i.needsReview).length;
 
+      const actorName = getActorFromReq(req, body);
       if (body.markVerified) {
         slip.items.forEach(i => {
           i.needsReview = false;
         });
         slip.reviewCount = 0;
-        slip.status = 'verified';
+        slip.humanApproved = true;
+        slip.approvedBy = actorName;
+        slip.approvedAt = new Date().toISOString();
+        slip.status = 'human_verified';
         appendAuditLog(
           db,
-          getActorFromReq(req, body),
+          actorName,
           'ยืนยันความถูกต้องบิล',
           `กดยืนยันยอดบิลของ "${slip.customerName}" (${slip.title}) ยอดรวม ${slip.totalMoney.toLocaleString()} บาท`
         );
       } else {
-        slip.status = slip.reviewCount > 0 ? 'needs_review' : 'verified';
+        if (slip.reviewCount > 0) {
+          slip.status = 'needs_review';
+          slip.humanApproved = false;
+        } else if (!slip.humanApproved) {
+          slip.status = 'ai_passed';
+        } else {
+          slip.status = 'human_verified';
+        }
         appendAuditLog(
           db,
-          getActorFromReq(req, body),
+          actorName,
           'แก้ไขตัวเลขในบิล',
           `แก้ไขข้อมูลโพยของ "${slip.customerName}" (${slip.title})${newlyLearned.length > 0 ? ` [${newlyLearned.join(', ')}]` : ''} ยอดรวม ${slip.totalMoney.toLocaleString()} บาท`
         );
@@ -1353,7 +1417,10 @@ const server = http.createServer(async (req, res) => {
           source: 'LINE รูปโพยกระดาษ',
           imageUrl: savedImageUrl,
           isGrid4x30: items.length > 30,
-          status: reviewCount > 0 ? 'needs_review' : 'verified',
+          status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
+          humanApproved: false,
+          approvedBy: null,
+          approvedAt: null,
           modelUsed: ocrResult.modelUsed,
           totalItems: items.filter(i => !i.isEmpty).length,
           totalMoney,
@@ -1439,7 +1506,10 @@ const server = http.createServer(async (req, res) => {
           source: 'LINE ข้อความ',
           imageUrl: '',
           isGrid4x30: false,
-          status: reviewCount > 0 ? 'needs_review' : 'verified',
+          status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
+          humanApproved: false,
+          approvedBy: null,
+          approvedAt: null,
           modelUsed: 'ระบบอ่านข้อความอัตโนมัติ',
           totalItems: items.length,
           totalMoney,
@@ -1536,7 +1606,10 @@ const server = http.createServer(async (req, res) => {
                 source: 'LINE รูปโพยกระดาษ',
                 imageUrl: `/uploads/${fileName}`,
                 isGrid4x30: items.length > 30,
-                status: reviewCount > 0 ? 'needs_review' : 'verified',
+                status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
+                humanApproved: false,
+                approvedBy: null,
+                approvedAt: null,
                 modelUsed: ocrResult.modelUsed,
                 totalItems: items.filter(i => !i.isEmpty).length,
                 totalMoney,
@@ -1566,7 +1639,10 @@ const server = http.createServer(async (req, res) => {
                 source: 'LINE ข้อความ',
                 imageUrl: '',
                 isGrid4x30: false,
-                status: 'verified',
+                status: 'ai_passed',
+                humanApproved: false,
+                approvedBy: null,
+                approvedAt: null,
                 modelUsed: 'ระบบอ่านข้อความ',
                 totalItems: items.length,
                 totalMoney,
