@@ -1366,6 +1366,7 @@ function renderLayoffBuilder(skipInputRebuild = false) {
                 <span style="font-size:12px;color:#34d399;">🏠 เก็บเอง: ${(l.totalKeptMoney || 0).toLocaleString()}฿</span>
                 <strong style="color:var(--gold);font-family:var(--font-mono);">📤 ส่งเจ้ามือ: ${(l.totalLayoffMoney || 0).toLocaleString()}฿</strong>
                 <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;color:#34d399;border-color:rgba(16,185,129,0.45);" onclick="exportSavedLayoffRoundExcel('${l.id}')">📊 โหลด Excel รอบนี้</button>
+                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;color:#93c5fd;border-color:rgba(96,165,250,0.45);" onclick="exportSavedLayoffRoundCsv('${l.id}')">📄 โหลด CSV รอบนี้</button>
                 <button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px;" onclick="undoLayoffRound('${l.id}')">ยกเลิกรอบนี้</button>
               </div>
             </div>
@@ -1381,7 +1382,14 @@ function renderLayoffBuilder(skipInputRebuild = false) {
   }
 }
 
-async function copyAndSaveLayoff(alsoDownloadExcel = false) {
+async function copyAndSaveLayoff(downloadFormat = 'excel') {
+  const format =
+    downloadFormat === true
+      ? 'excel'
+      : downloadFormat === false
+      ? 'text_only'
+      : downloadFormat || 'excel';
+
   const text = document.getElementById('layoffFormattedText').value;
   const dealerName = document.getElementById('dealerNameInput').value || 'เจ้ามือสายใหญ่ #1';
   const mode = document.getElementById('layoffModeSelect')?.value || 'send_all_new';
@@ -1394,9 +1402,10 @@ async function copyAndSaveLayoff(alsoDownloadExcel = false) {
     return;
   }
 
-  if (alsoDownloadExcel) {
-    exportCurrentLayoffExcel();
-  }
+  const rowsForExport = buildCurrentRoundLayoffRows();
+  const s = appState.summary || {};
+  const nextRound = s.nextLayoffRound || ((appState.layoffs || []).length + 1);
+  const drawTitle = appState.currentDraw?.title || 'งวดวันที่ 16/11';
 
   try {
     await navigator.clipboard.writeText(text);
@@ -1421,7 +1430,7 @@ async function copyAndSaveLayoff(alsoDownloadExcel = false) {
     };
   });
 
-  await fetch('/api/layoffs', {
+  const res = await fetch('/api/layoffs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1432,10 +1441,37 @@ async function copyAndSaveLayoff(alsoDownloadExcel = false) {
     })
   });
 
+  const savedData = await res.json().catch(() => ({}));
+  const confirmedRoundNumber = savedData?.layoff?.roundNumber || nextRound;
+  const confirmedCreatedAt = savedData?.layoff?.createdAt || new Date().toISOString();
+
+  if (format === 'excel') {
+    generateDealerLayoffExcelFile({
+      roundNumber: confirmedRoundNumber,
+      dealerName,
+      drawTitle,
+      createdAt: confirmedCreatedAt,
+      rows: rowsForExport
+    });
+  } else if (format === 'csv') {
+    generateDealerLayoffCsvFile({
+      roundNumber: confirmedRoundNumber,
+      dealerName,
+      rows: rowsForExport
+    });
+  }
+
   selectedLayoffKeys.clear();
   customLayoffAmounts = {};
   await fetchAppState();
-  showToast('✅ ยืนยันส่งเจ้ามือรอบนี้ + ดาวน์โหลดไฟล์ Excel + ล็อกยอดไม่ให้ส่งซ้ำเรียบร้อย!');
+
+  if (format === 'excel') {
+    showToast('✅ ยืนยันตัดยอดส่งเจ้ามือรอบนี้ + ล็อกยอด + ดาวน์โหลดไฟล์ Excel เรียบร้อย!');
+  } else if (format === 'csv') {
+    showToast('✅ ยืนยันตัดยอดส่งเจ้ามือรอบนี้ + ล็อกยอด + ดาวน์โหลดไฟล์ CSV เรียบร้อย!');
+  } else {
+    showToast('✅ ยืนยันตัดยอดส่งเจ้ามือรอบนี้ + ล็อกยอด + คัดลอกข้อความใบโพยเรียบร้อย!');
+  }
 }
 
 /**
@@ -1610,30 +1646,59 @@ function exportCurrentLayoffCsv() {
   const nextRound = s.nextLayoffRound || ((appState.layoffs || []).length + 1);
   const dealerName = document.getElementById('dealerNameInput')?.value || 'เจ้ามือสายใหญ่ #1';
 
+  generateDealerLayoffCsvFile({
+    roundNumber: nextRound,
+    dealerName,
+    rows
+  });
+}
+
+function exportSavedLayoffRoundCsv(layoffId) {
+  const lf = (appState.layoffs || []).find(l => l.id === layoffId);
+  if (!lf) return;
+
+  generateDealerLayoffCsvFile({
+    roundNumber: lf.roundNumber || 1,
+    dealerName: lf.dealerName || 'เจ้ามือสายใหญ่',
+    rows: (lf.items || []).map(it => ({
+      number: it.number,
+      typeDesc: it.typeDesc || (String(it.number).length === 2 ? '2 ตัวบน' : '3 ตัวบน'),
+      payoutPercent: it.payoutPercent || 100,
+      sendTotal: Number(it.sendTotal) || 0,
+      keepTotal: Number(it.keepTotal) || 0
+    }))
+  });
+}
+
+function generateDealerLayoffCsvFile({ roundNumber, dealerName, rows }) {
+  const rowsToSend = rows.filter(r => r.sendTotal > 0);
+  const targetRows = rowsToSend.length > 0 ? rowsToSend : rows;
+
   const csvLines = [
     ['ลำดับ', 'ตัวเลข', 'ประเภท', 'เรทจ่าย', 'ยอดส่งเจ้ามือ (บาท)', 'เก็บไว้ที่เรา (บาท)'].join(',')
   ];
 
   let totalSend = 0;
   let totalKeep = 0;
-  rows.forEach((r, idx) => {
-    totalSend += r.sendTotal;
-    totalKeep += r.keepTotal;
+  targetRows.forEach((r, idx) => {
+    totalSend += Number(r.sendTotal) || 0;
+    totalKeep += Number(r.keepTotal) || 0;
     // Use ="072" format so Excel preserves leading zeros in CSV
     csvLines.push(
       [
         idx + 1,
         `="${r.number}"`,
-        `"${r.typeDesc}"`,
+        `"${r.typeDesc || ''}"`,
         `"${r.payoutPercent < 100 ? `เลขอั้น ${r.payoutPercent}%` : 'ปกติ 100%'}"`,
         r.sendTotal,
-        r.keepTotal
+        r.keepTotal || 0
       ].join(',')
     );
   });
   csvLines.push(['', 'รวมทั้งสิ้น', '', '', totalSend, totalKeep].join(','));
 
-  const fileName = `ใบส่งเจ้ามือ_รอบที่_${nextRound}.csv`;
+  const safeDealer = (dealerName || 'เจ้ามือสายใหญ่').replace(/[^\u0E00-\u0E7Fa-zA-Z0-9_-]/g, '_');
+  const fileName = `ใบส่งเจ้ามือ_${safeDealer}_รอบที่_${roundNumber}.csv`;
   downloadBlobFile(csvLines.join('\r\n'), fileName, 'text/csv;charset=utf-8');
   showToast(`📄 ดาวน์โหลดไฟล์ CSV "${fileName}" เรียบร้อยแล้ว!`);
 }

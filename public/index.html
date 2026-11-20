@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_30" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_31" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -298,8 +298,8 @@
                   <th class="num-col" title="ยอดรวม 3 ตัวบน (ตรง) หรือ 2 ตัวบน">เต็ง / บน</th>
                   <th class="num-col" title="ยอดรวม 3 ตัวโต๊ด หรือ 2 ตัวล่าง">โต๊ด / ล่าง</th>
                   <th class="num-col" title="ผลรวมยอดเงินทั้งหมดของเลขนี้">ยอดรวม</th>
-                  <th class="num-col" style="color:#6ee7b7;" title="ยอดเงินที่ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100%)">🟢 ได้ 100%</th>
-                  <th class="num-col" style="color:#fdba74;" title="ยอดเงินที่ส่งมาหลังเวลาประกาศเลขอั้น (ได้เรทจ่ายครึ่ง 50%)">🔒 ได้ 50%</th>
+                  <th class="num-col" style="color:#6ee7b7;" title="ยอดเงินที่ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100%)">🟢 ส่งก่อนอั้น (100%)</th>
+                  <th class="num-col" style="color:#fdba74;" title="ยอดเงินที่ส่งมาหลังเวลาประกาศเลขอั้น (ได้เรทจ่ายครึ่ง 50%)">🔒 ส่งหลังอั้น (50%)</th>
                   <th class="num-col" style="color:#34d399;" title="ยอดของเลขนี้ที่เราเลือกเก็บไว้รับกินเอง">🏠 เก็บไว้เอง</th>
                   <th class="num-col" style="color:#60a5fa;" title="ยอดของเลขนี้ที่ตัดส่งเจ้ามือใหญ่ไปแล้ว">📤 ส่งเจ้ามือ</th>
                   <th title="จำนวนรายการที่นำมารวมกัน คลิกที่แถวเพื่อดูรายละเอียดรายคน">ที่มา</th>
@@ -516,21 +516,25 @@
             <textarea id="layoffFormattedText" rows="6" class="input mono-textarea" readonly></textarea>
           </div>
 
+          <div style="font-size:12px;color:#fcd34d;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);border-radius:8px;padding:8px 12px;margin-bottom:10px;line-height:1.5;">
+            🔒 ระบบบังคับให้กดยืนยันตัดยอดก่อนดาวน์โหลดไฟล์เสมอ เพื่อล็อกยอดเข้าระบบทันที ป้องกันการลืมกดยืนยันแล้วเผลอส่งเจ้ามือซ้ำ (หากต้องการโหลดไฟล์ย้อนหลัง กดปุ่ม "📊 โหลด Excel รอบนี้" หรือ "📄 CSV" ในประวัติแต่ละรอบด้านล่างได้เลย)
+          </div>
+
           <div class="btn-group-full" style="flex-direction:column;gap:8px;">
+            <button class="btn btn-primary btn-lg" onclick="copyAndSaveLayoff('excel')"
+              title="บันทึกการส่งเจ้ามือรอบนี้ ล็อกยอดเพื่อไม่ให้ส่งซ้ำในรอบถัดไป พร้อมดาวน์โหลดไฟล์ Excel และคัดลอกข้อความ">
+              ✅ ยืนยันตัดยอดส่งเจ้ามือรอบนี้ (ล็อกยอด & ดาวน์โหลด Excel ทันที)
+            </button>
             <div style="display:flex;gap:8px;">
-              <button class="btn btn-success btn-lg" style="flex:1;" onclick="exportCurrentLayoffExcel(false)"
-                title="ดาวน์โหลดตารางใบส่งเจ้ามือของรอบนี้เป็นไฟล์ Microsoft Excel (.xls)">
-                📊 ดาวน์โหลด Excel
+              <button class="btn btn-outline btn-lg" style="flex:1;font-size:13px;" onclick="copyAndSaveLayoff('csv')"
+                title="บันทึกการส่งเจ้ามือรอบนี้ ล็อกยอดไม่ให้ส่งซ้ำ พร้อมดาวน์โหลดไฟล์ CSV และคัดลอกข้อความ">
+                📄 ยืนยันตัดยอด & ดาวน์โหลด CSV
               </button>
-              <button class="btn btn-outline btn-lg" style="flex:1;" onclick="exportCurrentLayoffCsv()"
-                title="ดาวน์โหลดตารางใบส่งเจ้ามือของรอบนี้เป็นไฟล์ CSV">
-                📄 ดาวน์โหลด CSV
+              <button class="btn btn-outline btn-lg" style="flex:1;font-size:13px;" onclick="copyAndSaveLayoff('text_only')"
+                title="บันทึกการส่งเจ้ามือรอบนี้ ล็อกยอดไม่ให้ส่งซ้ำ และคัดลอกข้อความลงคลิปบอร์ดโดยไม่ดาวน์โหลดไฟล์">
+                📋 ยืนยันตัดยอด & คัดลอกข้อความเท่านั้น
               </button>
             </div>
-            <button class="btn btn-primary btn-lg" onclick="copyAndSaveLayoff(true)"
-              title="บันทึกการส่งเจ้ามือรอบนี้ ล็อกยอดเพื่อไม่ให้ส่งซ้ำในรอบถัดไป พร้อมดาวน์โหลดไฟล์ Excel และคัดลอกข้อความ">
-              ✅ ยืนยันส่งเจ้ามือรอบนี้ & ดาวน์โหลด Excel
-            </button>
           </div>
 
           <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:12px;">
@@ -1205,6 +1209,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_30"></script>
+  <script src="/app.js?v=20261120_31"></script>
 </body>
 </html>
