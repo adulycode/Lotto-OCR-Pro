@@ -4,104 +4,115 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ระบบจัดการโพยหวย & อ่านลายมือ AI (แยกตามงวด • เลขอั้น 50% • ตัดยอดส่งเจ้ามือ)</title>
+  <link rel="icon" type="image/jpeg" href="/mascot-logo.jpg" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_12" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_14" />
 </head>
 <body>
-  <!-- แถบด้านบนสุด: เลือกงวดหวยชัดเจน ดูง่ายตั้งแต่เปิดเว็บ -->
-  <header class="topbar no-print">
-    <div class="topbar-brand">
-      <div class="brand-logo">🎯</div>
-      <div>
-        <div class="brand-title">ระบบรวมโพยหวย AI <span class="badge-model" id="headerModelBadge">gemini-2.5-pro</span></div>
-        <div class="brand-subtitle">แยกข้อมูลตามงวด • เช็คใครส่งอะไรมา • แยกเลขอั้น 100%/50% ตามเวลา • ตัดยอดส่งเจ้ามือ</div>
+  <div class="app-shell">
+    <!-- ================================================================= -->
+    <!-- แถบเมนูหลักด้านซ้ายมือ (Left Navigation Sidebar สมดุล ไม่คั่นกลางจอ) -->
+    <!-- ================================================================= -->
+    <aside class="app-sidebar no-print">
+      <div class="sidebar-brand">
+        <img src="/mascot-logo.jpg" alt="Lotto Mascot" class="mascot-logo-img" />
+        <div>
+          <div class="brand-title">ระบบรวมโพยหวย</div>
+          <div class="brand-subtitle"><span class="badge-model" id="headerModelBadge">gemini-2.5-pro</span></div>
+        </div>
       </div>
-    </div>
 
-    <!-- กล่องเลือกงวดหวย (หัวใจหลักของข้อมูลแต่ละชุด) -->
-    <div class="draw-selector-bar">
-      <span class="draw-label">📅 งวดหวยที่กำลังดู:</span>
-      <select id="drawSelect" class="input draw-select" onchange="onSwitchDraw(this.value)"></select>
-      <button class="btn btn-outline btn-sm" onclick="openNewDrawModal()">+ เปิดงวดใหม่</button>
-    </div>
+      <!-- กล่องเลือกงวดหวย -->
+      <div class="sidebar-section">
+        <label class="sidebar-section-label">📅 งวดหวยที่กำลังดู</label>
+        <select id="drawSelect" class="input draw-select" style="min-width:100%;margin-bottom:6px;" onchange="onSwitchDraw(this.value)"></select>
+        <button class="btn btn-outline btn-sm" style="width:100%;" onclick="openNewDrawModal()">+ เปิดงวดใหม่</button>
+      </div>
 
-    <!-- สวิตช์เลือกวิธีคิดเลขชุดกลับ (×6, ×3) -->
-    <div class="perm-switcher-box">
-      <span class="perm-label" title="วิธีจัดการเลขชุดกลับ เช่น 072×6 หรือ 979×3">ชุดกลับ ×6/×3:</span>
-      <div class="segmented-control">
-        <button type="button" id="btnModeExpand" class="seg-btn active"
-          title="แตกเลขชุดกลับออกเป็นเลข 3 ตัวบนทุกประตูอัตโนมัติ (เช่น 072×6 = 66฿ แตกเป็น 6 หาง หางละ 11฿)"
-          onclick="setPermutationMode('expand')">
-          🔀 แยกเลขทุกประตู
+      <!-- เมนูหลัก 6 เมนู เรียงแนวตั้งทางซ้ายมือ -->
+      <nav class="sidebar-nav">
+        <div class="sidebar-section-label">เมนูจัดการระบบ</div>
+        <button class="nav-tab active" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard')"
+          title="ดูรายชื่อเด็กโพยที่ส่งในงวดนี้ และตารางสรุปผลรวมยอดเงินเดียวของแต่ละเลข">
+          <span>🏠 1. ภาพรวมงวดนี้</span>
         </button>
-        <button type="button" id="btnModeRaw" class="seg-btn"
-          title="เก็บเลขชุดกลับไว้ตามที่เขียนในหน้าโพยโดยไม่แยกหาง (เช่น คงรูป 072×6 = 66฿)"
-          onclick="setPermutationMode('keep_raw')">
-          📋 คงตามหน้าโพย
+        <button class="nav-tab" data-tab="tab-restricted" onclick="switchTab('tab-restricted')"
+          title="กำหนดชุดเลขอั้นที่เจ้ามือแจ้ง (เช่น ก่อนหวยออก 1 วัน) เพื่อแยกบิลจ่ายเต็ม 100% กับจ่ายครึ่ง 50%">
+          <span>🔒 2. ตั้งเลขอั้น 50%</span>
+          <span class="tab-badge warn" id="badgeRestrictedCount">5</span>
         </button>
+        <button class="nav-tab" data-tab="tab-layoff" onclick="switchTab('tab-layoff')"
+          title="เลือกเลขทยอยตัดยอดส่งเจ้ามือเป็นรอบๆ โดยไม่ส่งซ้ำ พร้อมส่งออกไฟล์ Excel">
+          <span>📤 3. ตัดยอดส่งเจ้ามือ</span>
+        </button>
+        <button class="nav-tab" data-tab="tab-inspector" onclick="switchTab('tab-inspector')"
+          title="ตรวจสอบและแก้ไขตัวเลขที่อ่านจากรูปโพยกระดาษ 4 คอลัมน์ × 30 แถว">
+          <span>🔍 4. ตรวจบิล OCR</span>
+          <span class="tab-badge" id="badgeReviewCount">1</span>
+        </button>
+        <button class="nav-tab" data-tab="tab-line" onclick="switchTab('tab-line')"
+          title="อัปโหลดรูปโพยกระดาษเข้าระบบ หรือจำลองการส่งโพยจากแชท LINE">
+          <span>💬 5. ส่งโพย / LINE</span>
+        </button>
+        <button class="nav-tab" data-tab="tab-template" onclick="switchTab('tab-template')"
+          title="สั่งพิมพ์กระดาษโพยมาตรฐาน A4 และตั้งค่าระบบ AI / LINE OA">
+          <span>⚙️ 6. พิมพ์โพย & ตั้งค่า</span>
+        </button>
+      </nav>
+
+      <!-- สวิตช์เลือกวิธีคิดเลขชุดกลับ (×6, ×3) อยู่ด้านล่างของ Sidebar -->
+      <div class="sidebar-footer">
+        <div class="sidebar-section-label" title="วิธีจัดการเลขชุดกลับ เช่น 072×6 หรือ 979×3">วิธีคิดเลขชุดกลับ (×6/×3)</div>
+        <div class="sidebar-seg-stack">
+          <button type="button" id="btnModeExpand" class="seg-btn active"
+            title="แตกเลขชุดกลับออกเป็นเลข 3 ตัวบนทุกประตูอัตโนมัติ (เช่น 072×6 = 66฿ แตกเป็น 6 หาง หางละ 11฿)"
+            onclick="setPermutationMode('expand')">
+            🔀 แยกเลขทุกประตู
+          </button>
+          <button type="button" id="btnModeRaw" class="seg-btn"
+            title="เก็บเลขชุดกลับไว้ตามที่เขียนในหน้าโพยโดยไม่แยกหาง (เช่น คงรูป 072×6 = 66฿)"
+            onclick="setPermutationMode('keep_raw')">
+            📋 คงตามหน้าโพย
+          </button>
+        </div>
       </div>
-    </div>
-  </header>
+    </aside>
 
-  <!-- แถบสรุปภาพรวมของงวดนี้ (4 การ์ดใหญ่ อ่านเข้าใจทันที) -->
-  <section class="kpi-strip no-print">
-    <div class="kpi-card" title="จำนวนเด็กโพยและจำนวนรอบบิลทั้งหมดที่ส่งเข้ามาในงวดนี้">
-      <div class="kpi-title">👥 คนส่งโพยในงวดนี้</div>
-      <div class="kpi-value" id="kpiTotalCustomers">0 คน (0 ใบ)</div>
-      <div class="kpi-sub">คลิกชื่อคนด้านล่างเพื่อดูแยกรายคน</div>
-    </div>
-    <div class="kpi-card" title="ยอดเงินรวมทั้งหมดจากทุกบิลในงวดนี้">
-      <div class="kpi-title">💰 ยอดเงินรวมทั้งงวด</div>
-      <div class="kpi-value highlight-gold" id="kpiTotalMoney">0 บาท</div>
-      <div class="kpi-sub" id="kpiUniqueNumbers">รวมทั้งหมด 0 เลข</div>
-    </div>
-    <div class="kpi-card" title="แยกยอดเงินที่ส่งมาก่อนเวลาประกาศเลขอั้น (จ่ายเต็ม 100%) และหลังเวลาประกาศอั้น (จ่าย 50%)">
-      <div class="kpi-title">🟢 จ่ายเต็ม 100% / 🔒 ติดอั้น 50%</div>
-      <div class="kpi-value">
-        <span class="text-success" id="kpiFull100">0 ฿</span>
-        <span style="color:#64748b;margin:0 6px;">/</span>
-        <span class="text-warn" id="kpiHalf50">0 ฿</span>
-      </div>
-      <div class="kpi-sub">แยกตามเวลาที่ส่งโพย</div>
-    </div>
-    <div class="kpi-card clickable-kpi" onclick="switchTab('tab-restricted')" title="คลิกเพื่อตั้งค่าชุดเลขอั้นและเวลาที่เจ้ามือประกาศ">
-      <div class="kpi-title">🔒 เลขอั้นประจำงวดนี้</div>
-      <div class="kpi-value highlight-warn" id="kpiRestrictedList">-</div>
-      <div class="kpi-sub">คลิกเพื่อจัดการเลขอั้น ➔</div>
-    </div>
-  </section>
+    <!-- ================================================================= -->
+    <!-- พื้นที่ทำงานหลักด้านขวา (KPI ด้านบนสุด + เนื้อหาแต่ละหน้าต่อเนื่องกัน) -->
+    <!-- ================================================================= -->
+    <div class="app-workspace">
+      <!-- แถบสรุปภาพรวมของงวดนี้ (4 การ์ดใหญ่ สมดุลเต็มความกว้างด้านบน) -->
+      <section class="kpi-strip no-print">
+        <div class="kpi-card" title="จำนวนเด็กโพยและจำนวนรอบบิลทั้งหมดที่ส่งเข้ามาในงวดนี้">
+          <div class="kpi-title">👥 คนส่งโพยในงวดนี้</div>
+          <div class="kpi-value" id="kpiTotalCustomers">0 คน (0 ใบ)</div>
+          <div class="kpi-sub">คลิกชื่อคนด้านล่างเพื่อดูแยกรายคน</div>
+        </div>
+        <div class="kpi-card" title="ยอดเงินรวมทั้งหมดจากทุกบิลในงวดนี้">
+          <div class="kpi-title">💰 ยอดเงินรวมทั้งงวด</div>
+          <div class="kpi-value highlight-gold" id="kpiTotalMoney">0 บาท</div>
+          <div class="kpi-sub" id="kpiUniqueNumbers">รวมทั้งหมด 0 เลข</div>
+        </div>
+        <div class="kpi-card" title="แยกยอดเงินที่ส่งมาก่อนเวลาประกาศเลขอั้น (จ่ายเต็ม 100%) และหลังเวลาประกาศอั้น (จ่าย 50%)">
+          <div class="kpi-title">🟢 จ่ายเต็ม 100% / 🔒 ติดอั้น 50%</div>
+          <div class="kpi-value">
+            <span class="text-success" id="kpiFull100">0 ฿</span>
+            <span style="color:#64748b;margin:0 6px;">/</span>
+            <span class="text-warn" id="kpiHalf50">0 ฿</span>
+          </div>
+          <div class="kpi-sub">แยกตามเวลาที่ส่งโพย</div>
+        </div>
+        <div class="kpi-card clickable-kpi" onclick="switchTab('tab-restricted')" title="คลิกเพื่อตั้งค่าชุดเลขอั้นและเวลาที่เจ้ามือประกาศ">
+          <div class="kpi-title">🔒 เลขอั้นประจำงวดนี้</div>
+          <div class="kpi-value highlight-warn" id="kpiRestrictedList">-</div>
+          <div class="kpi-sub">คลิกเพื่อจัดการเลขอั้น ➔</div>
+        </div>
+      </section>
 
-  <!-- เมนูหลัก สั้นกระชับ พร้อม Tooltip อธิบายเมื่อเอาเมาส์ชี้ -->
-  <nav class="main-nav no-print">
-    <button class="nav-tab active" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard')"
-      title="ดูรายชื่อเด็กโพยที่ส่งในงวดนี้ และตารางสรุปผลรวมยอดเงินเดียวของแต่ละเลข">
-      🏠 1. ภาพรวมงวดนี้
-    </button>
-    <button class="nav-tab" data-tab="tab-restricted" onclick="switchTab('tab-restricted')"
-      title="กำหนดชุดเลขอั้นที่เจ้ามือแจ้ง (เช่น ก่อนหวยออก 1 วัน) เพื่อแยกบิลจ่ายเต็ม 100% กับจ่ายครึ่ง 50%">
-      🔒 2. ตั้งเลขอั้น 50% <span class="tab-badge warn" id="badgeRestrictedCount">5</span>
-    </button>
-    <button class="nav-tab" data-tab="tab-layoff" onclick="switchTab('tab-layoff')"
-      title="เลือกเลขทยอยตัดยอดส่งเจ้ามือเป็นรอบๆ โดยไม่ส่งซ้ำ พร้อมส่งออกไฟล์ Excel">
-      📤 3. ตัดยอดส่งเจ้ามือ
-    </button>
-    <button class="nav-tab" data-tab="tab-inspector" onclick="switchTab('tab-inspector')"
-      title="ตรวจสอบและแก้ไขตัวเลขที่อ่านจากรูปโพยกระดาษ 4 คอลัมน์ × 30 แถว">
-      🔍 4. ตรวจบิล OCR <span class="tab-badge" id="badgeReviewCount">1</span>
-    </button>
-    <button class="nav-tab" data-tab="tab-line" onclick="switchTab('tab-line')"
-      title="อัปโหลดรูปโพยกระดาษเข้าระบบ หรือจำลองการส่งโพยจากแชท LINE">
-      💬 5. ส่งโพย / LINE
-    </button>
-    <button class="nav-tab" data-tab="tab-template" onclick="switchTab('tab-template')"
-      title="สั่งพิมพ์กระดาษโพยมาตรฐาน A4 และตั้งค่าระบบ AI / LINE OA">
-      ⚙️ 6. พิมพ์โพย & ตั้งค่า
-    </button>
-  </nav>
-
-  <main class="main-container">
+      <main class="main-container">
 
     <!-- ================================================================= -->
     <!-- แท็บที่ 1: ภาพรวมงวดนี้ (ซ้าย: งวดนี้ใครส่งอะไรมา | ขวา: ยอดรวมแต่ละเลข) -->
@@ -728,9 +739,11 @@
       </div>
     </section>
 
-  </main>
+      </main>
+    </div>
+  </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_12"></script>
+  <script src="/app.js?v=20261120_14"></script>
 </body>
 </html>
