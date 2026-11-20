@@ -146,6 +146,7 @@ function buildInitialDb() {
       {
         id: 'LEARN-1',
         customerName: 'เจ๊หมวย (สาย A)',
+        roundNumber: 1,
         field: 'amtText',
         wrongText: 'n×n',
         correctText: '11×11',
@@ -155,6 +156,7 @@ function buildInitialDb() {
       {
         id: 'LEARN-2',
         customerName: 'เจ๊หมวย (สาย A)',
+        roundNumber: 1,
         field: 'amtText',
         wrongText: 'no×no',
         correctText: '110×110',
@@ -164,6 +166,7 @@ function buildInitialDb() {
       {
         id: 'LEARN-3',
         customerName: 'เจ๊หมวย (สาย A)',
+        roundNumber: 1,
         field: 'amtText',
         wrongText: '22×n',
         correctText: '22×11',
@@ -173,6 +176,7 @@ function buildInitialDb() {
       {
         id: 'LEARN-4',
         customerName: 'เจ๊หมวย (สาย A)',
+        roundNumber: 1,
         field: 'amtText',
         wrongText: '55×no',
         correctText: '55×110',
@@ -182,6 +186,7 @@ function buildInitialDb() {
       {
         id: 'LEARN-5',
         customerName: 'เจ๊หมวย (สาย A)',
+        roundNumber: 1,
         field: 'numText',
         wrongText: 'n3×3',
         correctText: '113×3',
@@ -874,11 +879,12 @@ const server = http.createServer(async (req, res) => {
               const rule = {
                 id: `LEARN-${Date.now().toString().slice(-5)}-${it.col}${it.row}`,
                 customerName: slip.customerName,
+                roundNumber: slip.roundNumber || 1,
                 field: 'numText',
                 wrongText: origNum,
                 correctText: newNum,
-                reason: `เรียนรู้จากการแก้บิล ${slip.title} (คอลัมน์ ${it.col} แถว ${it.row})`,
-                learnedAt: new Date().toISOString()
+                reason: `แก้ในรอบที่ ${slip.roundNumber || 1} (คอลัมน์ ${it.col} แถว ${it.row})`,
+                learnedAt: slip.createdAt || new Date().toISOString()
               };
               db.learnedRules.unshift(rule);
               newlyLearned.push(`${origNum} ➔ ${newNum}`);
@@ -894,11 +900,12 @@ const server = http.createServer(async (req, res) => {
               const rule = {
                 id: `LEARN-${Date.now().toString().slice(-5)}-A${it.col}${it.row}`,
                 customerName: slip.customerName,
+                roundNumber: slip.roundNumber || 1,
                 field: 'amtText',
                 wrongText: origAmt,
                 correctText: newAmt,
-                reason: `เรียนรู้จากการแก้ยอดเงินใน ${slip.title} (คอลัมน์ ${it.col} แถว ${it.row})`,
-                learnedAt: new Date().toISOString()
+                reason: `แก้ยอดเงินในรอบที่ ${slip.roundNumber || 1} (คอลัมน์ ${it.col} แถว ${it.row})`,
+                learnedAt: slip.createdAt || new Date().toISOString()
               };
               db.learnedRules.unshift(rule);
               newlyLearned.push(`${origAmt} ➔ ${newAmt}`);

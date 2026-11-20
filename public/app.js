@@ -21,6 +21,8 @@ let selectedAggNumberKey = null;
 let selectedLayoffKeys = new Set();
 let customLayoffAmounts = {}; // key -> sendAmt in this round
 let layoffTableFilter = 'pending_only'; // 'pending_only' = เฉพาะเลขที่มียอดเข้ามาใหม่, 'all' = ดูทุกเลข
+let currentInspectorRunner = ''; // ชื่อเด็กโพยที่เลือกในหน้าตรวจบิล OCR
+let currentLearnedRunnerFilter = 'all'; // กรองความจำ AI ตามชื่อเด็กโพย
 let currentInspectedSlipId = null;
 let showWarningsOnlyInInspector = false;
 let currentZoom = 1.0;
@@ -1028,38 +1030,109 @@ async function undoLayoffRound(layoffId) {
 }
 
 // ============================================================================
-// แท็บที่ 4: ตรวจบิล OCR เทียบรูปกระดาษ 4×30
+// แท็บที่ 4: ตรวจบิล OCR เทียบรูปกระดาษ (แยกชื่อเด็กโพย & รอบวันเวลาชัดเจน)
 // ============================================================================
 function jumpToSlipInspector(slipId, col, row) {
+  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+  const targetSlip = allInspectableSlips.find(s => s.id === slipId);
+  if (targetSlip) {
+    currentInspectorRunner = targetSlip.customerName;
+  }
   currentInspectedSlipId = slipId;
   switchTab('tab-inspector');
   renderInspectorSelector();
   selectSlipForInspection(slipId, col, row);
 }
 
-function renderInspectorSelector() {
-  const select = document.getElementById('inspectorSlipSelect');
+function onInspectorRunnerChange(runnerName) {
+  currentInspectorRunner = runnerName;
+  currentLearnedRunnerFilter = runnerName;
   const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
-  if (!select) return;
+  const runnerSlips = allInspectableSlips.filter(s => s.customerName === runnerName);
+  if (runnerSlips.length > 0) {
+    currentInspectedSlipId = runnerSlips[0].id;
+  }
+  renderInspectorSelector();
+  renderLearnedRules();
+}
+
+function renderInspectorSelector() {
+  const runnerSelect = document.getElementById('inspectorRunnerSelect');
+  const slipSelect = document.getElementById('inspectorSlipSelect');
+  const roundPillsBar = document.getElementById('inspectorRoundPillsBar');
+  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+
+  if (!slipSelect) return;
   if (allInspectableSlips.length === 0) {
-    select.innerHTML = `<option value="">ไม่มีบิลในงวดนี้</option>`;
+    if (runnerSelect) runnerSelect.innerHTML = `<option value="">ไม่มีเด็กโพยในงวดนี้</option>`;
+    slipSelect.innerHTML = `<option value="">ไม่มีบิลในงวดนี้</option>`;
+    if (roundPillsBar) roundPillsBar.innerHTML = '';
     return;
+  }
+
+  // Group slips by runner name
+  const runnerGroups = new Map();
+  for (const s of allInspectableSlips) {
+    if (!runnerGroups.has(s.customerName)) {
+      runnerGroups.set(s.customerName, []);
+    }
+    runnerGroups.get(s.customerName).push(s);
   }
 
   if (!currentInspectedSlipId || !allInspectableSlips.find(s => s.id === currentInspectedSlipId)) {
     currentInspectedSlipId = allInspectableSlips[0].id;
   }
+  const activeSlip = allInspectableSlips.find(s => s.id === currentInspectedSlipId) || allInspectableSlips[0];
+  if (!currentInspectorRunner || !runnerGroups.has(currentInspectorRunner)) {
+    currentInspectorRunner = activeSlip.customerName;
+  }
 
-  select.innerHTML = allInspectableSlips
-    .map(
-      s =>
-        `<option value="${s.id}" ${s.id === currentInspectedSlipId ? 'selected' : ''}>
-          ${s.isTrainingOnly ? '🧠 [โพยเก่าฝึกสอน AI] ' : ''}${s.title} — ผู้ส่ง: ${s.customerName} (${s.totalItems} รายการ | ${s.totalMoney.toLocaleString()}฿) ${
-          s.reviewCount > 0 ? `[⚠️ รอตรวจ ${s.reviewCount} จุด]` : '[✅ ยืนยันแล้ว]'
-        }
-        </option>`
-    )
+  // 1) Render Runner Dropdown (เลือกชื่อเด็กโพย)
+  if (runnerSelect) {
+    runnerSelect.innerHTML = Array.from(runnerGroups.entries())
+      .map(([name, list]) => {
+        const totalM = list.reduce((sum, x) => sum + (x.totalMoney || 0), 0);
+        return `<option value="${name}" ${name === currentInspectorRunner ? 'selected' : ''}>
+          👤 ${name} — ส่งแล้ว ${list.length} รอบ (รวม ${totalM.toLocaleString()}฿)
+        </option>`;
+      })
+      .join('');
+  }
+
+  // 2) Filter slips for the selected runner
+  const runnerSlips = runnerGroups.get(currentInspectorRunner) || allInspectableSlips;
+  if (!runnerSlips.find(s => s.id === currentInspectedSlipId)) {
+    currentInspectedSlipId = runnerSlips[0].id;
+  }
+
+  // 3) Render Round & Date-Time Dropdown for this runner
+  slipSelect.innerHTML = runnerSlips
+    .map((s, idx) => {
+      const rNum = s.roundNumber || idx + 1;
+      const dtText = formatThaiDateTime(s.createdAt);
+      const statusText = s.reviewCount > 0 ? `⚠️ รอตรวจ ${s.reviewCount} จุด` : `✅ ยืนยันแล้ว`;
+      return `<option value="${s.id}" ${s.id === currentInspectedSlipId ? 'selected' : ''}>
+        📌 รอบที่ ${rNum} | ส่งเมื่อ: ${dtText} | ${s.totalItems} รายการ (${s.totalMoney.toLocaleString()}฿) [${statusText}]
+      </option>`;
+    })
     .join('');
+
+  // 4) Render Quick Round Pills Bar (คลิกสลับรอบของคนนี้ได้ทันที พร้อมเห็นวันเวลาชัดเจน)
+  if (roundPillsBar) {
+    roundPillsBar.innerHTML =
+      `<span class="small-label" style="margin-right:4px;">สลับดูแต่ละรอบของ <strong>${currentInspectorRunner}</strong>:</span>` +
+      runnerSlips
+        .map((s, idx) => {
+          const rNum = s.roundNumber || idx + 1;
+          const isCurrent = s.id === currentInspectedSlipId;
+          const warnDot = s.reviewCount > 0 ? ' ⚠️' : ' ✅';
+          return `<button type="button" class="chip ${isCurrent ? 'active' : ''}"
+            onclick="selectSlipForInspection('${s.id}')">
+            📌 รอบที่ ${rNum} • ${formatThaiDateTime(s.createdAt)} (${s.totalMoney.toLocaleString()}฿)${warnDot}
+          </button>`;
+        })
+        .join('');
+  }
 
   selectSlipForInspection(currentInspectedSlipId);
 }
@@ -1070,10 +1143,37 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   const slip = allInspectableSlips.find(s => s.id === slipId);
   if (!slip) return;
 
+  currentInspectorRunner = slip.customerName;
+  const learnInput = document.getElementById('learnCustomerInput');
+  if (learnInput) learnInput.value = slip.customerName;
+
+  // Sync dropdown & round pills highlight
+  const slipSelect = document.getElementById('inspectorSlipSelect');
+  if (slipSelect && slipSelect.value !== slipId) slipSelect.value = slipId;
+  const roundPillsBar = document.getElementById('inspectorRoundPillsBar');
+  if (roundPillsBar) {
+    const runnerSlips = allInspectableSlips.filter(s => s.customerName === currentInspectorRunner);
+    roundPillsBar.innerHTML =
+      `<span class="small-label" style="margin-right:4px;">สลับดูแต่ละรอบของ <strong>${currentInspectorRunner}</strong>:</span>` +
+      runnerSlips
+        .map((s, idx) => {
+          const rNum = s.roundNumber || idx + 1;
+          const isCurrent = s.id === currentInspectedSlipId;
+          const warnDot = s.reviewCount > 0 ? ' ⚠️' : ' ✅';
+          return `<button type="button" class="chip ${isCurrent ? 'active' : ''}"
+            onclick="selectSlipForInspection('${s.id}')">
+            📌 รอบที่ ${rNum} • ${formatThaiDateTime(s.createdAt)} (${s.totalMoney.toLocaleString()}฿)${warnDot}
+          </button>`;
+        })
+        .join('');
+  }
+
+  renderLearnedRules();
+
   const imgEl = document.getElementById('inspectorImage');
   imgEl.src = slip.imageUrl || '/uploads/slip-16-11-page1.jpg';
   document.getElementById('inspectorMetaText').textContent =
-    `ผู้ส่ง: ${slip.customerName} | เวลาส่ง: ${formatThaiDateTime(slip.createdAt)} | ยอดจ่าย 100%: ${(slip.full100Money || 0).toLocaleString()}฿ | ยอดติดอั้น 50%: ${(slip.half50Money || 0).toLocaleString()}฿`;
+    `👤 ผู้ส่ง: ${slip.customerName} | 📌 รอบที่ ${slip.roundNumber || 1} | 📅 วัน-เวลาที่ส่ง: ${formatThaiDateTime(slip.createdAt)} | 🟢 ได้ 100%: ${(slip.full100Money || 0).toLocaleString()}฿ | 🔒 ติดอั้น 50%: ${(slip.half50Money || 0).toLocaleString()}฿`;
 
   const banner = document.getElementById('validationSummaryBanner');
   const warnItems = (slip.items || []).filter(i => i.needsReview);
@@ -1251,8 +1351,39 @@ function toggleLearnedMemoryPanel() {
   if (panel) panel.classList.toggle('hidden');
 }
 
+function setLearnedRunnerFilter(filterVal) {
+  currentLearnedRunnerFilter = filterVal;
+  renderLearnedRules();
+}
+
 function renderLearnedRules() {
-  const rules = appState.learnedRules || [];
+  const allRules = appState.learnedRules || [];
+  const activeRunner = currentInspectorRunner || 'ทุกสาย';
+
+  // Filter chips by runner
+  const chipsEl = document.getElementById('learnedRunnerFilterChips');
+  const runnerNames = Array.from(new Set(allRules.map(r => r.customerName)));
+  if (chipsEl) {
+    chipsEl.innerHTML =
+      `<button class="chip ${currentLearnedRunnerFilter === 'all' ? 'active' : ''}" onclick="setLearnedRunnerFilter('all')">ดูทุกสาย (${allRules.length})</button>` +
+      runnerNames
+        .map(name => {
+          const cnt = allRules.filter(r => r.customerName === name).length;
+          return `<button class="chip ${currentLearnedRunnerFilter === name ? 'active' : ''}" onclick="setLearnedRunnerFilter('${name}')">👤 ${name} (${cnt})</button>`;
+        })
+        .join('');
+  }
+
+  const rules =
+    currentLearnedRunnerFilter === 'all'
+      ? allRules
+      : allRules.filter(r => r.customerName === currentLearnedRunnerFilter);
+
+  const labelEl = document.getElementById('learnedActiveRunnerLabel');
+  if (labelEl) {
+    labelEl.textContent = currentLearnedRunnerFilter === 'all' ? 'รวมเด็กโพยทุกสาย' : currentLearnedRunnerFilter;
+  }
+
   const countEl = document.getElementById('learnedRulesCountText');
   if (countEl) countEl.textContent = rules.length;
 
@@ -1260,18 +1391,26 @@ function renderLearnedRules() {
   if (!container) return;
 
   if (rules.length === 0) {
-    container.innerHTML = `<div class="text-muted">ยังไม่มีประวัติความจำลายมือ</div>`;
+    container.innerHTML = `<div class="text-muted">ยังไม่มีประวัติความจำลายมือของคนนี้</div>`;
     return;
   }
 
   container.innerHTML = rules
     .map(
       r => `
-      <div class="contributor-item" style="padding:7px 12px;margin-bottom:6px;font-size:12.5px;">
-        <div>
-          <span class="badge-100" style="margin-right:6px;">👤 ${r.customerName}</span>
-          <span>ช่อง${r.field === 'amtText' ? 'ยอดเงิน' : 'ตัวเลข'}: หากเขียนคล้าย <code style="color:#f87171;font-weight:700;">${r.wrongText}</code> ➔ ให้แปลงเป็น <code style="color:#34d399;font-weight:700;">${r.correctText}</code></span>
-          <span class="text-muted" style="margin-left:8px;">(${r.reason || ''})</span>
+      <div class="contributor-item" style="padding:8px 12px;margin-bottom:6px;font-size:12.5px;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
+          <span class="badge-100">👤 ${r.customerName}</span>
+          <span class="runner-rounds-badge" style="margin-left:0;">
+            📌 รอบที่ ${r.roundNumber || 1} • 📅 ${formatThaiDateTime(r.learnedAt)}
+          </span>
+          <span>
+            ช่อง${r.field === 'amtText' ? 'ยอดเงิน' : 'ตัวเลข'}: หากเขียนคล้าย
+            <code style="color:#f87171;font-weight:700;">${r.wrongText}</code>
+            ➔ ให้แปลงเป็น
+            <code style="color:#34d399;font-weight:700;">${r.correctText}</code>
+          </span>
+          <span class="text-muted">(${r.reason || ''})</span>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="removeLearnedRule('${r.id}')">ลบ</button>
       </div>

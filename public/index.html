@@ -380,35 +380,46 @@
     </section>
 
     <!-- ================================================================= -->
-    <!-- แท็บที่ 4: ตรวจบิล OCR เทียบรูปกระดาษ 4 คอลัมน์ × 30 แถว             -->
+    <!-- แท็บที่ 4: ตรวจบิล OCR เทียบรูปกระดาษ (แยกชื่อคน & รอบวันเวลาชัดเจน) -->
     <!-- ================================================================= -->
     <section id="tab-inspector" class="tab-panel no-print">
-      <div class="inspector-toolbar card">
-        <div class="toolbar-left">
-          <label>เลือกบิล/โพยที่จะตรวจทานหรือแก้ไขตัวเลข:</label>
-          <select id="inspectorSlipSelect" class="input select-lg" onchange="selectSlipForInspection(this.value)"></select>
+      <div class="inspector-toolbar card" style="flex-direction:column;align-items:stretch;gap:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;flex:1;">
+            <div style="min-width:230px;">
+              <label class="small-label" style="color:#93c5fd;font-weight:700;">👤 1. เลือกชื่อเด็กโพย:</label>
+              <select id="inspectorRunnerSelect" class="input" onchange="onInspectorRunnerChange(this.value)"></select>
+            </div>
+            <div style="flex:1;min-width:320px;">
+              <label class="small-label" style="color:var(--gold);font-weight:700;">📅 2. เลือกรอบที่ส่ง & วัน-เวลาของคนนี้:</label>
+              <select id="inspectorSlipSelect" class="input" onchange="selectSlipForInspection(this.value)"></select>
+            </div>
+          </div>
+          <div class="toolbar-right">
+            <button class="btn btn-outline" onclick="filterInspectorWarningsOnly()" id="btnFilterWarnings">
+              ⚠️ ดูเฉพาะแถวที่ระบบแจ้งเตือน
+            </button>
+            <button class="btn btn-success" onclick="saveAndVerifyCurrentSlip(true)">
+              ✅ ยืนยันความถูกต้องรอบนี้ (ตรวจผ่าน 100%)
+            </button>
+          </div>
         </div>
-        <div class="toolbar-right">
-          <button class="btn btn-outline" onclick="filterInspectorWarningsOnly()" id="btnFilterWarnings">
-            ⚠️ ดูเฉพาะแถวที่ระบบแจ้งเตือน
-          </button>
-          <button class="btn btn-success" onclick="saveAndVerifyCurrentSlip(true)">
-            ✅ ยืนยันความถูกต้องทั้งใบ (ตรวจผ่าน 100%)
-          </button>
-        </div>
+
+        <!-- ปุ่มกดสลับรอบด่วนของเด็กโพยคนที่เลือก (แสดง รอบที่ + วันเวลา + ยอดเงิน) -->
+        <div id="inspectorRoundPillsBar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:8px;border-top:1px dashed var(--border);"></div>
       </div>
 
       <div id="validationSummaryBanner" class="validation-banner"></div>
 
-      <!-- กล่องสมองความจำ AI (Self-Learning Handwriting Memory) -->
+      <!-- กล่องสมองความจำ AI (แยกตามชื่อเด็กโพย + ระบุรอบและวันเวลาที่เรียนรู้) -->
       <div class="card" style="margin-bottom:14px;background:rgba(59,130,246,0.07);border-color:rgba(59,130,246,0.35);">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
           <div>
             <h3 style="font-size:14.5px;color:#93c5fd;">
-              🧠 สมองจดจำลายมือ AI (เรียนรู้จากการแก้ไขของคุณอัตโนมัติ — จำได้แล้ว <span id="learnedRulesCountText">5</span> รูปแบบ)
+              🧠 สมองจดจำลายมือ AI — <span id="learnedActiveRunnerLabel" style="color:var(--gold);">เจ๊หมวย (สาย A)</span> (จำได้แล้ว <span id="learnedRulesCountText">5</span> รูปแบบ)
             </h3>
             <p class="text-muted">
-              เมื่อคุณแก้ไขตัวเลขหรือยอดเงินในตารางด้านล่าง ระบบจะจำคู่คำผิด➔คำถูกของเด็กโพยคนนี้ เพื่อนำไปสอน AI ในการอ่านโพยรอบถัดไปอัตโนมัติ
+              แยกจำลายมือตามชื่อเด็กโพยแต่ละคน พร้อมบันทึกว่าเรียนรู้มาจากโพยรอบที่เท่าไหร่ และวัน-เวลาไหน
             </p>
           </div>
           <button class="btn btn-outline btn-sm" onclick="toggleLearnedMemoryPanel()">
@@ -417,7 +428,11 @@
         </div>
 
         <div id="learnedMemoryPanel" class="hidden" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+            <div class="filter-chips" id="learnedRunnerFilterChips"></div>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;background:var(--bg-input);padding:10px;border-radius:8px;border:1px solid var(--border);">
             <div>
               <label class="small-label">เด็กโพยเจ้าของลายมือ:</label>
               <input type="text" id="learnCustomerInput" class="input" style="width:170px;" value="เจ๊หมวย (สาย A)" />
@@ -725,6 +740,6 @@
   </main>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_7"></script>
+  <script src="/app.js?v=20261120_8"></script>
 </body>
 </html>
