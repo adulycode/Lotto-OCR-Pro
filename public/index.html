@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_14" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_15" />
 </head>
 <body>
   <div class="app-shell">
@@ -57,8 +57,8 @@
           <span>💬 5. ส่งโพย / LINE</span>
         </button>
         <button class="nav-tab" data-tab="tab-template" onclick="switchTab('tab-template')"
-          title="สั่งพิมพ์กระดาษโพยมาตรฐาน A4 และตั้งค่าระบบ AI / LINE OA">
-          <span>⚙️ 6. พิมพ์โพย & ตั้งค่า</span>
+          title="ตั้งค่าระบบ แยกตามหมวดหมู่: กติกาหวย, โมเดล AI, ความจำลายมือ, LINE OA และพิมพ์กระดาษโพย A4">
+          <span>⚙️ 6. ตั้งค่าระบบ</span>
         </button>
       </nav>
 
@@ -618,115 +618,199 @@
     </section>
 
     <!-- ================================================================= -->
-    <!-- แท็บที่ 6: พิมพ์กระดาษโพย 4×30 & ตั้งค่า AI / LINE OA                -->
+    <!-- แท็บที่ 6: ตั้งค่าระบบ (แยกเมนูย่อย 5 หมวดอย่างเป็นระเบียบ)          -->
     <!-- ================================================================= -->
     <section id="tab-template" class="tab-panel">
-      <div class="two-col-grid no-print" style="margin-bottom:20px;">
-        <div class="card">
-          <div class="card-header">
-            <h3>🤖 ตั้งค่าโมเดล AI OCR & เพดานความเสี่ยง</h3>
+      <div class="settings-layout no-print">
+        <!-- เมนูย่อยฝั่งซ้ายของหน้าตั้งค่า -->
+        <div class="card settings-subnav-card">
+          <div class="sidebar-section-label" style="margin-bottom:10px;">⚙️ หมวดหมู่การตั้งค่า</div>
+          <div class="settings-subnav-list">
+            <button type="button" class="settings-subbtn active" data-subtab="sub-rules" onclick="switchSettingsSubTab('sub-rules')">
+              <span>🛡️ 1. กติกาหวย & เพดานรับเอง</span>
+            </button>
+            <button type="button" class="settings-subbtn" data-subtab="sub-ai" onclick="switchSettingsSubTab('sub-ai')">
+              <span>🤖 2. โมเดล AI & รหัส API</span>
+            </button>
+            <button type="button" class="settings-subbtn" data-subtab="sub-memory" onclick="switchSettingsSubTab('sub-memory')">
+              <span>🧠 3. ฐานข้อมูลความจำลายมือ</span>
+              <span class="runner-rounds-badge" id="learnedRulesCountText">5</span>
+            </button>
+            <button type="button" class="settings-subbtn" data-subtab="sub-line" onclick="switchSettingsSubTab('sub-line')">
+              <span>📲 4. เชื่อมต่อ LINE OA</span>
+            </button>
+            <button type="button" class="settings-subbtn" data-subtab="sub-print" onclick="switchSettingsSubTab('sub-print')">
+              <span>🖨️ 5. พิมพ์ใบโพย A4 & ข้อมูลระบบ</span>
+            </button>
           </div>
-          <div class="settings-form">
-            <div class="form-group">
-              <label>โมเดล AI สำหรับอ่านลายมือ:</label>
-              <select id="settingGeminiModel" class="input">
-                <option value="gemini-2.5-pro">gemini-2.5-pro (ความแม่นยำสูงสุดสำหรับงานเงินทอง แนะนำ)</option>
-                <option value="gemini-2.5-flash">gemini-2.5-flash (ความเร็วสูง)</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>รหัสเชื่อมต่อ Gemini API Key (จาก Google AI Studio):</label>
-              <input type="password" id="settingGeminiKey" class="input" placeholder="วาง AIzaSy... ที่นี่เมื่อต้องการอ่านรูปใหม่จริง" />
-            </div>
-            <div class="form-group">
-              <label>วิธีจัดการเลขชุดกลับ (เช่น 072×6 = 66 หรือ 979×3 = 66):</label>
-              <select id="settingPermMode" class="input">
-                <option value="expand">แบบที่ 1: แยกเลขกระจายทุกประตูอัตโนมัติ (072×6=66 แตกเป็น 6 หาง หางละ 11 บาท)</option>
-                <option value="keep_raw">แบบที่ 2: คงตามหน้าโพย (ไม่แยกหาง)</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="checkbox-label">
-                <input type="checkbox" id="settingCheck11" checked />
-                เปิดระบบตรวจจับพหูคูณของ 11, 10, 5 บาท
-              </label>
-            </div>
-            <div class="form-row-2">
-              <div class="form-group">
-                <label>เพดานรับเอง 3 ตัวบน (บาท/ตัว):</label>
-                <input type="number" id="limitThreeStraight" class="input" value="100" />
+        </div>
+
+        <!-- เนื้อหาของแต่ละหมวดย่อยฝั่งขวา -->
+        <div class="settings-content-area">
+
+          <!-- หมวดย่อยที่ 1: กติกาหวย & เพดานรับเอง -->
+          <div id="sub-rules" class="settings-subpanel active card">
+            <div class="card-header">
+              <div>
+                <h3>🛡️ 1. กติกาการคิดเลข & เพดานรับเองสูงสุด</h3>
+                <p class="text-muted">กำหนดวิธีแตกเลขชุดกลับ (×6, ×3) และเพดานความเสี่ยงต่อตัวเลข</p>
               </div>
-              <div class="form-group">
-                <label>เพดานรับเอง 3 ตัวโต๊ด (บาท/ตัว):</label>
-                <input type="number" id="limitThreeToad" class="input" value="100" />
-              </div>
-              <div class="form-group">
-                <label>เพดานรับเอง 2 ตัวบน (บาท/ตัว):</label>
-                <input type="number" id="limitTwoTop" class="input" value="30" />
-              </div>
-              <div class="form-group">
-                <label>เพดานรับเอง 2 ตัวล่าง (บาท/ตัว):</label>
-                <input type="number" id="limitTwoBottom" class="input" value="100" />
-              </div>
-            </div>
-            <div class="btn-group-full">
               <button class="btn btn-primary" onclick="saveSettingsFromForm()">💾 บันทึกการตั้งค่า</button>
-              <button class="btn btn-outline" onclick="toggleLearnedMemoryPanel()">🧠 จัดการฐานข้อมูลลายมือ (<span id="learnedRulesCountText">5</span>)</button>
-              <button class="btn btn-outline" onclick="resetDemoDatabase()">🔄 รีเซ็ตข้อมูลตัวอย่างเริ่มต้น</button>
             </div>
 
-            <!-- ซ่อนฐานข้อมูลความจำลายมือไว้ในเมนูตั้งค่า AI (เมนูที่ 6) -->
-            <div id="learnedMemoryPanel" class="hidden" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-                <strong style="color:#93c5fd;">ฐานข้อมูลความจำลายมือ (<span id="learnedActiveRunnerLabel">ทุกสาย</span>)</strong>
-                <div class="filter-chips" id="learnedRunnerFilterChips"></div>
+            <div class="settings-form">
+              <div class="form-group">
+                <label>วิธีจัดการเลขชุดกลับ (เช่น 072×6 = 66 หรือ 979×3 = 66):</label>
+                <select id="settingPermMode" class="input">
+                  <option value="expand">แบบที่ 1: แยกเลขกระจายทุกประตูอัตโนมัติ (072×6=66 แตกเป็น 6 หาง หางละ 11 บาท)</option>
+                  <option value="keep_raw">แบบที่ 2: คงตามหน้าโพย (ไม่แยกหาง)</option>
+                </select>
               </div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
-                <input type="text" id="learnCustomerInput" class="input" style="width:140px;" value="เจ๊หมวย (สาย A)" placeholder="ชื่อเด็กโพย" />
-                <select id="learnFieldSelect" class="input" style="width:115px;">
+
+              <div class="form-group" style="margin:14px 0;">
+                <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                  <input type="checkbox" id="settingCheck11" checked style="width:16px;height:16px;" />
+                  <span>เปิดระบบตรวจสอบกฎพหูคูณของ 11, 10 และ 5 บาท (แจ้งเตือนเมื่อพบยอดเงินแปลกปลอม)</span>
+                </label>
+              </div>
+
+              <hr class="divider" style="margin:16px 0;border-color:var(--border);" />
+              <h4 style="margin-bottom:10px;color:#93c5fd;">เพดานรับเองสูงสุดต่อตัวเลข (บาท)</h4>
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label>เพดานรับเอง 3 ตัวบน / ตรง (บาท/ตัว):</label>
+                  <input type="number" id="limitThreeStraight" class="input" value="100" />
+                </div>
+                <div class="form-group">
+                  <label>เพดานรับเอง 3 ตัวโต๊ด (บาท/ตัว):</label>
+                  <input type="number" id="limitThreeToad" class="input" value="100" />
+                </div>
+                <div class="form-group">
+                  <label>เพดานรับเอง 2 ตัวบน (บาท/ตัว):</label>
+                  <input type="number" id="limitTwoTop" class="input" value="30" />
+                </div>
+                <div class="form-group">
+                  <label>เพดานรับเอง 2 ตัวล่าง (บาท/ตัว):</label>
+                  <input type="number" id="limitTwoBottom" class="input" value="100" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- หมวดย่อยที่ 2: โมเดล AI & รหัส API -->
+          <div id="sub-ai" class="settings-subpanel card">
+            <div class="card-header">
+              <div>
+                <h3>🤖 2. ตั้งค่าโมเดล AI OCR (Google Gemini)</h3>
+                <p class="text-muted">เลือกโมเดลสำหรับอ่านลายมือในใบโพยกระดาษและตั้งค่ารหัสเชื่อมต่อ API</p>
+              </div>
+              <button class="btn btn-primary" onclick="saveSettingsFromForm()">💾 บันทึกการตั้งค่า</button>
+            </div>
+
+            <div class="settings-form">
+              <div class="form-group">
+                <label>โมเดล AI สำหรับอ่านลายมือ:</label>
+                <select id="settingGeminiModel" class="input">
+                  <option value="gemini-2.5-pro">gemini-2.5-pro (ความแม่นยำสูงสุดสำหรับงานเงินทอง — แนะนำ)</option>
+                  <option value="gemini-2.5-flash">gemini-2.5-flash (เน้นความเร็วสูง)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>รหัสเชื่อมต่อ Gemini API Key (จาก Google AI Studio):</label>
+                <input type="password" id="settingGeminiKey" class="input" placeholder="วางรหัส AIzaSy... ที่นี่" />
+                <small class="text-muted">หากใช้งานไม่เกิน 100 ใบ/เดือน สามารถใช้โควต้าฟรีจาก aistudio.google.com หรือมีค่าใช้จ่ายเพียง ~15–25 บาท/เดือน</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- หมวดย่อยที่ 3: ฐานข้อมูลความจำลายมือ -->
+          <div id="sub-memory" class="settings-subpanel card">
+            <div class="card-header">
+              <div>
+                <h3>🧠 3. ฐานข้อมูลความจำลายมือ (<span id="learnedActiveRunnerLabel" style="color:var(--gold);">ทุกสาย</span>)</h3>
+                <p class="text-muted">รายการลายมือที่ระบบเรียนรู้จากการแก้ไขของคุณในหน้าตรวจบิล และสามารถเพิ่มกฎเองได้</p>
+              </div>
+              <div class="filter-chips" id="learnedRunnerFilterChips"></div>
+            </div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;background:var(--bg-input);padding:12px;border-radius:8px;border:1px solid var(--border);">
+              <div style="flex:1;min-width:150px;">
+                <label class="small-label">ชื่อเด็กโพย:</label>
+                <input type="text" id="learnCustomerInput" class="input" value="เจ๊หมวย (สาย A)" placeholder="ชื่อเด็กโพย" />
+              </div>
+              <div style="width:130px;">
+                <label class="small-label">ช่องข้อมูล:</label>
+                <select id="learnFieldSelect" class="input">
                   <option value="numText">ช่องตัวเลข</option>
                   <option value="amtText">ช่องยอดเงิน</option>
                 </select>
-                <input type="text" id="learnWrongInput" class="input" style="width:110px;" placeholder="คำที่เพี้ยน" />
-                <input type="text" id="learnCorrectInput" class="input" style="width:110px;" placeholder="คำที่ถูก" />
-                <button class="btn btn-primary btn-sm" onclick="addManualLearnedRule()">+ เพิ่ม</button>
               </div>
-              <div id="learnedRulesListContainer"></div>
+              <div style="flex:1;min-width:130px;">
+                <label class="small-label">คำที่มักอ่านเพี้ยน:</label>
+                <input type="text" id="learnWrongInput" class="input" placeholder="เช่น 533 หรือ n×n" />
+              </div>
+              <div style="flex:1;min-width:130px;">
+                <label class="small-label">คำที่ถูกต้องจริง:</label>
+                <input type="text" id="learnCorrectInput" class="input" placeholder="เช่น 583 หรือ 11×11" />
+              </div>
+              <button class="btn btn-primary" onclick="addManualLearnedRule()">+ เพิ่มกฎความจำ</button>
             </div>
-          </div>
-        </div>
 
-        <div class="card">
-          <div class="card-header">
-            <h3>📲 ตั้งค่าเชื่อมต่อ LINE Official Account & พิมพ์ใบโพย</h3>
+            <div id="learnedRulesListContainer"></div>
           </div>
-          <div class="settings-form">
-            <div class="form-group">
-              <label>ลิงก์ Webhook สำหรับนำไปวางใน LINE Developers Console:</label>
-              <input type="text" class="input mono-input" id="webhookUrlDisplay" readonly value="https://lotto.eflworkspace.com/api/line/webhook" />
-            </div>
-            <div class="form-group">
-              <label>LINE Channel Access Token:</label>
-              <input type="password" id="settingLineToken" class="input" placeholder="วาง Channel Access Token ของ LINE OA" />
-            </div>
-            <div class="form-group">
-              <label>LINE Channel Secret:</label>
-              <input type="password" id="settingLineSecret" class="input" placeholder="วาง Channel Secret ของ LINE OA" />
-            </div>
-            <hr class="divider" style="margin:14px 0;border-color:var(--border);" />
-            <div style="display:flex;justify-content:space-between;align-items:center;">
+
+          <!-- หมวดย่อยที่ 4: เชื่อมต่อ LINE OA -->
+          <div id="sub-line" class="settings-subpanel card">
+            <div class="card-header">
               <div>
-                <h4>🖨️ แบบฟอร์มกระดาษโพยมาตรฐาน 4 คอลัมน์ × 30 แถว</h4>
-                <p class="text-muted">สั่งพิมพ์ลงกระดาษ A4 เพื่อให้คนจดเขียนตามช่อง ช่วยให้อ่านลายมือแม่นยำ 100%</p>
+                <h3>📲 4. ตั้งค่าเชื่อมต่อ LINE Official Account (Messaging API)</h3>
+                <p class="text-muted">สำหรับรับรูปโพยหวยและข้อความจากลูกค้าทาง LINE OA เข้าสู่ระบบอัตโนมัติ</p>
               </div>
-              <button class="btn btn-primary" onclick="window.print()">🖨️ สั่งพิมพ์กระดาษโพย A4</button>
+              <button class="btn btn-primary" onclick="saveSettingsFromForm()">💾 บันทึกการตั้งค่า</button>
+            </div>
+
+            <div class="settings-form">
+              <div class="form-group">
+                <label>ลิงก์ Webhook URL (นำไปวางใน LINE Developers Console):</label>
+                <div style="display:flex;gap:8px;">
+                  <input type="text" class="input mono-input" id="webhookUrlDisplay" readonly value="https://lotto.eflworkspace.com/api/line/webhook" />
+                  <button type="button" class="btn btn-outline" onclick="copyWebhookUrl()" style="white-space:nowrap;">📋 คัดลอกลิงก์</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>LINE Channel Access Token (Long-lived):</label>
+                <input type="password" id="settingLineToken" class="input" placeholder="วาง Channel Access Token ของ LINE OA" />
+              </div>
+
+              <div class="form-group">
+                <label>LINE Channel Secret:</label>
+                <input type="password" id="settingLineSecret" class="input" placeholder="วาง Channel Secret ของ LINE OA" />
+              </div>
             </div>
           </div>
+
+          <!-- หมวดย่อยที่ 5: พิมพ์ใบโพย A4 & ข้อมูลระบบ -->
+          <div id="sub-print" class="settings-subpanel card">
+            <div class="card-header">
+              <div>
+                <h3>🖨️ 5. พิมพ์แบบฟอร์มกระดาษโพยมาตรฐาน 4×30 & จัดการข้อมูล</h3>
+                <p class="text-muted">สั่งพิมพ์กระดาษโพย A4 ที่มีมาร์ค 4 มุมเพื่อให้คนจดเขียนตามช่อง หรือรีเซ็ตข้อมูลตัวอย่าง</p>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-primary" onclick="window.print()">🖨️ สั่งพิมพ์กระดาษโพย A4</button>
+                <button class="btn btn-outline" onclick="resetDemoDatabase()">🔄 รีเซ็ตข้อมูลตัวอย่างเริ่มต้น</button>
+              </div>
+            </div>
+            <p class="text-muted" style="margin-bottom:12px;">ตัวอย่างแบบฟอร์มกระดาษโพย A4 (4 คอลัมน์ × 30 แถว = 120 รายการต่อแผ่น):</p>
+          </div>
+
         </div>
       </div>
 
-      <!-- กระดาษโพย A4 สำหรับสั่งพิมพ์ -->
-      <div class="printable-sheet" id="printableSheet">
+      <!-- กระดาษโพย A4 สำหรับสั่งพิมพ์ (แสดงเมื่อเลือกหมวดที่ 5 หรือตอนกด Print) -->
+      <div class="printable-sheet hidden-on-screen" id="printableSheet">
         <div class="corner-mark tl"></div>
         <div class="corner-mark tr"></div>
         <div class="corner-mark bl"></div>
@@ -744,6 +828,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_14"></script>
+  <script src="/app.js?v=20261120_15"></script>
 </body>
 </html>

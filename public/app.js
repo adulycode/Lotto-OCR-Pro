@@ -1977,8 +1977,35 @@ async function runDirectOcrUpload() {
 }
 
 // ============================================================================
-// แท็บที่ 6: พิมพ์กระดาษโพย 4×30 & ตั้งค่า
+// แท็บที่ 6: ตั้งค่าระบบ (แยกหมวดย่อย 5 หมวด) & พิมพ์กระดาษโพย 4×30
 // ============================================================================
+function switchSettingsSubTab(subTabId) {
+  document.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.settings-subbtn').forEach(b => b.classList.remove('active'));
+
+  const target = document.getElementById(subTabId);
+  if (target) target.classList.add('active');
+
+  const btn = document.querySelector(`.settings-subbtn[data-subtab="${subTabId}"]`);
+  if (btn) btn.classList.add('active');
+
+  const sheet = document.getElementById('printableSheet');
+  if (sheet) {
+    sheet.classList.toggle('show-preview', subTabId === 'sub-print');
+  }
+}
+
+async function copyWebhookUrl() {
+  const el = document.getElementById('webhookUrlDisplay');
+  if (!el) return;
+  try {
+    await navigator.clipboard.writeText(el.value);
+    showToast('📋 คัดลอกลิงก์ Webhook URL ลง Clipboard แล้ว');
+  } catch {
+    showToast('คัดลอกลิงก์เรียบร้อย');
+  }
+}
+
 function buildPrintable4x30Template() {
   const table = document.getElementById('printTable4x30');
   if (!table) return;

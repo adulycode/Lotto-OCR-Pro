@@ -1311,6 +1311,65 @@ body {
   gap: 4px;
 }
 
+/* Settings Sub-Navigation Layout */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 270px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.settings-subnav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-subbtn {
+  background: var(--bg-input);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 11px 14px;
+  border-radius: 9px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  transition: all 0.15s;
+}
+
+.settings-subbtn:hover {
+  color: var(--text-main);
+  border-color: var(--border-light);
+}
+
+.settings-subbtn.active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border-color: var(--primary);
+}
+
+.settings-subpanel {
+  display: none;
+}
+
+.settings-subpanel.active {
+  display: block;
+}
+
+.hidden-on-screen {
+  display: none;
+}
+
+.hidden-on-screen.show-preview {
+  display: block;
+  margin-top: 16px;
+}
+
 /* Printable Standard 4x30 Paper Slip Template */
 .printable-sheet {
   background: #ffffff;
@@ -1386,7 +1445,9 @@ body {
 @media print {
   body { background: #fff; color: #000; }
   .no-print { display: none !important; }
+  .app-shell { display: block !important; }
   .main-container { padding: 0; }
   #tab-template { display: block !important; }
+  .hidden-on-screen { display: block !important; }
   .printable-sheet { box-shadow: none; padding: 10px; max-width: 100%; }
 }
