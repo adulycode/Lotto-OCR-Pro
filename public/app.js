@@ -1584,7 +1584,7 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
               style="left:${leftPct}%;width:${widthPct}%;top:${topPct}%;height:${heightPct}%;"
               onclick="focusInspectorCell(${w.col}, ${w.row})"
               title="คลิกเพื่อเลื่อนไปยัง คอลัมน์ ${w.col} แถว ${w.row}">
-              <span class="photo-issue-label">⚠️ คอลัมน์ ${w.col} แถว ${w.row} (${w.numText}=${w.amtText})</span>
+              <span class="photo-issue-label">⬅️ แถว ${w.row} (${w.numText}=${w.amtText})</span>
             </div>
           `;
         })
