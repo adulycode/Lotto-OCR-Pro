@@ -17,6 +17,7 @@ let currentAggFilter = 'all';
 let selectedCustomerFilter = null; // กรองดูเฉพาะเด็กโพยที่คลิกเลือก (รวมทุกรอบของคนนั้น)
 let selectedSlipRoundFilter = null; // กรองดูเฉพาะบิล/รอบที่คลิกเลือก (เฉพาะรอบนั้นใบเดียว)
 let expandedRunnerCards = new Set(); // เก็บรายชื่อเด็กโพยที่กดกางดูรายการแต่ละรอบ
+let expandedPermDropdownKeys = new Set(); // เก็บรายการเลขที่กดกาง Dropdown ดูประตูชุดกลับ (×6 / ×3)
 let selectedAggNumberKey = null;
 let selectedLayoffKeys = new Set();
 let customLayoffAmounts = {}; // key -> sendAmt in this round
@@ -162,16 +163,13 @@ function renderHeaderAndKpis() {
   }
 
   const isExpand = settings.permutationMode !== 'keep_raw';
-  document.getElementById('btnModeExpand').classList.toggle('active', isExpand);
-  document.getElementById('btnModeRaw').classList.toggle('active', !isExpand);
+  document.getElementById('btnModeExpand')?.classList.toggle('active', isExpand);
+  document.getElementById('btnModeRaw')?.classList.toggle('active', !isExpand);
 
   const subtitle = document.getElementById('aggModeSubtitle');
-  if (isExpand) {
+  if (subtitle) {
     subtitle.innerHTML =
-      'วิธีคิดเลขชุดกลับตอนนี้: <strong>🔀 แยกเลขทุกประตูอัตโนมัติ</strong> (เช่น <code>072×6 = 66฿</code> แตกเป็น 6 หาง หางละ 11฿ รวมเข้ากับยอด 3 ตัวบนทันที)';
-  } else {
-    subtitle.innerHTML =
-      'วิธีคิดเลขชุดกลับตอนนี้: <strong>📋 คงตามหน้าโพย (ไม่แยกหาง)</strong> (เก็บ <code>072×6 = 66฿</code> ไว้เป็นรายการชุดกลับตามที่เขียน)';
+      'แสดงตัวเลขตามหน้าโพยจริง • เลขที่มีชุดกลับ (<code>×6</code> หรือ <code>×3</code>) สามารถกดปุ่ม <strong>"🔀 ดูประตูเฉลี่ย ▼"</strong> เพื่อกางดูทุกประตูพร้อมราคาเฉลี่ยได้ทันที';
   }
 }
 
@@ -319,6 +317,15 @@ function renderCustomersInDraw() {
 // ============================================================================
 // แท็บที่ 1 (ฝั่งขวา): สรุปยอดรวมแต่ละเลขในงวดนี้ (รองรับกรอง 3 ระดับ: ทั้งงวด / รายคนทุกรอบ / เฉพาะรอบ)
 // ============================================================================
+function togglePermDropdown(key) {
+  if (expandedPermDropdownKeys.has(key)) {
+    expandedPermDropdownKeys.delete(key);
+  } else {
+    expandedPermDropdownKeys.add(key);
+  }
+  renderAggregatedTable();
+}
+
 function setAggFilter(filter, btnEl) {
   currentAggFilter = filter;
   document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
@@ -439,11 +446,55 @@ function renderAggregatedTable() {
           : item.threeToadAmt + item.threePermRawAmt;
 
       const customerNames = Array.from(new Set(item.contributors.map(c => c.customerName))).join(', ');
+      const hasPermDoors = Array.isArray(item.permBreakdown) && item.permBreakdown.length > 0 && item.threePermRawAmt > 0;
+      const isPermExpanded = expandedPermDropdownKeys.has(item.key);
+      const avgDoorVal = hasPermDoors ? +(item.threePermRawAmt / item.permBreakdown.length).toFixed(2) : 0;
+
+      const permDropdownBtnHtml = hasPermDoors
+        ? `<button type="button" class="perm-dropdown-btn"
+            onclick="event.stopPropagation(); togglePermDropdown('${item.key}')"
+            title="คลิกเพื่อกางดูเลขกลับทั้ง ${item.permBreakdown.length} ประตู พร้อมราคาเฉลี่ยประตูละ ${avgDoorVal} บาท">
+            🔀 ชุดกลับ ×${item.permBreakdown.length} (เฉลี่ย ${avgDoorVal}฿/ประตู) ${isPermExpanded ? '▲' : '▼'}
+          </button>`
+        : '';
+
+      const permSubRowHtml =
+        hasPermDoors && isPermExpanded
+          ? `
+          <tr class="perm-dropdown-row">
+            <td colspan="8">
+              <div style="font-size:12px;color:#93c5fd;margin-bottom:6px;font-weight:600;">
+                ↳ รายการแยกประตูของเลข <strong>${item.number}×${item.permBreakdown.length}</strong> (ยอดชุดกลับ ${item.threePermRawAmt.toLocaleString()}฿ ÷ ${item.permBreakdown.length} ประตู = เฉลี่ยประตูละ <strong>${avgDoorVal} บาท</strong>):
+              </div>
+              <div class="perm-doors-grid">
+                ${item.permBreakdown
+                  .map(
+                    d => `
+                  <div class="perm-door-chip">
+                    <strong style="color:var(--gold);font-size:14px;">${d.doorNumber}</strong>
+                    <span style="color:#6ee7b7;">เฉลี่ย ${d.avgPermAmt} ฿</span>
+                    ${
+                      d.directStraightAmt > 0
+                        ? `<span style="font-size:11px;color:#93c5fd;">(+เต็ง ${d.directStraightAmt}฿ = รวม ${d.combinedRiskAmt}฿)</span>`
+                        : ''
+                    }
+                  </div>
+                `
+                  )
+                  .join('')}
+              </div>
+            </td>
+          </tr>
+        `
+          : '';
 
       return `
         <tr class="${isSelected ? 'selected-row' : ''}" onclick="inspectAggNumber('${item.key}')">
           <td>
-            <span class="number-pill">${item.number}</span>
+            <div class="num-cell-wrap">
+              <span class="number-pill">${item.number}</span>
+              ${permDropdownBtnHtml}
+            </div>
           </td>
           <td>
             ${
@@ -476,6 +527,7 @@ function renderAggregatedTable() {
             <span class="text-muted">(${customerNames})</span>
           </td>
         </tr>
+        ${permSubRowHtml}
       `;
     })
     .join('');

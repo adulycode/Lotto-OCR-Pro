@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_17" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_18" />
 </head>
 <body>
   <div class="app-shell">
@@ -65,23 +65,6 @@
           <span>⚙️ 7. ตั้งค่าระบบ</span>
         </button>
       </nav>
-
-      <!-- สวิตช์เลือกวิธีคิดเลขชุดกลับ (×6, ×3) อยู่ด้านล่างของ Sidebar -->
-      <div class="sidebar-footer">
-        <div class="sidebar-section-label" title="วิธีจัดการเลขชุดกลับ เช่น 072×6 หรือ 979×3">วิธีคิดเลขชุดกลับ (×6/×3)</div>
-        <div class="sidebar-seg-stack">
-          <button type="button" id="btnModeExpand" class="seg-btn active"
-            title="แตกเลขชุดกลับออกเป็นเลข 3 ตัวบนทุกประตูอัตโนมัติ (เช่น 072×6 = 66฿ แตกเป็น 6 หาง หางละ 11฿)"
-            onclick="setPermutationMode('expand')">
-            🔀 แยกเลขทุกประตู
-          </button>
-          <button type="button" id="btnModeRaw" class="seg-btn"
-            title="เก็บเลขชุดกลับไว้ตามที่เขียนในหน้าโพยโดยไม่แยกหาง (เช่น คงรูป 072×6 = 66฿)"
-            onclick="setPermutationMode('keep_raw')">
-            📋 คงตามหน้าโพย
-          </button>
-        </div>
-      </div>
     </aside>
 
     <!-- ================================================================= -->
@@ -961,6 +944,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_17"></script>
+  <script src="/app.js?v=20261120_18"></script>
 </body>
 </html>

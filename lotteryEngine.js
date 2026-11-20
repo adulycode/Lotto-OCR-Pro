@@ -409,53 +409,54 @@ function aggregateSlips(slips, settings = {}, restrictedList = [], layoffs = [])
     });
   }
 
+  // Build a map of direct straight bets per 3-digit/2-digit number so when expanding a permutation dropdown,
+  // we can show both the averaged per-door amount AND any direct straight bet on that door!
+  const directStraightByNum = new Map();
   for (const slip of slips) {
-    if (slip.status === 'cancelled') continue;
+    if (slip.status === 'cancelled' || slip.isTrainingOnly) continue;
+    for (const item of slip.items || []) {
+      if (item.isEmpty || !item.baseNumber) continue;
+      if (!item.permMult && item.straightAmt > 0) {
+        directStraightByNum.set(
+          item.baseNumber,
+          (directStraightByNum.get(item.baseNumber) || 0) + item.straightAmt
+        );
+      }
+    }
+  }
+
+  for (const slip of slips) {
+    if (slip.status === 'cancelled' || slip.isTrainingOnly) continue;
 
     for (const item of slip.items || []) {
       if (item.isEmpty || !item.baseNumber) continue;
       const dCount = item.baseNumber.length;
 
       if (dCount === 3) {
+        const entry = getOrCreate(item.baseNumber, 3);
         if (item.permMult && item.permTotalAmt > 0) {
-          if (permutationMode === 'expand') {
-            const perms =
-              item.permutations && item.permutations.length > 0
-                ? item.permutations
-                : getUniquePermutations3(item.baseNumber);
-            const eachAmt = +(item.permTotalAmt / perms.length).toFixed(2);
+          const perms =
+            item.permutations && item.permutations.length > 0
+              ? item.permutations
+              : getUniquePermutations3(item.baseNumber);
+          const eachAmt = +(item.permTotalAmt / perms.length).toFixed(2);
 
-            for (const pNum of perms) {
-              const entry = getOrCreate(pNum, 3);
-              entry.threeStraightAmt += eachAmt;
-              entry.threeStraightFromPermAmt += eachAmt;
-              entry.totalAmt += eachAmt;
-              addContribution(
-                entry,
-                slip,
-                item,
-                eachAmt,
-                `แตกจาก ${item.numText} (${eachAmt}฿)`,
-                '3 ตัวบน (แตกประตู)',
-                'threeStraightAmt'
-              );
-            }
-          } else {
-            const entry = getOrCreate(item.baseNumber, 3);
-            entry.threePermRawAmt += item.permTotalAmt;
-            entry.totalAmt += item.permTotalAmt;
-            addContribution(
-              entry,
-              slip,
-              item,
-              item.permTotalAmt,
-              `ชุดกลับ ×${item.permMult}`,
-              `3 ตัวชุดกลับ ×${item.permMult}`,
-              'threePermRawAmt'
-            );
-          }
+          entry.threePermRawAmt += item.permTotalAmt;
+          entry.totalAmt += item.permTotalAmt;
+          entry.permMult = item.permMult;
+          entry.permDoors = perms;
+          entry.permAvgPerDoor = +((entry.permAvgPerDoor || 0) + eachAmt).toFixed(2);
+
+          addContribution(
+            entry,
+            slip,
+            item,
+            item.permTotalAmt,
+            `ชุดกลับ ×${item.permMult} (เฉลี่ยประตูละ ${eachAmt}฿)`,
+            `3 ตัวชุดกลับ ×${item.permMult}`,
+            'threePermRawAmt'
+          );
         } else {
-          const entry = getOrCreate(item.baseNumber, 3);
           if (item.straightAmt > 0) {
             entry.threeStraightAmt += item.straightAmt;
             entry.threeStraightDirectAmt += item.straightAmt;
@@ -469,32 +470,17 @@ function aggregateSlips(slips, settings = {}, restrictedList = [], layoffs = [])
           }
         }
       } else if (dCount === 2) {
+        const entry = getOrCreate(item.baseNumber, 2);
         if (item.permMult === 2 && item.permTotalAmt > 0) {
-          if (permutationMode === 'expand') {
-            const perms = getUniquePermutations2(item.baseNumber);
-            const eachAmt = +(item.permTotalAmt / perms.length).toFixed(2);
-            for (const pNum of perms) {
-              const entry = getOrCreate(pNum, 2);
-              entry.twoTopAmt += eachAmt;
-              entry.totalAmt += eachAmt;
-              addContribution(
-                entry,
-                slip,
-                item,
-                eachAmt,
-                `แตกจาก ${item.numText} (${eachAmt}฿)`,
-                '2 ตัวบน (กลับ)',
-                'twoTopAmt'
-              );
-            }
-          } else {
-            const entry = getOrCreate(item.baseNumber, 2);
-            entry.twoTopAmt += item.permTotalAmt;
-            entry.totalAmt += item.permTotalAmt;
-            addContribution(entry, slip, item, item.permTotalAmt, '2 ตัวชุดกลับ (×2)', '2 ตัวชุดกลับ', 'twoTopAmt');
-          }
+          const perms = getUniquePermutations2(item.baseNumber);
+          const eachAmt = +(item.permTotalAmt / perms.length).toFixed(2);
+          entry.threePermRawAmt += item.permTotalAmt;
+          entry.totalAmt += item.permTotalAmt;
+          entry.permMult = 2;
+          entry.permDoors = perms;
+          entry.permAvgPerDoor = +((entry.permAvgPerDoor || 0) + eachAmt).toFixed(2);
+          addContribution(entry, slip, item, item.permTotalAmt, `2 ตัวชุดกลับ ×2 (เฉลี่ยประตูละ ${eachAmt}฿)`, '2 ตัวชุดกลับ', 'threePermRawAmt');
         } else {
-          const entry = getOrCreate(item.baseNumber, 2);
           if (item.straightAmt > 0) {
             entry.twoTopAmt += item.straightAmt;
             entry.totalAmt += item.straightAmt;
@@ -530,10 +516,26 @@ function aggregateSlips(slips, settings = {}, restrictedList = [], layoffs = [])
     const alreadyHandledAmt = alreadySentAmt + alreadyKeptAmt;
     const newPendingAmt = Math.max(0, r.totalAmt - alreadyHandledAmt);
 
+    // Build per-door dropdown breakdown if this number has a permutation bet (×6, ×3, ×2)
+    let permBreakdown = [];
+    if (r.threePermRawAmt > 0 && Array.isArray(r.permDoors) && r.permDoors.length > 0) {
+      const avgPerDoor = +(r.threePermRawAmt / r.permDoors.length).toFixed(2);
+      permBreakdown = r.permDoors.map(doorNum => {
+        const directStraight = directStraightByNum.get(doorNum) || 0;
+        return {
+          doorNumber: doorNum,
+          avgPermAmt: avgPerDoor,
+          directStraightAmt: directStraight,
+          combinedRiskAmt: +(avgPerDoor + directStraight).toFixed(2)
+        };
+      });
+    }
+
     return {
       ...r,
       uniqueCustomers,
       hitCount: distinctRowEntries,
+      permBreakdown,
       alreadySentAmt,
       alreadyKeptAmt,
       alreadyHandledAmt,
