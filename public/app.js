@@ -954,9 +954,10 @@ function renderLayoffBuilder(skipInputRebuild = false) {
                 <strong style="margin-left:6px;">📤 ${l.dealerName}</strong>
                 <span class="text-muted" style="font-size:11.5px;margin-left:6px;">(${formatThaiDateTime(l.createdAt)})</span>
               </div>
-              <div style="display:flex;align-items:center;gap:10px;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <span style="font-size:12px;color:#34d399;">🏠 เก็บเอง: ${(l.totalKeptMoney || 0).toLocaleString()}฿</span>
                 <strong style="color:var(--gold);font-family:var(--font-mono);">📤 ส่งเจ้ามือ: ${(l.totalLayoffMoney || 0).toLocaleString()}฿</strong>
+                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;color:#34d399;border-color:rgba(16,185,129,0.45);" onclick="exportSavedLayoffRoundExcel('${l.id}')">📊 โหลด Excel รอบนี้</button>
                 <button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px;" onclick="undoLayoffRound('${l.id}')">ยกเลิกรอบนี้</button>
               </div>
             </div>
@@ -972,7 +973,7 @@ function renderLayoffBuilder(skipInputRebuild = false) {
   }
 }
 
-async function copyAndSaveLayoff() {
+async function copyAndSaveLayoff(alsoDownloadExcel = false) {
   const text = document.getElementById('layoffFormattedText').value;
   const dealerName = document.getElementById('dealerNameInput').value || 'เจ้ามือสายใหญ่ #1';
   const mode = document.getElementById('layoffModeSelect')?.value || 'send_all_new';
@@ -983,6 +984,10 @@ async function copyAndSaveLayoff() {
   if (selectedItems.length === 0) {
     showToast('กรุณาติ๊กเลือกตัวเลขที่มียอดเข้ามาใหม่เพื่อจัดการในรอบนี้ก่อนครับ');
     return;
+  }
+
+  if (alsoDownloadExcel) {
+    exportCurrentLayoffExcel();
   }
 
   try {
@@ -1002,7 +1007,9 @@ async function copyAndSaveLayoff() {
       number: item.number,
       sendTotal,
       keepTotal,
-      typeDesc: item.digitCount === 2 ? '2 ตัวบน' : '3 ตัวบน'
+      isRestricted: Boolean(item.isRestricted),
+      payoutPercent: item.isRestricted ? (item.restrictedRule?.payoutPercent || 50) : 100,
+      typeDesc: item.digitCount === 2 ? '2 ตัวบน' : (item.threeStraightAmt > 0 && item.threeToadAmt > 0 ? '3 ตัวบน+โต๊ด' : '3 ตัวบน')
     };
   });
 
@@ -1020,7 +1027,288 @@ async function copyAndSaveLayoff() {
   selectedLayoffKeys.clear();
   customLayoffAmounts = {};
   await fetchAppState();
-  showToast('✅ ยืนยันส่งเจ้ามือรอบนี้ & ล็อกยอดเรียบร้อย! (เลขชุดนี้จะไม่ถูกดึงมาส่งซ้ำอีก จนกว่าจะมีบิลใหม่เข้ามาเพิ่ม)');
+  showToast('✅ ยืนยันส่งเจ้ามือรอบนี้ + ดาวน์โหลดไฟล์ Excel + ล็อกยอดไม่ให้ส่งซ้ำเรียบร้อย!');
+}
+
+/**
+ * Helper to trigger browser file download with UTF-8 BOM
+ */
+function downloadBlobFile(content, fileName, mimeType) {
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 200);
+}
+
+function buildCurrentRoundLayoffRows() {
+  const mode = document.getElementById('layoffModeSelect')?.value || 'send_all_new';
+  const selectedItems = (appState.aggregated || []).filter(
+    a => selectedLayoffKeys.has(a.key) && a.hasNewPending
+  );
+
+  return selectedItems.map(item => {
+    const newAmt = item.newPendingAmt || 0;
+    const defaultSend = computeDefaultSendForNewPending(item, mode);
+    const sendTotal =
+      customLayoffAmounts[item.key] !== undefined
+        ? Math.min(newAmt, Math.max(0, customLayoffAmounts[item.key]))
+        : defaultSend;
+    const keepTotal = Math.max(0, newAmt - sendTotal);
+
+    let typeDesc = item.digitCount === 2 ? '2 ตัวบน' : '3 ตัวบน (ตรง)';
+    if (item.threeStraightAmt > 0 && item.threeToadAmt > 0) {
+      typeDesc = '3 ตัวบน+โต๊ด';
+    }
+
+    return {
+      number: item.number,
+      digitCount: item.digitCount,
+      typeDesc,
+      isRestricted: Boolean(item.isRestricted),
+      payoutPercent: item.isRestricted ? (item.restrictedRule?.payoutPercent || 50) : 100,
+      newPendingAmt: newAmt,
+      sendTotal,
+      keepTotal
+    };
+  });
+}
+
+/**
+ * Exports formatted Microsoft Excel (.xls) file for sending to the dealer in the current round.
+ * Preserves leading zeros (e.g. "072" stays "072") using mso-number-format:'\@'.
+ */
+function exportCurrentLayoffExcel() {
+  const rows = buildCurrentRoundLayoffRows();
+  if (rows.length === 0) {
+    showToast('กรุณาติ๊กเลือกตัวเลขที่จะส่งเจ้ามือในรอบนี้ก่อนดาวน์โหลด Excel ครับ');
+    return;
+  }
+
+  const s = appState.summary || {};
+  const nextRound = s.nextLayoffRound || ((appState.layoffs || []).length + 1);
+  const dealerName = document.getElementById('dealerNameInput')?.value || 'เจ้ามือสายใหญ่ #1';
+  const drawTitle = appState.currentDraw?.title || 'งวดวันที่ 16/11';
+
+  generateDealerLayoffExcelFile({
+    roundNumber: nextRound,
+    dealerName,
+    drawTitle,
+    createdAt: new Date().toISOString(),
+    rows
+  });
+}
+
+function exportSavedLayoffRoundExcel(layoffId) {
+  const lf = (appState.layoffs || []).find(l => l.id === layoffId);
+  if (!lf) return;
+  const drawTitle = appState.currentDraw?.title || 'งวดวันที่ 16/11';
+
+  generateDealerLayoffExcelFile({
+    roundNumber: lf.roundNumber || 1,
+    dealerName: lf.dealerName || 'เจ้ามือสายใหญ่',
+    drawTitle,
+    createdAt: lf.createdAt,
+    rows: (lf.items || []).map(it => ({
+      number: it.number,
+      typeDesc: it.typeDesc || (String(it.number).length === 2 ? '2 ตัวบน' : '3 ตัวบน'),
+      payoutPercent: it.payoutPercent || 100,
+      sendTotal: Number(it.sendTotal) || 0,
+      keepTotal: Number(it.keepTotal) || 0
+    }))
+  });
+}
+
+function generateDealerLayoffExcelFile({ roundNumber, dealerName, drawTitle, createdAt, rows }) {
+  const rowsToSend = rows.filter(r => r.sendTotal > 0);
+  const targetRows = rowsToSend.length > 0 ? rowsToSend : rows;
+  const totalSend = targetRows.reduce((sum, r) => sum + (Number(r.sendTotal) || 0), 0);
+  const totalKeep = targetRows.reduce((sum, r) => sum + (Number(r.keepTotal) || 0), 0);
+
+  const tableRowsHtml = targetRows
+    .map(
+      (r, idx) => `
+      <tr>
+        <td style="text-align:center;border:1px solid #cbd5e1;padding:6px;">${idx + 1}</td>
+        <td style="text-align:center;border:1px solid #cbd5e1;padding:6px;font-weight:bold;font-size:14pt;mso-number-format:'\\@';">${r.number}</td>
+        <td style="text-align:center;border:1px solid #cbd5e1;padding:6px;">${r.typeDesc || ''}</td>
+        <td style="text-align:center;border:1px solid #cbd5e1;padding:6px;color:${r.payoutPercent < 100 ? '#d97706' : '#059669'};">
+          ${r.payoutPercent < 100 ? `เลขอั้น จ่าย ${r.payoutPercent}%` : 'จ่ายเต็ม 100%'}
+        </td>
+        <td style="text-align:right;border:1px solid #cbd5e1;padding:6px;font-weight:bold;font-size:13pt;background:#fef3c7;">${r.sendTotal}</td>
+        <td style="text-align:right;border:1px solid #cbd5e1;padding:6px;color:#64748b;">${r.keepTotal || 0}</td>
+      </tr>
+    `
+    )
+    .join('');
+
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="UTF-8">
+      <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>ใบส่งเจ้ามือ รอบที่ ${roundNumber}</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+    </head>
+    <body style="font-family:'Tahoma',sans-serif;">
+      <table style="border-collapse:collapse;width:100%;">
+        <tr>
+          <td colspan="6" style="font-size:16pt;font-weight:bold;background:#1e293b;color:#ffffff;padding:10px;text-align:center;">
+            ใบตัดยอดส่งเจ้ามือ: ${escapeHtml(dealerName)} — รอบที่ ${roundNumber}
+          </td>
+        </tr>
+        <tr>
+          <td colspan="6" style="font-size:11pt;background:#f1f5f9;padding:8px;text-align:center;border:1px solid #cbd5e1;">
+            ${escapeHtml(drawTitle)} | วัน-เวลาที่ทำรายการ: ${formatThaiDateTime(createdAt)} | จำนวน ${targetRows.length} รายการ
+          </td>
+        </tr>
+        <tr style="background:#334155;color:#ffffff;font-weight:bold;">
+          <th style="border:1px solid #cbd5e1;padding:8px;width:60px;">ลำดับ</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;width:110px;">ตัวเลข</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;width:140px;">ประเภท</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;width:140px;">เรทจ่าย</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;width:150px;">ยอดส่งเจ้ามือ (บาท)</th>
+          <th style="border:1px solid #cbd5e1;padding:8px;width:150px;">เก็บไว้ที่เรา (บาท)</th>
+        </tr>
+        ${tableRowsHtml}
+        <tr style="background:#1e293b;color:#ffffff;font-weight:bold;font-size:13pt;">
+          <td colspan="4" style="text-align:right;border:1px solid #cbd5e1;padding:8px;">รวมยอดรอบที่ ${roundNumber} ทั้งสิ้น:</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#fbbf24;">${totalSend}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#6ee7b7;">${totalKeep}</td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  const safeDealer = dealerName.replace(/[^\u0E00-\u0E7Fa-zA-Z0-9_-]/g, '_');
+  const fileName = `ใบส่งเจ้ามือ_${safeDealer}_รอบที่_${roundNumber}.xls`;
+  downloadBlobFile(html, fileName, 'application/vnd.ms-excel;charset=utf-8');
+  showToast(`📊 ดาวน์โหลดไฟล์ Excel "${fileName}" เรียบร้อยแล้ว!`);
+}
+
+function exportCurrentLayoffCsv() {
+  const rows = buildCurrentRoundLayoffRows();
+  if (rows.length === 0) {
+    showToast('กรุณาติ๊กเลือกตัวเลขที่จะส่งเจ้ามือในรอบนี้ก่อนดาวน์โหลด CSV ครับ');
+    return;
+  }
+  const s = appState.summary || {};
+  const nextRound = s.nextLayoffRound || ((appState.layoffs || []).length + 1);
+  const dealerName = document.getElementById('dealerNameInput')?.value || 'เจ้ามือสายใหญ่ #1';
+
+  const csvLines = [
+    ['ลำดับ', 'ตัวเลข', 'ประเภท', 'เรทจ่าย', 'ยอดส่งเจ้ามือ (บาท)', 'เก็บไว้ที่เรา (บาท)'].join(',')
+  ];
+
+  let totalSend = 0;
+  let totalKeep = 0;
+  rows.forEach((r, idx) => {
+    totalSend += r.sendTotal;
+    totalKeep += r.keepTotal;
+    // Use ="072" format so Excel preserves leading zeros in CSV
+    csvLines.push(
+      [
+        idx + 1,
+        `="${r.number}"`,
+        `"${r.typeDesc}"`,
+        `"${r.payoutPercent < 100 ? `เลขอั้น ${r.payoutPercent}%` : 'ปกติ 100%'}"`,
+        r.sendTotal,
+        r.keepTotal
+      ].join(',')
+    );
+  });
+  csvLines.push(['', 'รวมทั้งสิ้น', '', '', totalSend, totalKeep].join(','));
+
+  const fileName = `ใบส่งเจ้ามือ_รอบที่_${nextRound}.csv`;
+  downloadBlobFile(csvLines.join('\r\n'), fileName, 'text/csv;charset=utf-8');
+  showToast(`📄 ดาวน์โหลดไฟล์ CSV "${fileName}" เรียบร้อยแล้ว!`);
+}
+
+function exportFullDrawSummaryExcel() {
+  const list = appState.aggregated || [];
+  if (list.length === 0) {
+    showToast('ยังไม่มีข้อมูลตัวเลขในงวดนี้');
+    return;
+  }
+
+  const drawTitle = appState.currentDraw?.title || 'งวดวันที่ 16/11';
+  const totalAll = list.reduce((sum, a) => sum + (a.totalAmt || 0), 0);
+  const total100 = list.reduce((sum, a) => sum + (a.fullPayout100Amt || 0), 0);
+  const total50 = list.reduce((sum, a) => sum + (a.halfPayout50Amt || 0), 0);
+  const totalSent = list.reduce((sum, a) => sum + (a.alreadySentAmt || 0), 0);
+  const totalKept = list.reduce((sum, a) => sum + (a.alreadyKeptAmt || 0), 0);
+
+  const rowsHtml = list
+    .map((item, idx) => {
+      const topAmt = item.digitCount === 2 ? item.twoTopAmt : item.threeStraightAmt;
+      const secondAmt = item.digitCount === 2 ? item.twoBottomAmt : item.threeToadAmt + item.threePermRawAmt;
+      const runners = Array.from(new Set(item.contributors.map(c => c.customerName))).join(', ');
+
+      return `
+        <tr>
+          <td style="text-align:center;border:1px solid #cbd5e1;padding:5px;">${idx + 1}</td>
+          <td style="text-align:center;border:1px solid #cbd5e1;padding:5px;font-weight:bold;font-size:13pt;mso-number-format:'\\@';">${item.number}</td>
+          <td style="text-align:center;border:1px solid #cbd5e1;padding:5px;">${item.isRestricted ? 'เลขอั้น 50%' : 'ปกติ 100%'}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;">${topAmt}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;">${secondAmt}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;font-weight:bold;background:#fef3c7;">${item.totalAmt}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#059669;">${item.fullPayout100Amt}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#d97706;">${item.halfPayout50Amt}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#2563eb;">${item.alreadySentAmt || 0}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#059669;">${item.alreadyKeptAmt || 0}</td>
+          <td style="text-align:left;border:1px solid #cbd5e1;padding:5px;">${escapeHtml(runners)}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:'Tahoma',sans-serif;">
+      <table style="border-collapse:collapse;width:100%;">
+        <tr>
+          <td colspan="11" style="font-size:15pt;font-weight:bold;background:#1e293b;color:#ffffff;padding:10px;text-align:center;">
+            สรุปยอดรวมเลขหวยทั้งหมด — ${escapeHtml(drawTitle)}
+          </td>
+        </tr>
+        <tr style="background:#334155;color:#ffffff;font-weight:bold;">
+          <th style="border:1px solid #cbd5e1;padding:6px;">ลำดับ</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">เลข</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">สถานะ</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">เต็ง/บน</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">โต๊ด/ล่าง</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">ยอดรวมเงินเดียว</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">ได้ 100% (ก่อนอั้น)</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">ได้ 50% (หลังอั้น)</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">ส่งเจ้ามือแล้ว</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">เก็บไว้ที่เราแล้ว</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">สายเด็กโพย</th>
+        </tr>
+        ${rowsHtml}
+        <tr style="background:#1e293b;color:#ffffff;font-weight:bold;">
+          <td colspan="5" style="text-align:right;border:1px solid #cbd5e1;padding:8px;">รวมทั้งงวด:</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#fbbf24;">${totalAll}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#6ee7b7;">${total100}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#fdba74;">${total50}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#93c5fd;">${totalSent}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#6ee7b7;">${totalKept}</td>
+          <td style="border:1px solid #cbd5e1;padding:8px;"></td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  const fileName = `สรุปยอดรวมทั้งงวด_${drawTitle.replace(/\s+/g, '_')}.xls`;
+  downloadBlobFile(html, fileName, 'application/vnd.ms-excel;charset=utf-8');
+  showToast(`📊 ดาวน์โหลดไฟล์ Excel สรุปยอดรวมทั้งงวดเรียบร้อย!`);
 }
 
 async function undoLayoffRound(layoffId) {

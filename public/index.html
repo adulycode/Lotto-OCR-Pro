@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_10" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_11" />
 </head>
 <body>
   <!-- แถบด้านบนสุด: เลือกงวดหวยชัดเจน ดูง่ายตั้งแต่เปิดเว็บ -->
@@ -122,6 +122,9 @@
               <h2 id="aggTableTitle">📊 2. สรุปยอดรวมแต่ละเลขในงวดนี้ (ผลรวมยอดเงินเดียว)</h2>
               <p class="text-muted" id="aggModeSubtitle"></p>
             </div>
+            <button class="btn btn-outline btn-sm" onclick="exportFullDrawSummaryExcel()">
+              📊 Export Excel สรุปยอดรวม
+            </button>
           </div>
 
           <!-- แถบตัวอย่างไฮไลต์ให้เห็นภาพทันที -->
@@ -365,9 +368,17 @@
             <textarea id="layoffFormattedText" rows="6" class="input mono-textarea" readonly></textarea>
           </div>
 
-          <div class="btn-group-full">
-            <button class="btn btn-primary btn-lg" onclick="copyAndSaveLayoff()">
-              ✅ ยืนยันส่งเจ้ามือรอบนี้ & ล็อกยอด (ป้องกันส่งซ้ำในรอบถัดไป)
+          <div class="btn-group-full" style="flex-direction:column;gap:8px;">
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-success btn-lg" style="flex:1;" onclick="exportCurrentLayoffExcel(false)">
+                📊 ดาวน์โหลดไฟล์ Excel ส่งเจ้ามือ (รอบนี้)
+              </button>
+              <button class="btn btn-outline btn-lg" style="flex:1;" onclick="exportCurrentLayoffCsv()">
+                📄 ดาวน์โหลดไฟล์ CSV
+              </button>
+            </div>
+            <button class="btn btn-primary btn-lg" onclick="copyAndSaveLayoff(true)">
+              ✅ ยืนยันส่งเจ้ามือรอบนี้ (ล็อกยอด + ดาวน์โหลด Excel + คัดลอกข้อความ)
             </button>
           </div>
 
@@ -707,6 +718,6 @@
   </main>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_10"></script>
+  <script src="/app.js?v=20261120_11"></script>
 </body>
 </html>
