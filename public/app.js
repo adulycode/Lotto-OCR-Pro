@@ -32,10 +32,54 @@ let uploadedColumnSlices = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   buildPrintable4x30Template();
+  initPhotoViewportDragPan();
   await fetchAppState();
   const webhookEl = document.getElementById('webhookUrlDisplay');
   if (webhookEl) webhookEl.value = `${window.location.origin}/api/line/webhook`;
 });
+
+function initPhotoViewportDragPan() {
+  const viewport = document.getElementById('photoViewport');
+  if (!viewport) return;
+
+  let isDown = false;
+  let startX = 0;
+  let startY = 0;
+  let scrollLeft = 0;
+  let scrollTop = 0;
+
+  viewport.addEventListener('mousedown', e => {
+    // Allow clicking issue boxes
+    if (e.target.closest('.photo-issue-box')) return;
+    isDown = true;
+    viewport.classList.add('is-dragging');
+    startX = e.pageX - viewport.offsetLeft;
+    startY = e.pageY - viewport.offsetTop;
+    scrollLeft = viewport.scrollLeft;
+    scrollTop = viewport.scrollTop;
+  });
+
+  viewport.addEventListener('mouseleave', () => {
+    isDown = false;
+    viewport.classList.remove('is-dragging');
+  });
+
+  viewport.addEventListener('mouseup', () => {
+    isDown = false;
+    viewport.classList.remove('is-dragging');
+  });
+
+  viewport.addEventListener('mousemove', e => {
+    if (!isDown) return;
+    e.preventDefault();
+    const x = e.pageX - viewport.offsetLeft;
+    const y = e.pageY - viewport.offsetTop;
+    const walkX = (x - startX) * 1.25;
+    const walkY = (y - startY) * 1.25;
+    viewport.scrollLeft = scrollLeft - walkX;
+    viewport.scrollTop = scrollTop - walkY;
+  });
+}
 
 function showToast(msg) {
   const container = document.getElementById('toastContainer');
@@ -58,6 +102,16 @@ function formatThaiDateTime(isoStr) {
     }) + ' น.';
   } catch {
     return isoStr;
+  }
+}
+
+function toggleSidebarCollapse() {
+  const shell = document.getElementById('appShell');
+  const btn = document.getElementById('btnToggleSidebar');
+  if (!shell) return;
+  const isCollapsed = shell.classList.toggle('sidebar-collapsed');
+  if (btn) {
+    btn.textContent = isCollapsed ? '▶' : '◀';
   }
 }
 
@@ -1569,26 +1623,39 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     `;
   }
 
-  // วาดกรอบชี้ตำแหน่งที่มีปัญหาบนรูปกระดาษโพยต้นฉบับ (สำหรับใบโพยตาราง 4x30)
+  // วาดกรอบชี้ตำแหน่งที่มีปัญหาบนรูปกระดาษโพยต้นฉบับ (รองรับทั้งพิกัด box2d รายช่อง และ tableBox รายใบจาก Gemini 2.5 Pro)
   const markersEl = document.getElementById('photoIssueMarkers');
   if (markersEl) {
-    if (slip.isGrid4x30 && warnItems.length > 0) {
-      markersEl.innerHTML = warnItems
-        .map(w => {
-          const leftPct = ((w.col - 1) / 4) * 100;
-          const widthPct = 25;
-          const topPct = ((w.row - 1) / 30) * 100;
-          const heightPct = 100 / 30;
-          return `
-            <div class="photo-issue-box"
-              style="left:${leftPct}%;width:${widthPct}%;top:${topPct}%;height:${heightPct}%;"
-              onclick="focusInspectorCell(${w.col}, ${w.row})"
-              title="คลิกเพื่อเลื่อนไปยัง คอลัมน์ ${w.col} แถว ${w.row}">
-              <span class="photo-issue-label">⬅️ แถว ${w.row} (${w.numText}=${w.amtText})</span>
-            </div>
-          `;
-        })
-        .join('');
+    // Apply per-image dynamic tableBox [ymin, xmin, ymax, xmax] (0-1000 scale) if available
+    if (Array.isArray(slip.tableBox) && slip.tableBox.length === 4) {
+      const [ymin, xmin, ymax, xmax] = slip.tableBox;
+      markersEl.style.top = `${(ymin / 10).toFixed(2)}%`;
+      markersEl.style.left = `${(xmin / 10).toFixed(2)}%`;
+      markersEl.style.bottom = `${(100 - ymax / 10).toFixed(2)}%`;
+      markersEl.style.right = `${(100 - xmax / 10).toFixed(2)}%`;
+    } else {
+      markersEl.style.top = '14.1%';
+      markersEl.style.left = '14.2%';
+      markersEl.style.bottom = '8.6%';
+      markersEl.style.right = '2.5%';
+    }
+
+    if (slip.isGrid4x30) {
+      const boxesHtml = warnItems.map(w => {
+        const leftPct = ((w.col - 1) / 4) * 100;
+        const widthPct = 25;
+        const topPct = ((w.row - 1) / 30) * 100;
+        const heightPct = 100 / 30;
+        return `
+          <div class="photo-issue-box"
+            style="left:${leftPct}%;width:${widthPct}%;top:${topPct}%;height:${heightPct}%;"
+            onclick="focusInspectorCell(${w.col}, ${w.row})"
+            title="คลิกเพื่อเลื่อนไปยัง คอลัมน์ ${w.col} แถว ${w.row}">
+            <span class="photo-issue-label">⬅️ แถว ${w.row} (${w.numText}=${w.amtText})</span>
+          </div>
+        `;
+      });
+      markersEl.innerHTML = boxesHtml.join('') + `<div id="activeFocusPhotoBox"></div>`;
     } else {
       markersEl.innerHTML = '';
     }
@@ -1636,9 +1703,11 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
             <span class="row-idx">${rIdx}</span>
             <input type="text" class="cell-input" data-col="${colNum}" data-row="${rIdx}" data-field="numText"
               value="${item.numText || ''}" placeholder="เลข"
+              onfocus="highlightActivePhotoCell(${colNum}, ${rIdx}, '${item.numText || ''}', '${item.amtText || ''}')"
               onchange="onCellEdit(${colNum}, ${rIdx})" />
             <input type="text" class="cell-input" data-col="${colNum}" data-row="${rIdx}" data-field="amtText"
               value="${item.amtText || ''}" placeholder="ยอดเงิน"
+              onfocus="highlightActivePhotoCell(${colNum}, ${rIdx}, '${item.numText || ''}', '${item.amtText || ''}')"
               onchange="onCellEdit(${colNum}, ${rIdx})" />
             ${
               warnMessages.length > 0
@@ -1675,7 +1744,36 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   }
 }
 
+function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
+  const focusContainer = document.getElementById('activeFocusPhotoBox');
+  if (!focusContainer) return;
+  const leftPct = ((col - 1) / 4) * 100;
+  const widthPct = 25;
+  const topPct = ((row - 1) / 30) * 100;
+  const heightPct = 100 / 30;
+  focusContainer.innerHTML = `
+    <div class="photo-issue-box" id="currentActiveFocusMarker"
+      style="left:${leftPct}%;width:${widthPct}%;top:${topPct}%;height:${heightPct}%;border-color:#3b82f6;background:rgba(59,130,246,0.18);box-shadow:0 0 10px rgba(59,130,246,0.85);">
+      <span class="photo-issue-label" style="background:#2563eb;">📍 คอลัมน์ ${col} แถว ${row}</span>
+    </div>
+  `;
+
+  // Auto-pan the zoomed photo viewport so the active column & row is centered in view!
+  const viewport = document.getElementById('photoViewport');
+  const wrap = document.getElementById('photoCanvasWrap');
+  if (viewport && wrap) {
+    const targetX = wrap.offsetWidth * (0.142 + ((col - 0.5) / 4) * 0.833);
+    const targetY = wrap.offsetHeight * (0.141 + ((row - 0.5) / 30) * 0.773);
+    viewport.scrollTo({
+      left: Math.max(0, targetX - viewport.clientWidth / 2),
+      top: Math.max(0, targetY - viewport.clientHeight / 2),
+      behavior: 'smooth'
+    });
+  }
+}
+
 function focusInspectorCell(col, row) {
+  highlightActivePhotoCell(col, row);
   const el = document.getElementById(`cell-${col}-${row}`);
   if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1883,14 +1981,22 @@ function toggleGridOverlay() {
 }
 
 function adjustZoom(delta) {
-  currentZoom = Math.min(2.5, Math.max(0.75, currentZoom + delta));
-  document.getElementById('photoCanvasWrap').style.transform = `scale(${currentZoom})`;
+  currentZoom = Math.min(3.0, Math.max(0.75, currentZoom + delta));
+  const wrap = document.getElementById('photoCanvasWrap');
+  if (wrap) {
+    wrap.style.transform = 'none';
+    wrap.style.width = `${Math.round(currentZoom * 100)}%`;
+  }
   document.getElementById('zoomLevelText').textContent = `${Math.round(currentZoom * 100)}%`;
 }
 
 function resetZoom() {
   currentZoom = 1.0;
-  document.getElementById('photoCanvasWrap').style.transform = `scale(1)`;
+  const wrap = document.getElementById('photoCanvasWrap');
+  if (wrap) {
+    wrap.style.transform = 'none';
+    wrap.style.width = '100%';
+  }
   document.getElementById('zoomLevelText').textContent = `100%`;
 }
 

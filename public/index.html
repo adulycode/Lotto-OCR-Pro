@@ -8,61 +8,73 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_21" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_24" />
 </head>
 <body>
-  <div class="app-shell">
+  <div class="app-shell" id="appShell">
     <!-- ================================================================= -->
-    <!-- แถบเมนูหลักด้านซ้ายมือ (Left Navigation Sidebar สมดุล ไม่คั่นกลางจอ) -->
+    <!-- แถบเมนูหลักด้านซ้ายมือ (พร้อมปุ่มหดเก็บ/กางออก)                     -->
     <!-- ================================================================= -->
-    <aside class="app-sidebar no-print">
+    <aside class="app-sidebar no-print" id="appSidebar">
       <div class="sidebar-brand">
-        <img src="/mascot-logo.jpg" alt="Lotto Mascot" class="mascot-logo-img" />
-        <div>
-          <div class="brand-title">ระบบรวมโพยหวย</div>
-          <div class="brand-subtitle"><span class="badge-model" id="headerModelBadge">gemini-2.5-pro</span></div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <img src="/mascot-logo.jpg" alt="Lotto Mascot" class="mascot-logo-img" onclick="toggleSidebarCollapse()" style="cursor:pointer;" title="คลิกเพื่อหดหรือกางแถบเมนู" />
+          <div class="sidebar-hide-on-collapse" style="min-width:0;">
+            <div class="brand-title" style="font-size:16px;line-height:1.25;">ระบบรวมโพยหวย</div>
+            <div class="brand-subtitle" style="margin-top:3px;"><span class="badge-model" id="headerModelBadge">gemini-2.5-pro</span></div>
+          </div>
         </div>
+        <button type="button" class="sidebar-collapse-btn" id="btnToggleSidebar" onclick="toggleSidebarCollapse()" title="หดเก็บหรือกางแถบเมนู">
+          ◀
+        </button>
       </div>
 
       <!-- กล่องเลือกงวดหวย -->
-      <div class="sidebar-section">
+      <div class="sidebar-section sidebar-hide-on-collapse">
         <label class="sidebar-section-label">📅 งวดหวยที่กำลังดู</label>
         <select id="drawSelect" class="input draw-select" style="min-width:100%;margin-bottom:6px;" onchange="onSwitchDraw(this.value)"></select>
         <button class="btn btn-outline btn-sm" style="width:100%;" onclick="openNewDrawModal()">+ เปิดงวดใหม่</button>
       </div>
 
-      <!-- เมนูหลัก 6 เมนู เรียงแนวตั้งทางซ้ายมือ -->
+      <!-- เมนูหลัก 7 เมนู เรียงแนวตั้งทางซ้ายมือ -->
       <nav class="sidebar-nav">
-        <div class="sidebar-section-label">เมนูจัดการระบบ</div>
+        <div class="sidebar-section-label sidebar-hide-on-collapse">เมนูจัดการระบบ</div>
         <button class="nav-tab active" data-tab="tab-dashboard" onclick="switchTab('tab-dashboard')"
-          title="ดูรายชื่อเด็กโพยที่ส่งในงวดนี้ และตารางสรุปผลรวมยอดเงินเดียวของแต่ละเลข">
-          <span>🏠 1. ภาพรวมงวดนี้</span>
+          title="1. ภาพรวมงวดนี้ — ดูรายชื่อเด็กโพยที่ส่งในงวดนี้ และตารางสรุปผลรวมยอดเงินเดียวของแต่ละเลข">
+          <span class="nav-icon">🏠</span>
+          <span class="nav-text">1. ภาพรวมงวดนี้</span>
         </button>
         <button class="nav-tab" data-tab="tab-restricted" onclick="switchTab('tab-restricted')"
-          title="กำหนดชุดเลขอั้นที่เจ้ามือแจ้ง (เช่น ก่อนหวยออก 1 วัน) เพื่อแยกบิลจ่ายเต็ม 100% กับจ่ายครึ่ง 50%">
-          <span>🔒 2. ตั้งเลขอั้น 50%</span>
+          title="2. ตั้งเลขอั้น 50% — กำหนดชุดเลขอั้นที่เจ้ามือแจ้ง เพื่อแยกบิลจ่ายเต็ม 100% กับจ่ายครึ่ง 50%">
+          <span class="nav-icon">🔒</span>
+          <span class="nav-text">2. ตั้งเลขอั้น 50%</span>
           <span class="tab-badge warn" id="badgeRestrictedCount">5</span>
         </button>
         <button class="nav-tab" data-tab="tab-layoff" onclick="switchTab('tab-layoff')"
-          title="เลือกเลขทยอยตัดยอดส่งเจ้ามือเป็นรอบๆ โดยไม่ส่งซ้ำ พร้อมส่งออกไฟล์ Excel">
-          <span>📤 3. ตัดยอดส่งเจ้ามือ</span>
+          title="3. ตัดยอดส่งเจ้ามือ — เลือกเลขทยอยตัดยอดส่งเจ้ามือเป็นรอบๆ โดยไม่ส่งซ้ำ พร้อมส่งออกไฟล์ Excel">
+          <span class="nav-icon">📤</span>
+          <span class="nav-text">3. ตัดยอดส่งเจ้ามือ</span>
         </button>
         <button class="nav-tab" data-tab="tab-inspector" onclick="switchTab('tab-inspector')"
-          title="ตรวจสอบและแก้ไขตัวเลขที่อ่านจากรูปโพยกระดาษ 4 คอลัมน์ × 30 แถว">
-          <span>🔍 4. ตรวจบิล OCR</span>
+          title="4. ตรวจบิล OCR — ตรวจสอบและแก้ไขตัวเลขที่อ่านจากรูปโพยกระดาษ 4 คอลัมน์ × 30 แถว">
+          <span class="nav-icon">🔍</span>
+          <span class="nav-text">4. ตรวจบิล OCR</span>
           <span class="tab-badge" id="badgeReviewCount">1</span>
         </button>
         <button class="nav-tab" data-tab="tab-line" onclick="switchTab('tab-line')"
-          title="อัปโหลดรูปโพยกระดาษเข้าระบบ หรือจำลองการส่งโพยจากแชท LINE">
-          <span>💬 5. ส่งโพย / LINE</span>
+          title="5. ส่งโพย / LINE — อัปโหลดรูปโพยกระดาษเข้าระบบ หรือจำลองการส่งโพยจากแชท LINE">
+          <span class="nav-icon">💬</span>
+          <span class="nav-text">5. ส่งโพย / LINE</span>
         </button>
         <button class="nav-tab" data-tab="tab-winners" onclick="switchTab('tab-winners')"
-          title="ดึงผลสลากกินแบ่งรัฐบาล (กองสลาก) เพื่อตรวจเช็คคนถูกรางวัลและคำนวณยอดจ่ายแยกเรท 100% / 50%">
-          <span>🏆 6. ตรวจผลกองสลาก</span>
+          title="6. ตรวจผลกองสลาก — ดึงผลสลากกินแบ่งรัฐบาล เพื่อตรวจเช็คคนถูกรางวัลและคำนวณยอดจ่ายแยกเรท 100% / 50%">
+          <span class="nav-icon">🏆</span>
+          <span class="nav-text">6. ตรวจผลกองสลาก</span>
         </button>
         <button class="nav-tab" data-tab="tab-template" onclick="switchTab('tab-template')"
-          title="ตั้งค่าระบบ แยกตามหมวดหมู่: กติกาหวย, โมเดล AI, ความจำลายมือ, LINE OA และพิมพ์กระดาษโพย A4">
-          <span>⚙️ 7. ตั้งค่าระบบ</span>
+          title="7. ตั้งค่าระบบ — กติกาหวย, โมเดล AI, ความจำลายมือ, LINE OA และพิมพ์กระดาษโพย A4">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-text">7. ตั้งค่าระบบ</span>
         </button>
       </nav>
     </aside>
@@ -993,6 +1005,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_21"></script>
+  <script src="/app.js?v=20261120_24"></script>
 </body>
 </html>

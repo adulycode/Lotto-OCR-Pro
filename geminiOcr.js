@@ -27,6 +27,11 @@ const RESPONSE_SCHEMA = {
     sheetDate: { type: 'STRING', description: 'วันที่ในหัวกระดาษ เช่น 16/11' },
     sheetPage: { type: 'STRING', description: 'แผ่นที่ เช่น 1' },
     customerName: { type: 'STRING', description: 'ชื่อในหัวกระดาษ (ถ้ามี)' },
+    tableBox: {
+      type: 'ARRAY',
+      description: 'พิกัดกรอบตารางทั้ง 30 แถว (ไม่รวมหัวตารางและแถวรวมด้านล่าง) ในสเกล 0 ถึง 1000 รูปแบบ [ymin, xmin, ymax, xmax]',
+      items: { type: 'NUMBER' }
+    },
     items: {
       type: 'ARRAY',
       items: {
@@ -38,7 +43,12 @@ const RESPONSE_SCHEMA = {
           amtText: { type: 'STRING', description: 'ยอดเงินที่อ่านได้ เช่น 66, 22×22, 110×110, 22×11' },
           confidence: { type: 'NUMBER', description: 'ความมั่นใจ 0.0 ถึง 1.0' },
           needsReview: { type: 'BOOLEAN', description: 'true ถ้ามีรอยขีดฆ่าหรือตัวเลขก้ำกึ่ง' },
-          note: { type: 'STRING', description: 'หมายเหตุถ้ามีรอยขีดฆ่าหรือจุดที่ควรตรวจซ้ำ' }
+          note: { type: 'STRING', description: 'หมายเหตุถ้ามีรอยขีดฆ่าหรือจุดที่ควรตรวจซ้ำ' },
+          box2d: {
+            type: 'ARRAY',
+            description: 'พิกัดของช่องรายการนี้บนรูปภาพ ในสเกล 0 ถึง 1000 รูปแบบ [ymin, xmin, ymax, xmax]',
+            items: { type: 'NUMBER' }
+          }
         },
         required: ['col', 'row', 'numText', 'amtText']
       }
@@ -170,6 +180,7 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
     let rawItems = [];
     let sheetDate = '16/11';
     let sheetPage = '1';
+    let parsedTableBox = [141, 142, 914, 975];
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
 
@@ -206,6 +217,9 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
       });
       sheetDate = parsed.sheetDate || sheetDate;
       sheetPage = parsed.sheetPage || sheetPage;
+      if (Array.isArray(parsed.tableBox) && parsed.tableBox.length === 4) {
+        parsedTableBox = parsed.tableBox;
+      }
       rawItems = parsed.items || [];
       totalInputTokens = usage.promptTokenCount || 0;
       totalOutputTokens = usage.candidatesTokenCount || 0;
@@ -227,6 +241,7 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
       );
       return {
         ...parsedRow,
+        box2d: Array.isArray(rawIt.box2d) && rawIt.box2d.length === 4 ? rawIt.box2d : null,
         ocrOriginalNumText: parsedRow.numText,
         ocrOriginalAmtText: parsedRow.amtText
       };
@@ -242,6 +257,7 @@ async function analyzeSlipImage({ base64Image, columnSlices, mimeType = 'image/j
       learnedRulesApplied: learnedRules.length,
       sheetDate,
       sheetPage,
+      tableBox: parsedTableBox,
       items: validatedItems,
       usage: {
         inputTokens: totalInputTokens,
