@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_35" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_36" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -908,11 +908,8 @@
             <button type="button" class="settings-subbtn" data-subtab="sub-line" onclick="switchSettingsSubTab('sub-line')">
               <span>📲 4. เชื่อมต่อ LINE OA</span>
             </button>
-            <button type="button" class="settings-subbtn" data-subtab="sub-print" onclick="switchSettingsSubTab('sub-print')">
-              <span>🖨️ 5. พิมพ์ใบโพย A4 & ข้อมูลระบบ</span>
-            </button>
             <button type="button" class="settings-subbtn subnav-btn" data-subtab="sub-audit" onclick="switchSettingsSubtab('sub-audit')">
-              <span>📜 6. บัญชีผู้ใช้ & ประวัติ Log</span>
+              <span>📜 5. บัญชีผู้ใช้ & ประวัติ Log</span>
             </button>
           </div>
         </div>
@@ -1088,22 +1085,7 @@
             </div>
           </div>
 
-          <!-- หมวดย่อยที่ 5: พิมพ์ใบโพย A4 & ข้อมูลระบบ -->
-          <div id="sub-print" class="settings-subpanel card">
-            <div class="card-header">
-              <div>
-                <h3>🖨️ 5. พิมพ์แบบฟอร์มกระดาษโพยมาตรฐาน 4×30 & จัดการข้อมูล</h3>
-                <p class="text-muted">สั่งพิมพ์กระดาษโพย A4 ที่มีมาร์ค 4 มุมเพื่อให้คนจดเขียนตามช่อง หรือรีเซ็ตข้อมูลตัวอย่าง</p>
-              </div>
-              <div style="display:flex;gap:8px;">
-                <button class="btn btn-primary" onclick="window.print()">🖨️ สั่งพิมพ์กระดาษโพย A4</button>
-                <button class="btn btn-outline" onclick="resetDemoDatabase()">🔄 รีเซ็ตข้อมูลตัวอย่างเริ่มต้น</button>
-              </div>
-            </div>
-            <p class="text-muted" style="margin-bottom:12px;">ตัวอย่างแบบฟอร์มกระดาษโพย A4 (4 คอลัมน์ × 30 แถว = 120 รายการต่อแผ่น):</p>
-          </div>
-
-          <!-- หมวดย่อยที่ 6: จัดการบัญชีผู้ใช้งาน & ประวัติการใช้งานระบบ (Audit Log) -->
+          <!-- หมวดย่อยที่ 5: จัดการบัญชีผู้ใช้งาน & ประวัติการใช้งานระบบ (Audit Log) -->
           <div id="sub-audit" class="settings-subpanel">
             <div class="two-col-grid" style="grid-template-columns: 1fr 1.6fr;">
               <!-- ซ้าย: จัดการบัญชีผู้ใช้งาน (User Accounts) -->
@@ -1174,19 +1156,6 @@
 
         </div>
       </div>
-
-      <!-- กระดาษโพย A4 สำหรับสั่งพิมพ์ (แสดงเมื่อเลือกหมวดที่ 5 หรือตอนกด Print) -->
-      <div class="printable-sheet hidden-on-screen" id="printableSheet">
-        <div class="corner-mark tl"></div>
-        <div class="corner-mark tr"></div>
-        <div class="corner-mark bl"></div>
-        <div class="corner-mark br"></div>
-        <div class="sheet-top-meta">
-          <div class="meta-line">ชื่อ................................................................................. แผ่นที่.........................</div>
-          <div class="meta-line">งวดวันที่........................................................................ (เขียนตัวเลขให้ชัดเจน หากกลับ 6 ประตูให้เขียน ×6 หรือ 3 ประตูเขียน ×3)</div>
-        </div>
-        <table class="print-table-4x30" id="printTable4x30"></table>
-      </div>
     </section>
 
       </main>
@@ -1221,6 +1190,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_35"></script>
+  <script src="/app.js?v=20261120_36"></script>
 </body>
 </html>
