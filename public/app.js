@@ -542,10 +542,10 @@ function renderCustomersInDraw() {
 
           return `
             <div class="slip-mini-row ${isRoundSelected ? 'active-round' : ''}"
-              onclick="event.stopPropagation(); filterBySingleRound('${c.customerName}', '${sl.id}', ${rNum})">
+              onclick="event.stopPropagation(); filterBySingleRound('${escapeJsArg(c.customerName)}', '${escapeJsArg(sl.id)}', ${rNum})">
               <div style="flex:1;min-width:0;">
                 <div style="font-weight:700;color:var(--primary);word-break:break-word;">
-                  📌 รอบที่ ${rNum}: <span style="color:var(--text-main);font-weight:600;">${sl.title.replace(/^รอบที่ \d+ — /, '')}</span>
+                  📌 รอบที่ ${rNum}: <span style="color:var(--text-main);font-weight:600;">${escapeHtml(sl.title.replace(/^รอบที่ \d+ — /, ''))}</span>
                 </div>
                 <div class="text-muted">ส่งเมื่อ: ${formatThaiDateTime(sl.createdAt)} (${sl.totalItems} รายการ)</div>
                 <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">
@@ -578,11 +578,11 @@ function renderCustomersInDraw() {
         .join('');
 
       return `
-        <div class="customer-card ${isActive ? 'active-customer' : ''}" onclick="filterByCustomer('${c.customerName}')">
+        <div class="customer-card ${isActive ? 'active-customer' : ''}" onclick="filterByCustomer('${escapeJsArg(c.customerName)}')">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
             <div style="flex:1;min-width:0;">
               <div style="font-size:13.5px;font-weight:700;color:var(--text-main);display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
-                <span>👤 ${c.customerName}</span>
+                <span>👤 ${escapeHtml(c.customerName)}</span>
                 <span class="runner-rounds-badge">ส่งแล้ว ${c.slipCount} รอบ</span>
               </div>
               <div class="text-muted" style="margin-top:2px;font-size:11px;">
@@ -608,11 +608,11 @@ function renderCustomersInDraw() {
 
           <div class="runner-actions-bar" onclick="event.stopPropagation()">
             <button type="button" class="btn ${isActive && !selectedSlipRoundFilter ? 'btn-primary' : 'btn-outline'} btn-sm" style="flex:1;padding:3px 7px;font-size:11.5px;"
-              onclick="filterByCustomer('${c.customerName}')">
+              onclick="filterByCustomer('${escapeJsArg(c.customerName)}')">
               📊 ${isActive && !selectedSlipRoundFilter ? 'กำลังดูยอดรวมคนนี้' : `ดูรวมทั้ง ${c.slipCount} รอบ`}
             </button>
             <button type="button" class="btn btn-ghost btn-sm" style="padding:3px 7px;font-size:11.5px;"
-              onclick="toggleRunnerRoundsDrawer('${c.customerName}')">
+              onclick="toggleRunnerRoundsDrawer('${escapeJsArg(c.customerName)}')">
               📂 ${isExpanded ? 'พับ ▲' : `ทีละรอบ (${c.slipCount}) ▼`}
             </button>
           </div>
@@ -1009,9 +1009,9 @@ function renderAggregatedTable() {
           </td>
           <td class="num-col">${keptCellHtml}</td>
           <td class="num-col">${sentCellHtml}</td>
-          <td style="font-size:11.5px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="รวม ${item.hitCount} รายการ (${customerNames})">
+          <td style="font-size:11.5px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="รวม ${item.hitCount} รายการ (${escapeHtml(customerNames)})">
             <strong>${item.hitCount} ใบ</strong>
-            <span class="text-muted">(${customerNames})</span>
+            <span class="text-muted">(${escapeHtml(customerNames)})</span>
           </td>
         </tr>
         ${permSubRowHtml}
@@ -1477,7 +1477,7 @@ function renderLayoffBuilder(skipInputRebuild = false) {
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <div>
                 <span class="badge-100">รอบที่ ${l.roundNumber || idx + 1}</span>
-                <strong style="margin-left:6px;">📤 ${l.dealerName}</strong>
+                <strong style="margin-left:6px;">📤 ${escapeHtml(l.dealerName)}</strong>
                 <span class="text-muted" style="font-size:11.5px;margin-left:6px;">(${formatThaiDateTime(l.createdAt)})</span>
               </div>
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -2026,7 +2026,7 @@ function renderSidebarListForInspector() {
       return `
         <div class="runner-sidebar-group">
           <div class="runner-sidebar-header">
-            <span>👤 ${runnerName}</span>
+            <span>👤 ${escapeHtml(runnerName)}</span>
             <span style="font-family:var(--font-mono);font-size:12px;color:var(--gold);">${list.length} รอบ (${totalRunnerMoney.toLocaleString()}฿)</span>
           </div>
           <div>${roundsHtml}</div>
@@ -2400,7 +2400,7 @@ function renderLearnedRules() {
       runnerNames
         .map(name => {
           const cnt = allRules.filter(r => r.customerName === name).length;
-          return `<button class="chip ${currentLearnedRunnerFilter === name ? 'active' : ''}" onclick="setLearnedRunnerFilter('${name}')">👤 ${name} (${cnt})</button>`;
+          return `<button class="chip ${currentLearnedRunnerFilter === name ? 'active' : ''}" onclick="setLearnedRunnerFilter('${escapeJsArg(name)}')">👤 ${escapeHtml(name)} (${cnt})</button>`;
         })
         .join('');
   }
@@ -2431,19 +2431,19 @@ function renderLearnedRules() {
       r => `
       <div class="contributor-item" style="padding:8px 12px;margin-bottom:6px;font-size:12.5px;flex-wrap:wrap;gap:8px;">
         <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
-          <span class="badge-100" style="cursor:pointer;" onclick="jumpFromLearnedRule('${r.customerName}', ${r.roundNumber || 1})">👤 ${r.customerName}</span>
-          <span class="runner-rounds-badge" style="margin-left:0;cursor:pointer;" onclick="jumpFromLearnedRule('${r.customerName}', ${r.roundNumber || 1})" title="คลิกเพื่อเปิดดูบิลรอบนี้">
+          <span class="badge-100" style="cursor:pointer;" onclick="jumpFromLearnedRule('${escapeJsArg(r.customerName)}', ${r.roundNumber || 1})">👤 ${escapeHtml(r.customerName)}</span>
+          <span class="runner-rounds-badge" style="margin-left:0;cursor:pointer;" onclick="jumpFromLearnedRule('${escapeJsArg(r.customerName)}', ${r.roundNumber || 1})" title="คลิกเพื่อเปิดดูบิลรอบนี้">
             📌 รอบที่ ${r.roundNumber || 1} • 📅 ${formatThaiDateTime(r.learnedAt)} (คลิกดูบิล ➔)
           </span>
           <span>
             ช่อง${r.field === 'amtText' ? 'ยอดเงิน' : 'ตัวเลข'}: หากเขียนคล้าย
-            <code style="color:var(--danger);font-weight:700;">${r.wrongText}</code>
+            <code style="color:var(--danger);font-weight:700;">${escapeHtml(r.wrongText)}</code>
             ➔ ให้แปลงเป็น
-            <code style="color:var(--success);font-weight:700;">${r.correctText}</code>
+            <code style="color:var(--success);font-weight:700;">${escapeHtml(r.correctText)}</code>
           </span>
-          <span class="text-muted">(${r.reason || ''})</span>
+          <span class="text-muted">(${escapeHtml(r.reason || '')})</span>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="removeLearnedRule('${r.id}')">ลบ</button>
+        <button class="btn btn-ghost btn-sm" onclick="removeLearnedRule('${escapeJsArg(r.id)}')">ลบ</button>
       </div>
     `
     )
@@ -2910,7 +2910,7 @@ function renderWinnersTab() {
           return `
             <tr>
               <td>
-                <div style="font-weight:700;color:var(--text-main);">👤 ${t.customerName}</div>
+                <div style="font-weight:700;color:var(--text-main);">👤 ${escapeHtml(t.customerName)}</div>
                 <div class="text-muted" style="font-size:11.5px;">📌 รอบที่ ${t.roundNumber} (${formatThaiDateTime(t.createdAt)})</div>
               </td>
               <td>
@@ -3255,7 +3255,12 @@ function populateSettingsForm() {
     document.getElementById('settingOcrPriorityMode').value = s.ocrPriorityMode || 'auto_hybrid';
   }
   document.getElementById('settingGeminiModel').value = s.geminiModel || 'gemini-2.5-pro';
-  document.getElementById('settingGeminiKey').value = s.geminiApiKey || '';
+  const geminiKeyEl = document.getElementById('settingGeminiKey');
+  geminiKeyEl.value = '';
+  geminiKeyEl.placeholder = s.hasGeminiApiKey
+    ? `บันทึกคีย์ไว้แล้ว (${s.geminiApiKeyMasked}) — เว้นว่างไว้เพื่อใช้คีย์เดิม`
+    : 'วางรหัส AIzaSy... ที่นี่';
+
   document.getElementById('settingPermMode').value = s.permutationMode || 'expand';
   document.getElementById('settingCheck11').checked = s.checkMultiplesOf11 !== false;
   if (document.getElementById('settingDrawCutoffTime')) {
@@ -3264,23 +3269,38 @@ function populateSettingsForm() {
     document.getElementById('settingAfterCutoffAction').value = s.afterCutoffAction || 'reject_until_open';
   }
 
-  document.getElementById('settingLineToken').value = s.lineChannelAccessToken || '';
-  document.getElementById('settingLineSecret').value = s.lineChannelSecret || '';
+  const lineTokenEl = document.getElementById('settingLineToken');
+  lineTokenEl.value = '';
+  lineTokenEl.placeholder = s.hasLineToken
+    ? 'บันทึก Channel Access Token ไว้แล้ว (เว้นว่างไว้เพื่อใช้ค่าเดิม)'
+    : 'วาง Channel Access Token ของ LINE OA';
+
+  const lineSecretEl = document.getElementById('settingLineSecret');
+  lineSecretEl.value = '';
+  lineSecretEl.placeholder = s.hasLineSecret
+    ? 'บันทึก Channel Secret ไว้แล้ว (เว้นว่างไว้เพื่อใช้ค่าเดิม)'
+    : 'วาง Channel Secret ของ LINE OA';
 }
 
 async function saveSettingsFromForm() {
   const payload = {
     ocrPriorityMode: document.getElementById('settingOcrPriorityMode')?.value || 'auto_hybrid',
     geminiModel: document.getElementById('settingGeminiModel').value,
-    geminiApiKey: document.getElementById('settingGeminiKey').value.trim(),
     permutationMode: document.getElementById('settingPermMode').value,
     checkMultiplesOf11: document.getElementById('settingCheck11').checked,
     drawCutoffTime: document.getElementById('settingDrawCutoffTime')?.value || '14:30',
     nextDrawOpenTime: document.getElementById('settingNextDrawOpenTime')?.value || '17:00',
-    afterCutoffAction: document.getElementById('settingAfterCutoffAction')?.value || 'reject_until_open',
-    lineChannelAccessToken: document.getElementById('settingLineToken').value.trim(),
-    lineChannelSecret: document.getElementById('settingLineSecret').value.trim()
+    afterCutoffAction: document.getElementById('settingAfterCutoffAction')?.value || 'reject_until_open'
   };
+
+  const newGeminiKey = document.getElementById('settingGeminiKey').value.trim();
+  if (newGeminiKey) payload.geminiApiKey = newGeminiKey;
+
+  const newLineToken = document.getElementById('settingLineToken').value.trim();
+  if (newLineToken) payload.lineChannelAccessToken = newLineToken;
+
+  const newLineSecret = document.getElementById('settingLineSecret').value.trim();
+  if (newLineSecret) payload.lineChannelSecret = newLineSecret;
 
   await fetch('/api/settings', {
     method: 'POST',
@@ -3302,8 +3322,20 @@ async function resetDemoDatabase() {
 }
 
 function escapeHtml(str) {
-  return String(str)
+  return String(str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeJsArg(str) {
+  return String(str ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e');
 }

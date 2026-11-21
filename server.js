@@ -4,6 +4,7 @@ dns.setDefaultResultOrder('ipv4first');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const { RAW_COLUMNS_16_11 } = require('./seedData');
 const {
@@ -19,11 +20,141 @@ const { analyzeSlipImage, applyLearnedCorrectionsToRow } = require('./geminiOcr'
 const PORT = process.env.PORT || 3088;
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const SESSION_SECRET_FILE = path.join(DATA_DIR, '.session_secret');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const UPLOADS_DIR = path.join(PUBLIC_DIR, 'uploads');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+function getSessionSecret() {
+  if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 16) {
+    return process.env.SESSION_SECRET;
+  }
+  try {
+    if (fs.existsSync(SESSION_SECRET_FILE)) {
+      const existing = fs.readFileSync(SESSION_SECRET_FILE, 'utf8').trim();
+      if (existing.length >= 32) return existing;
+    }
+    const generated = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(SESSION_SECRET_FILE, generated, { mode: 0o600 });
+    return generated;
+  } catch {
+    return crypto.createHash('sha256').update(__dirname + '-lotto-ocr').digest('hex');
+  }
+}
+
+const SESSION_SECRET = getSessionSecret();
+
+function hashPassword(plain) {
+  const pw = String(plain || '');
+  if (pw.startsWith('scrypt:')) return pw;
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(pw, salt, 32).toString('hex');
+  return `scrypt:${salt}:${derived}`;
+}
+
+function verifyPassword(plain, stored) {
+  if (!stored) return false;
+  const pw = String(plain || '');
+  if (String(stored).startsWith('scrypt:')) {
+    const parts = String(stored).split(':');
+    if (parts.length !== 3) return false;
+    const [, salt, hexHash] = parts;
+    const expected = Buffer.from(hexHash, 'hex');
+    const actual = crypto.scryptSync(pw, salt, 32);
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  }
+  const a = Buffer.from(pw, 'utf8');
+  const b = Buffer.from(String(stored), 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function sanitizeUsers(users = []) {
+  return (users || []).map(u => ({
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName,
+    role: u.role === 'admin' ? 'admin' : 'staff'
+  }));
+}
+
+function sanitizeSettings(s = {}) {
+  const geminiKey = String(s.geminiApiKey || '').trim();
+  const envGeminiKey = String(process.env.GEMINI_API_KEY || '').trim();
+  const effectiveGeminiKey = geminiKey || envGeminiKey;
+  const lineToken = String(s.lineChannelAccessToken || '').trim();
+  const lineSecret = String(s.lineChannelSecret || '').trim();
+
+  return {
+    ocrPriorityMode: s.ocrPriorityMode || 'auto_hybrid',
+    geminiModel: s.geminiModel || 'gemini-2.5-pro',
+    permutationMode: s.permutationMode || 'expand',
+    useColumnSlicing: Boolean(s.useColumnSlicing),
+    checkMultiplesOf11: s.checkMultiplesOf11 !== false,
+    drawCutoffTime: s.drawCutoffTime || '14:30',
+    nextDrawOpenTime: s.nextDrawOpenTime || '17:00',
+    afterCutoffAction: s.afterCutoffAction || 'reject_until_open',
+    payoutRates: s.payoutRates || { threeStraight: 500, threeToad: 100, twoTop: 70, twoBottom: 70 },
+    riskLimits: s.riskLimits || { threeStraight: 100, threeToad: 100, threePerm: 132, twoTop: 30, twoBottom: 100 },
+    hasGeminiApiKey: Boolean(effectiveGeminiKey),
+    geminiApiKeyMasked: effectiveGeminiKey
+      ? `${effectiveGeminiKey.slice(0, 6)}••••••${effectiveGeminiKey.slice(-4)}`
+      : '',
+    hasLineToken: Boolean(lineToken),
+    hasLineSecret: Boolean(lineSecret)
+  };
+}
+
+function parseCookies(req) {
+  const raw = req.headers.cookie || '';
+  const map = {};
+  for (const part of raw.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    map[k] = v;
+  }
+  return map;
+}
+
+function createSessionToken(user) {
+  const payloadObj = {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    role: user.role === 'admin' ? 'admin' : 'staff',
+    exp: Date.now() + 7 * 24 * 60 * 60 * 1000
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(payloadObj)).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url');
+  return `${payloadB64}.${sig}`;
+}
+
+function getSessionUser(req) {
+  try {
+    const cookies = parseCookies(req);
+    const token = cookies.lotto_session;
+    if (!token || !token.includes('.')) return null;
+    const [payloadB64, sig] = token.split('.');
+    const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url');
+    const a = Buffer.from(sig || '', 'utf8');
+    const b = Buffer.from(expectedSig, 'utf8');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const parsed = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    if (!parsed || !parsed.exp || Date.now() > parsed.exp) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function safeIsoDate(val) {
+  if (!val) return new Date().toISOString();
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+}
 
 // Dual-Mode Hybrid OCR Priority State (Antigravity Agent Online Priority + Gemini API Key Offline Fallback)
 let antigravityLastSeenAt = 0;
@@ -48,9 +179,16 @@ function appendAuditLog(db, actorName, actionType, detail) {
 }
 
 function getActorFromReq(req, body = {}) {
-  const headerActor = req.headers['x-actor-name']
-    ? decodeURIComponent(req.headers['x-actor-name'])
-    : '';
+  const sessionUser = getSessionUser(req);
+  if (sessionUser?.displayName) return sessionUser.displayName;
+  let headerActor = '';
+  if (req.headers['x-actor-name']) {
+    try {
+      headerActor = decodeURIComponent(req.headers['x-actor-name']);
+    } catch {
+      headerActor = String(req.headers['x-actor-name']);
+    }
+  }
   return body.actorName || headerActor || 'เฮียเจ้าของระบบ (Admin)';
 }
 
@@ -243,21 +381,21 @@ function buildInitialDb() {
       {
         id: 'USR-1',
         username: 'admin',
-        password: '1234',
+        password: hashPassword('1234'),
         displayName: 'เฮียเจ้าของระบบ (Admin)',
         role: 'admin'
       },
       {
         id: 'USR-2',
         username: 'staff1',
-        password: '1234',
+        password: hashPassword('1234'),
         displayName: 'แอดมินเมย์ (ฝ่ายตรวจโพย)',
         role: 'staff'
       },
       {
         id: 'USR-3',
         username: 'staff2',
-        password: '1234',
+        password: hashPassword('1234'),
         displayName: 'แอดมินบอย (ฝ่ายตัดยอด)',
         role: 'staff'
       }
@@ -668,26 +806,39 @@ function loadDb() {
     if (Array.isArray(db.slips)) {
       db.slips.forEach(normalizeSlipVerificationStatus);
     }
+    let needsSave = false;
+    if (Array.isArray(db.users)) {
+      for (const u of db.users) {
+        if (u.password && !String(u.password).startsWith('scrypt:')) {
+          u.password = hashPassword(u.password);
+          needsSave = true;
+        }
+      }
+    }
+    // Clean up any leftover actorName accidentally saved inside settings previously
+    if (db.settings && 'actorName' in db.settings) {
+      delete db.settings.actorName;
+      needsSave = true;
+    }
     // Ensure newly seeded global handwriting rules exist in db.learnedRules
     const initialRules = buildInitialDb().learnedRules || [];
     db.learnedRules = Array.isArray(db.learnedRules) ? db.learnedRules : [];
-    let rulesAdded = false;
     for (const defRule of initialRules) {
       const exists = db.learnedRules.some(
         r => r.id === defRule.id || (r.wrongText === defRule.wrongText && r.customerName === defRule.customerName)
       );
       if (!exists) {
         db.learnedRules.push(defRule);
-        rulesAdded = true;
+        needsSave = true;
       }
     }
-    if (rulesAdded) {
-      fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+    if (needsSave) {
+      saveDb(db);
     }
     return db;
   } catch (e) {
     const initial = buildInitialDb();
-    fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf8');
+    saveDb(initial);
     return initial;
   }
 }
@@ -696,13 +847,15 @@ function saveDb(db) {
   if (antigravityLastSeenAt) {
     db.antigravityLastSeenAt = antigravityLastSeenAt;
   }
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+  const tmpFile = `${DB_FILE}.tmp`;
+  fs.writeFileSync(tmpFile, JSON.stringify(db, null, 2), 'utf8');
+  fs.renameSync(tmpFile, DB_FILE);
 }
 
 function recalculateSlipItems(slip, settings) {
   if (slip.status === 'pending_antigravity') return slip;
-  const newItems = (slip.items || []).map(it =>
-    parseAndValidateRow(
+  const newItems = (slip.items || []).map(it => {
+    const parsed = parseAndValidateRow(
       {
         col: it.col || 1,
         row: it.row || 1,
@@ -715,8 +868,16 @@ function recalculateSlipItems(slip, settings) {
         confidence: it.confidence ?? 0.99
       },
       settings
-    )
-  );
+    );
+    return {
+      ...parsed,
+      colHeader: it.colHeader || parsed.colHeader || '',
+      categoryHint: it.categoryHint || parsed.categoryHint || '3_top',
+      box2d: it.box2d || null,
+      ocrOriginalNumText: it.ocrOriginalNumText || parsed.numText,
+      ocrOriginalAmtText: it.ocrOriginalAmtText || parsed.amtText
+    };
+  });
   slip.items = newItems;
   slip.totalItems = newItems.filter(i => !i.isEmpty).length;
   slip.totalMoney = newItems.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
@@ -726,7 +887,7 @@ function recalculateSlipItems(slip, settings) {
 
 const MAX_BODY_BYTES = 25 * 1024 * 1024;
 
-function parseJsonBody(req) {
+function readRawBodyBuffer(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let totalBytes = 0;
@@ -740,23 +901,30 @@ function parseJsonBody(req) {
       }
       chunks.push(chunk);
     });
-    req.on('end', () => {
-      try {
-        const raw = Buffer.concat(chunks).toString('utf8');
-        resolve(raw ? JSON.parse(raw) : {});
-      } catch (err) {
-        err.statusCode = 400;
-        reject(err);
-      }
-    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
 
-function sendJson(res, statusCode, payload) {
+async function parseJsonBody(req) {
+  const buf = await readRawBodyBuffer(req);
+  try {
+    const raw = buf.toString('utf8');
+    return raw ? JSON.parse(raw) : {};
+  } catch (err) {
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function sendJson(res, statusCode, payload, extraHeaders = {}) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store'
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    ...extraHeaders
   });
   res.end(JSON.stringify(payload));
 }
@@ -908,7 +1076,7 @@ const server = http.createServer(async (req, res) => {
         currentDraw,
         draws: db.draws,
         upcomingGloDraws: getUpcomingGloDraws(db.draws, 16),
-        settings: db.settings,
+        settings: sanitizeSettings(db.settings),
         antigravityStatus: {
           online: isAntigravityOnline(),
           lastSeenAt: antigravityLastSeenAt ? new Date(antigravityLastSeenAt).toISOString() : null,
@@ -916,12 +1084,8 @@ const server = http.createServer(async (req, res) => {
           hasApiKey: Boolean((db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim()),
           pendingQueueCount: (db.slips || []).filter(s => s.status === 'pending_antigravity').length
         },
-        users: (db.users || []).map(u => ({
-          id: u.id,
-          username: u.username,
-          displayName: u.displayName,
-          role: u.role
-        })),
+        sessionUser: getSessionUser(req),
+        users: sanitizeUsers(db.users),
         auditLogs: (db.auditLogs || []).slice(0, 150),
         learnedRules: db.learnedRules || [],
         slips: drawSlips,
@@ -1101,40 +1265,65 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, learnedRules: db.learnedRules });
     }
 
-    // API: User Authentication (Login)
+    // API: Get Current Session User
+    if (req.method === 'GET' && pathname === '/api/auth/me') {
+      const sessionUser = getSessionUser(req);
+      return sendJson(res, 200, {
+        ok: true,
+        authenticated: Boolean(sessionUser),
+        user: sessionUser
+      });
+    }
+
+    // API: Logout
+    if (req.method === 'POST' && pathname === '/api/auth/logout') {
+      return sendJson(res, 200, { ok: true }, {
+        'Set-Cookie': 'lotto_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'
+      });
+    }
+
+    // API: User Authentication (Login with Signed HttpOnly Cookie)
     if (req.method === 'POST' && pathname === '/api/auth/login') {
       const body = await parseJsonBody(req);
       const db = loadDb();
       const users = db.users || [
-        { id: 'USR-1', username: 'admin', password: '1234', displayName: 'เฮียเจ้าของระบบ (Admin)', role: 'admin' },
-        { id: 'USR-2', username: 'staff1', password: '1234', displayName: 'แอดมินเมย์ (ฝ่ายตรวจโพย)', role: 'staff' }
+        { id: 'USR-1', username: 'admin', password: hashPassword('1234'), displayName: 'เฮียเจ้าของระบบ (Admin)', role: 'admin' },
+        { id: 'USR-2', username: 'staff1', password: hashPassword('1234'), displayName: 'แอดมินเมย์ (ฝ่ายตรวจโพย)', role: 'staff' }
       ];
       db.users = users;
 
       const username = String(body.username || '').trim();
       const password = String(body.password || '').trim();
-      const found = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password === password);
+      const found = users.find(
+        u => u.username.toLowerCase() === username.toLowerCase() && verifyPassword(password, u.password)
+      );
 
       if (!found) {
         return sendJson(res, 401, { ok: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
       }
 
+      const publicUser = {
+        id: found.id,
+        username: found.username,
+        displayName: found.displayName,
+        role: found.role === 'admin' ? 'admin' : 'staff'
+      };
+      const token = createSessionToken(publicUser);
+      const isHttps = req.headers['x-forwarded-proto'] === 'https';
+      const cookieVal = `lotto_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${isHttps ? '; Secure' : ''}`;
+
       appendAuditLog(db, found.displayName, 'เข้าสู่ระบบ', `ล็อกอินเข้าใช้งานด้วยบัญชี @${found.username}`);
       saveDb(db);
 
-      return sendJson(res, 200, {
-        ok: true,
-        user: {
-          id: found.id,
-          username: found.username,
-          displayName: found.displayName,
-          role: found.role
-        }
-      });
+      return sendJson(res, 200, { ok: true, user: publicUser }, { 'Set-Cookie': cookieVal });
     }
 
     // API: Manage User Accounts (Add / Remove Staff or Admin accounts)
     if (req.method === 'POST' && pathname === '/api/users') {
+      const sessionUser = getSessionUser(req);
+      if (sessionUser && sessionUser.role !== 'admin') {
+        return sendJson(res, 403, { error: 'เฉพาะบัญชีเจ้าของระบบ (Admin) เท่านั้นที่จัดการผู้ใช้ได้' });
+      }
       const body = await parseJsonBody(req);
       const db = loadDb();
       const actor = getActorFromReq(req, body);
@@ -1154,7 +1343,7 @@ const server = http.createServer(async (req, res) => {
         db.users.push({
           id: `USR-${Date.now().toString().slice(-5)}`,
           username,
-          password,
+          password: hashPassword(password),
           displayName,
           role
         });
@@ -1168,7 +1357,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       saveDb(db);
-      return sendJson(res, 200, { ok: true, users: db.users });
+      return sendJson(res, 200, { ok: true, users: sanitizeUsers(db.users) });
     }
 
     // API: Log Custom Frontend Audit Event (e.g. Export Excel, Print, Logout)
@@ -1299,7 +1488,7 @@ const server = http.createServer(async (req, res) => {
           .filter(s => s.length === 2 || s.length === 3);
 
         const announcedAt = body.announcedAt
-          ? new Date(body.announcedAt).toISOString()
+          ? safeIsoDate(body.announcedAt)
           : new Date().toISOString();
         const payoutPercent = Number(body.payoutPercent) || 50;
         const note = (body.note || `เจ้ามือแจ้งอั้นจ่าย ${payoutPercent}%`).trim();
@@ -1329,26 +1518,60 @@ const server = http.createServer(async (req, res) => {
 
     // API: Reset Demo Database
     if (req.method === 'POST' && pathname === '/api/reset') {
+      const sessionUser = getSessionUser(req);
+      if (sessionUser && sessionUser.role !== 'admin') {
+        return sendJson(res, 403, { error: 'เฉพาะบัญชีเจ้าของระบบ (Admin) เท่านั้นที่รีเซ็ตข้อมูลได้' });
+      }
       const initial = buildInitialDb();
       saveDb(initial);
       return sendJson(res, 200, { ok: true, message: 'รีเซ็ตข้อมูลตัวอย่างเริ่มต้นเรียบร้อยแล้ว' });
     }
 
-    // API: Update Settings
+    // API: Update Settings (Whitelisted Fields + Secret Protection)
     if (req.method === 'POST' && pathname === '/api/settings') {
       const body = await parseJsonBody(req);
       const db = loadDb();
-      db.settings = {
-        ...db.settings,
-        ...body,
-        riskLimits: {
-          ...db.settings.riskLimits,
-          ...(body.riskLimits || {})
-        }
-      };
-      db.slips.forEach(s => recalculateSlipItems(s, db.settings));
+      const s = db.settings || {};
+
+      if (typeof body.ocrPriorityMode === 'string') s.ocrPriorityMode = body.ocrPriorityMode;
+      if (typeof body.geminiModel === 'string') s.geminiModel = body.geminiModel;
+      if (typeof body.permutationMode === 'string') s.permutationMode = body.permutationMode;
+      if (typeof body.useColumnSlicing === 'boolean') s.useColumnSlicing = body.useColumnSlicing;
+      if (typeof body.checkMultiplesOf11 === 'boolean') s.checkMultiplesOf11 = body.checkMultiplesOf11;
+      if (typeof body.drawCutoffTime === 'string') s.drawCutoffTime = body.drawCutoffTime;
+      if (typeof body.nextDrawOpenTime === 'string') s.nextDrawOpenTime = body.nextDrawOpenTime;
+      if (typeof body.afterCutoffAction === 'string') s.afterCutoffAction = body.afterCutoffAction;
+      if (body.payoutRates && typeof body.payoutRates === 'object') {
+        s.payoutRates = { ...(s.payoutRates || {}), ...body.payoutRates };
+      }
+      if (body.riskLimits && typeof body.riskLimits === 'object') {
+        s.riskLimits = { ...(s.riskLimits || {}), ...body.riskLimits };
+      }
+
+      // Only overwrite secret fields when a real non-masked non-empty string is explicitly submitted
+      if (typeof body.geminiApiKey === 'string') {
+        const k = body.geminiApiKey.trim();
+        if (k && !k.includes('••')) s.geminiApiKey = k;
+      }
+      if (typeof body.lineChannelAccessToken === 'string') {
+        const t = body.lineChannelAccessToken.trim();
+        if (t && !t.includes('••')) s.lineChannelAccessToken = t;
+      }
+      if (typeof body.lineChannelSecret === 'string') {
+        const sec = body.lineChannelSecret.trim();
+        if (sec && !sec.includes('••')) s.lineChannelSecret = sec;
+      }
+
+      db.settings = s;
+      db.slips.forEach(sl => recalculateSlipItems(sl, db.settings));
+      appendAuditLog(
+        db,
+        getActorFromReq(req, body),
+        'แก้ไขการตั้งค่าระบบ',
+        `บันทึกการตั้งค่า (โหมดชุดกลับ: ${s.permutationMode || 'expand'}, โหมด OCR: ${s.ocrPriorityMode || 'auto_hybrid'})`
+      );
       saveDb(db);
-      return sendJson(res, 200, { ok: true, settings: db.settings });
+      return sendJson(res, 200, { ok: true, settings: sanitizeSettings(db.settings) });
     }
 
     // API: Upload & Run OCR on Paper Slip Image
@@ -1363,7 +1586,7 @@ const server = http.createServer(async (req, res) => {
       const title = (body.title || `รอบที่ ${nextRound} — โพยกระดาษ (${customerName})`).trim();
       const base64Image = body.base64Image || '';
       const columnSlices = body.columnSlices || null;
-      const submittedAt = body.submittedAt ? new Date(body.submittedAt).toISOString() : new Date().toISOString();
+      const submittedAt = body.submittedAt ? safeIsoDate(body.submittedAt) : new Date().toISOString();
 
       let savedImageUrl = '/uploads/slip-16-11-page1.jpg';
       if (base64Image && base64Image.startsWith('data:image/')) {
@@ -1566,7 +1789,7 @@ const server = http.createServer(async (req, res) => {
 
       if (body.customerName !== undefined) slip.customerName = body.customerName;
       if (body.title !== undefined) slip.title = body.title;
-      if (body.createdAt !== undefined) slip.createdAt = new Date(body.createdAt).toISOString();
+      if (body.createdAt !== undefined) slip.createdAt = safeIsoDate(body.createdAt);
 
       // Compare previous items against edited items to automatically learn handwriting corrections!
       const prevMap = new Map();
@@ -1715,7 +1938,7 @@ const server = http.createServer(async (req, res) => {
       const text = (body.text || '').trim();
       const useSamplePhoto = Boolean(body.useSamplePhoto);
       const base64Image = body.base64Image || '';
-      const submittedAt = body.submittedAt ? new Date(body.submittedAt).toISOString() : new Date().toISOString();
+      const submittedAt = body.submittedAt ? safeIsoDate(body.submittedAt) : new Date().toISOString();
 
       const nextRound = getNextRoundForCustomer(db.slips, currentDraw.id, customerName);
 
@@ -1744,7 +1967,9 @@ const server = http.createServer(async (req, res) => {
 
         const ocrResult = await analyzeSlipImage({
           base64Image: base64Image || fs.readFileSync(path.join(UPLOADS_DIR, 'slip-16-11-page1.jpg')).toString('base64'),
-          settings: db.settings
+          settings: db.settings,
+          learnedRules: db.learnedRules || [],
+          customerName
         });
 
         const items = ocrResult.items || [];
@@ -1904,8 +2129,25 @@ const server = http.createServer(async (req, res) => {
 
     // API: Real LINE Messaging API Webhook (Automatically rolls over to next GLO draw if previous draw has passed!)
     if (req.method === 'POST' && pathname === '/api/line/webhook') {
-      const body = await parseJsonBody(req);
+      const rawBuf = await readRawBodyBuffer(req);
       const db = loadDb();
+      const channelSecret = (db.settings.lineChannelSecret || process.env.LINE_CHANNEL_SECRET || '').trim();
+      if (channelSecret) {
+        const sigHeader = String(req.headers['x-line-signature'] || '');
+        const expectedSig = crypto.createHmac('sha256', channelSecret).update(rawBuf).digest('base64');
+        const a = Buffer.from(sigHeader, 'utf8');
+        const b = Buffer.from(expectedSig, 'utf8');
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+          return sendJson(res, 401, { error: 'Invalid X-Line-Signature' });
+        }
+      }
+      let body = {};
+      try {
+        const rawStr = rawBuf.toString('utf8');
+        body = rawStr ? JSON.parse(rawStr) : {};
+      } catch {
+        return sendJson(res, 400, { error: 'Invalid JSON payload' });
+      }
       const nowIso = new Date().toISOString();
       const resolved = resolveTargetDrawForSubmission(db, nowIso, db.currentDrawId, true);
       const currentDraw = resolved.draw;
@@ -1934,7 +2176,9 @@ const server = http.createServer(async (req, res) => {
 
               const ocrResult = await analyzeSlipImage({
                 base64Image: buf.toString('base64'),
-                settings: db.settings
+                settings: db.settings,
+                learnedRules: db.learnedRules || [],
+                customerName
               });
               const items = ocrResult.items || [];
               const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
@@ -2083,9 +2327,18 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
-    let filePath = pathname === '/' ? path.join(PUBLIC_DIR, 'index.html') : path.join(PUBLIC_DIR, pathname);
-    if (!filePath.startsWith(PUBLIC_DIR)) {
-      res.writeHead(403);
+    let decodedPathname = '/';
+    try {
+      decodedPathname = decodeURIComponent(pathname);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('Bad Request');
+    }
+
+    const relPath = decodedPathname === '/' ? 'index.html' : decodedPathname.replace(/^\/+/, '');
+    const filePath = path.resolve(PUBLIC_DIR, relPath);
+    if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + path.sep)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('Forbidden');
     }
 
@@ -2095,7 +2348,10 @@ const server = http.createServer(async (req, res) => {
         'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
-        'Expires': '0'
+        'Expires': '0',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'SAMEORIGIN',
+        'Referrer-Policy': 'strict-origin-when-cross-origin'
       });
       fs.createReadStream(filePath).pipe(res);
     } else {
