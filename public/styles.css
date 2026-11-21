@@ -1348,6 +1348,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .runner-sidebar-header {
@@ -2071,7 +2072,8 @@ body {
     grid-template-columns: 1fr !important;
   }
   .inspector-sidebar-list {
-    max-height: 220px;
+    max-height: 360px;
+    -webkit-overflow-scrolling: touch;
   }
   .paper-grid-4col {
     grid-template-columns: repeat(2, 1fr);
@@ -2079,46 +2081,56 @@ body {
 }
 
 @media (max-width: 960px) {
-  .app-shell {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
     grid-template-columns: 1fr;
   }
 
-  .app-sidebar {
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    height: auto;
-    padding: 10px 12px;
-    gap: 10px;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-sidebar);
-    backdrop-filter: blur(8px);
-  }
-
-  .app-shell.sidebar-collapsed .sidebar-section,
-  .app-shell.sidebar-collapsed .sidebar-nav {
+  #btnToggleSidebar,
+  .sidebar-collapse-btn {
     display: none !important;
-  }
-
-  .app-shell.sidebar-collapsed .sidebar-brand {
-    flex-direction: row;
-    justify-content: space-between;
-    padding-bottom: 0;
-    border-bottom: none;
   }
 
   .app-shell.sidebar-collapsed .sidebar-hide-on-collapse {
     display: block !important;
   }
 
+  .app-shell.sidebar-collapsed .sidebar-footer.sidebar-hide-on-collapse {
+    display: flex !important;
+  }
+
   .app-shell.sidebar-collapsed .sidebar-section.sidebar-hide-on-collapse {
-    display: none !important;
+    display: flex !important;
+  }
+
+  .app-shell.sidebar-collapsed .nav-text {
+    display: inline !important;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-nav .nav-tab {
+    justify-content: flex-start;
+    padding: 8px 13px;
+  }
+
+  .app-sidebar {
+    position: relative;
+    z-index: 100;
+    height: auto;
+    padding: 10px 12px;
+    gap: 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-sidebar);
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-brand {
+    flex-direction: row;
+    justify-content: space-between;
   }
 
   .sidebar-brand {
-    padding-bottom: 8px;
-    justify-content: space-between;
+    padding-bottom: 6px;
+    justify-content: flex-start;
   }
 
   .mascot-logo-img {
@@ -2128,9 +2140,10 @@ body {
 
   .sidebar-section {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
+    gap: 6px;
+    padding: 6px 8px;
   }
 
   .sidebar-section-label {
@@ -2141,11 +2154,25 @@ body {
   .sidebar-section .draw-select {
     margin-bottom: 0 !important;
     flex: 1;
+    min-width: 150px !important;
   }
 
   .sidebar-section .btn {
     width: auto !important;
     white-space: nowrap;
+  }
+
+  .sidebar-footer {
+    padding-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .sidebar-footer > * {
+    margin-bottom: 0 !important;
   }
 
   .sidebar-nav {
