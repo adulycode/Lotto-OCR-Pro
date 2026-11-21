@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_33" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_34" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -569,9 +569,15 @@
               <h3>📷 รูปกระดาษโพยต้นฉบับ</h3>
               <p class="text-muted" id="inspectorMetaText"></p>
             </div>
-            <div class="zoom-controls">
+            <div class="zoom-controls" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+              <button class="btn btn-sm btn-outline" onclick="rotateInspectorImage(-90)" title="หมุนรูปโพยไปทางซ้าย 90 องศา">
+                🔄 หมุนซ้าย 90°
+              </button>
+              <button class="btn btn-sm btn-outline" onclick="rotateInspectorImage(90)" title="หมุนรูปโพยไปทางขวา 90 องศา">
+                🔄 หมุนขวา 90°
+              </button>
               <button class="btn btn-sm btn-outline" onclick="toggleGridOverlay()" id="btnGridOverlay">
-                📏 เส้นทาบ 4 คอลัมน์
+                📏 เส้นทาบคอลัมน์
               </button>
               <button class="btn btn-sm btn-ghost" onclick="adjustZoom(-0.25)">➖</button>
               <span id="zoomLevelText">100%</span>
@@ -628,7 +634,7 @@
           <div class="card-header">
             <div>
               <h3>📸 อัปโหลดรูปโพยกระดาษเข้าสู่งวดนี้โดยตรง</h3>
-              <p class="text-muted">ระบบจะตัดแบ่ง 4 คอลัมน์และใช้ Gemini 2.5 Pro อ่านตัวเลขเข้าสู่งวดปัจจุบันทันที</p>
+              <p class="text-muted">ส่งภาพความละเอียดสูงให้ Gemini 2.5 Pro อ่านได้ทุกฟอร์แมต (โพย 2, 4, 5, 8 คอลัมน์ • สมุดเส้น • ปีกการ่วม } • หัวตาราง ห.ท./โต๊ด/ล.บ)</p>
             </div>
           </div>
 
@@ -636,7 +642,13 @@
             <div class="form-row-2">
               <div>
                 <label>ชื่อคนส่ง / เจ้าของโพย:</label>
-                <input type="text" id="uploadCustomerName" class="input" value="เจ๊หมวย (สาย A)" />
+                <input type="text" id="uploadCustomerName" class="input" value="เจ๊หมวย (สาย A)" placeholder="เช่น ลุงปั่น, ไก่, เจ๊หมวย หรือ ทุกสาย (Global)" />
+                <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">
+                  <button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='ทุกสาย (Global)'">🌐 ทุกสาย (Global)</button>
+                  <button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='เจ๊หมวย (สาย A)'">👤 เจ๊หมวย</button>
+                  <button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='ลุงปั่น'">👤 ลุงปั่น</button>
+                  <button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='ไก่'">👤 ไก่</button>
+                </div>
               </div>
               <div>
                 <label>ชื่อบิล / แผ่นที่:</label>
@@ -649,6 +661,7 @@
               <select id="uploadTimingSelect" class="input">
                 <option value="after_cutoff">🕒 ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
                 <option value="before_cutoff">⏪ ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100% ทั้งใบ)</option>
+                <option value="training_only">🧠 โหมดฝึกสอน AI จากโพยเก่า (อ่านเพื่อสอนลายมือ ไม่รวมยอดเงินในงวดนี้)</option>
               </select>
             </div>
 
@@ -657,19 +670,20 @@
               <div class="dropzone-content">
                 <div class="drop-icon">📄🔍</div>
                 <h4>คลิกเพื่อเลือกรูปถ่ายโพยกระดาษจากมือถือหรือคอมพิวเตอร์</h4>
-                <p>รองรับโพยตาราง 4 คอลัมน์ × 30 แถว และโพยเขียนมือทุกชนิด</p>
+                <p>รองรับโพยตาราง 2, 4, 5, 8 คอลัมน์, สมุดเส้น, ปีกการ่วม } และภาพถ่ายตะแคง 90°</p>
               </div>
             </div>
 
             <div id="slicePreviewContainer" class="slice-preview-box">
-              <div class="slice-header">
-                <span>✂️ ระบบตัดแบ่ง 4 คอลัมน์อัตโนมัติ (ช่วยให้ AI อ่านแม่นยำไม่ข้ามบรรทัด):</span>
+              <div class="slice-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                <span>🖼️ ตัวอย่างรูปโพยที่จะส่งให้ AI อ่านเต็มใบ (หมุนปรับแนวภาพได้หากถ่ายตะแคง):</span>
+                <div style="display:flex;gap:6px;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="rotateUploadPreviewImage(-90)">🔄 หมุนซ้าย 90°</button>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="rotateUploadPreviewImage(90)">🔄 หมุนขวา 90°</button>
+                </div>
               </div>
               <div class="slice-grid" id="slicePreviewGrid">
-                <div class="slice-item">คอลัมน์ 1 (แถว 1–30)</div>
-                <div class="slice-item">คอลัมน์ 2 (แถว 1–30)</div>
-                <div class="slice-item">คอลัมน์ 3 (แถว 1–30)</div>
-                <div class="slice-item">คอลัมน์ 4 (แถว 1–30)</div>
+                <div class="slice-item">ยังไม่ได้เลือกรูปโพย (รองรับ 2, 4, 5 และ 8 คอลัมน์อัตโนมัติ)</div>
               </div>
             </div>
 
@@ -1017,9 +1031,12 @@
             </div>
 
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;background:var(--bg-input);padding:12px;border-radius:8px;border:1px solid var(--border);">
-              <div style="flex:1;min-width:150px;">
-                <label class="small-label">ชื่อเด็กโพย:</label>
-                <input type="text" id="learnCustomerInput" class="input" value="เจ๊หมวย (สาย A)" placeholder="ชื่อเด็กโพย" />
+              <div style="flex:1;min-width:170px;">
+                <label class="small-label">ชื่อเด็กโพย (หรือ ทุกสาย (Global)):</label>
+                <div style="display:flex;gap:4px;">
+                  <input type="text" id="learnCustomerInput" class="input" value="ทุกสาย (Global)" placeholder="เช่น ทุกสาย (Global) หรือชื่อสาย" />
+                  <button type="button" class="btn btn-outline btn-sm" style="white-space:nowrap;" onclick="document.getElementById('learnCustomerInput').value='ทุกสาย (Global)'" title="ใช้กฎนี้กับเด็กโพยทุกสาย">🌐 ทุกสาย</button>
+                </div>
               </div>
               <div style="width:130px;">
                 <label class="small-label">ช่องข้อมูล:</label>
@@ -1206,6 +1223,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_33"></script>
+  <script src="/app.js?v=20261120_34"></script>
 </body>
 </html>

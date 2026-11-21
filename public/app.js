@@ -1988,11 +1988,14 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
       markersEl.style.right = '2.5%';
     }
 
-    if (slip.isGrid4x30) {
+    const itemCols = (slip.items || []).map(i => Number(i.col) || 1);
+    const totalCols = Math.max(slip.isGrid4x30 ? 4 : 1, ...itemCols, 1);
+
+    if (slip.isGrid4x30 || totalCols >= 2) {
       const boxesHtml = warnItems.map(w => {
-        const leftPct = ((w.col - 1) / 4) * 100;
-        const widthPct = 25;
-        const topPct = ((w.row - 1) / 30) * 100;
+        const leftPct = (((w.col || 1) - 1) / totalCols) * 100;
+        const widthPct = 100 / totalCols;
+        const topPct = (((w.row || 1) - 1) / 30) * 100;
         const heightPct = 100 / 30;
         return `
           <div class="photo-issue-box"
@@ -2010,12 +2013,29 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   }
 
   const container = document.getElementById('paperGridContainer');
-  const cols = [1, 2, 3, 4];
+  const itemColNums = (slip.items || []).map(i => Number(i.col) || 1);
+  const maxCol = Math.max(slip.isGrid4x30 ? 4 : 1, ...itemColNums, 1);
+  const cols = Array.from({ length: maxCol }, (_, idx) => idx + 1);
+  if (container) {
+    container.style.gridTemplateColumns =
+      maxCol > 4 ? 'repeat(auto-fit, minmax(175px, 1fr))' : '';
+  }
 
   container.innerHTML = cols
     .map(colNum => {
       const colItems = (slip.items || []).filter(i => (i.col || 1) === colNum);
-      const maxRows = slip.isGrid4x30 ? 30 : Math.max(colItems.length, 1);
+      const maxRowInCol = colItems.reduce((m, it) => Math.max(m, Number(it.row) || 1), 1);
+      const maxRows = slip.isGrid4x30 && maxCol === 4 ? Math.max(30, maxRowInCol) : Math.max(maxRowInCol, colItems.length, 1);
+      const sampleColItem = colItems.find(i => i.colHeader || i.categoryHint) || {};
+      const colHeaderLabel = sampleColItem.colHeader
+        ? sampleColItem.colHeader
+        : sampleColItem.categoryHint === '3_toad'
+          ? 'โต๊ด ห.ท.1'
+          : sampleColItem.categoryHint === '2_bottom'
+            ? '2 ล่าง'
+            : sampleColItem.categoryHint === '2_bottom_top'
+              ? 'ล.บ'
+              : '3 ตัว/2 ตัว';
       const rowsHtml = [];
       let colTotal = 0;
 
@@ -2023,6 +2043,8 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
         const item = colItems.find(i => i.row === rIdx) || {
           col: colNum,
           row: rIdx,
+          colHeader: sampleColItem.colHeader || '',
+          categoryHint: sampleColItem.categoryHint || '3_top',
           numText: '',
           amtText: '',
           rowTotalMoney: 0,
@@ -2050,6 +2072,8 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
           <div class="paper-row-item ${rowClass}" id="cell-${colNum}-${rIdx}">
             <span class="row-idx">${rIdx}</span>
             <input type="text" class="cell-input" data-col="${colNum}" data-row="${rIdx}" data-field="numText"
+              data-col-header="${escapeHtml(item.colHeader || sampleColItem.colHeader || '')}"
+              data-category-hint="${escapeHtml(item.categoryHint || sampleColItem.categoryHint || '3_top')}"
               value="${item.numText || ''}" placeholder="เลข"
               onfocus="highlightActivePhotoCell(${colNum}, ${rIdx}, '${item.numText || ''}', '${item.amtText || ''}')"
               onchange="onCellEdit(${colNum}, ${rIdx})" />
@@ -2069,7 +2093,7 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
       return `
         <div class="paper-col-box">
           <div class="paper-col-header">
-            <span>คอลัมน์ที่ ${colNum} (3 ตัวท้ายที่ 1)</span>
+            <span>คอลัมน์ที่ ${colNum} (${escapeHtml(colHeaderLabel)})</span>
             <span>แถว 1-${maxRows}</span>
           </div>
           <div class="paper-col-body">
@@ -2095,8 +2119,11 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
 function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
   const focusContainer = document.getElementById('activeFocusPhotoBox');
   if (!focusContainer) return;
-  const leftPct = ((col - 1) / 4) * 100;
-  const widthPct = 25;
+  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+  const slip = allInspectableSlips.find(s => s.id === currentInspectedSlipId);
+  const totalCols = Math.max(4, ...((slip?.items || []).map(i => Number(i.col) || 1)));
+  const leftPct = ((col - 1) / totalCols) * 100;
+  const widthPct = 100 / totalCols;
   const topPct = ((row - 1) / 30) * 100;
   const heightPct = 100 / 30;
   focusContainer.innerHTML = `
@@ -2110,7 +2137,7 @@ function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
   const viewport = document.getElementById('photoViewport');
   const wrap = document.getElementById('photoCanvasWrap');
   if (viewport && wrap) {
-    const targetX = wrap.offsetWidth * (0.142 + ((col - 0.5) / 4) * 0.833);
+    const targetX = wrap.offsetWidth * (0.142 + ((col - 0.5) / totalCols) * 0.833);
     const targetY = wrap.offsetHeight * (0.141 + ((row - 0.5) / 30) * 0.773);
     viewport.scrollTo({
       left: Math.max(0, targetX - viewport.clientWidth / 2),
@@ -2153,6 +2180,8 @@ async function saveAndVerifyCurrentSlip(markVerified = false) {
     updatedMap.set(`${it.col}_${it.row}`, {
       col: it.col,
       row: it.row,
+      colHeader: it.colHeader || '',
+      categoryHint: it.categoryHint || '3_top',
       numText: it.numText,
       amtText: it.amtText,
       note: markVerified ? '' : it.note,
@@ -2163,6 +2192,8 @@ async function saveAndVerifyCurrentSlip(markVerified = false) {
   numInputs.forEach(numEl => {
     const col = parseInt(numEl.getAttribute('data-col'), 10);
     const row = parseInt(numEl.getAttribute('data-row'), 10);
+    const colHeader = numEl.getAttribute('data-col-header') || '';
+    const categoryHint = numEl.getAttribute('data-category-hint') || '3_top';
     const amtEl = document.querySelector(`.cell-input[data-col="${col}"][data-row="${row}"][data-field="amtText"]`);
     const numText = numEl.value.trim();
     const amtText = amtEl ? amtEl.value.trim() : '';
@@ -2171,6 +2202,8 @@ async function saveAndVerifyCurrentSlip(markVerified = false) {
       updatedMap.set(`${col}_${row}`, {
         col,
         row,
+        colHeader,
+        categoryHint,
         numText,
         amtText,
         clearedNote: true
@@ -2512,27 +2545,75 @@ async function sliceImageInto4Columns(dataUrl) {
   });
 }
 
+async function rotateBase64Image90(dataUrl, degrees = 90) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const rad = (degrees * Math.PI) / 180;
+      const isRightAngle = Math.abs(degrees) % 180 === 90;
+      canvas.width = isRightAngle ? img.height : img.width;
+      canvas.height = isRightAngle ? img.width : img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      resolve(canvas.toDataURL('image/jpeg', 0.94));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+function renderUploadFullImagePreview() {
+  const grid = document.getElementById('slicePreviewGrid');
+  if (!grid || !uploadedBase64Image) return;
+  grid.innerHTML = `
+    <div class="slice-item" style="grid-column: 1 / -1; text-align:center;">
+      <div style="margin-bottom:6px;font-weight:700;color:#60a5fa;">📄 ภาพโพยความละเอียดสูงเต็มใบ (รองรับ 2, 4, 5 และ 8 คอลัมน์อัตโนมัติ)</div>
+      <img src="${uploadedBase64Image}" style="max-width:100%;max-height:280px;object-fit:contain;border-radius:6px;border:1px solid var(--border);" />
+    </div>
+  `;
+}
+
+async function rotateUploadPreviewImage(degrees) {
+  if (!uploadedBase64Image) {
+    showToast('กรุณาเลือกรูปโพยก่อนกดหมุนภาพครับ');
+    return;
+  }
+  uploadedBase64Image = await rotateBase64Image90(uploadedBase64Image, degrees);
+  uploadedColumnSlices = null;
+  renderUploadFullImagePreview();
+  showToast(`🔄 หมุนรูปโพย ${degrees > 0 ? 'ขวา 90°' : 'ซ้าย 90°'} เรียบร้อย พร้อมส่งให้ AI อ่าน`);
+}
+
+let currentInspectorRotation = 0;
+async function rotateInspectorImage(degrees) {
+  const imgEl = document.getElementById('inspectorImage');
+  if (!imgEl) return;
+  if (imgEl.src) {
+    const rotated = await rotateBase64Image90(imgEl.src, degrees);
+    if (rotated && rotated.startsWith('data:image/')) {
+      imgEl.src = rotated;
+      showToast(`🔄 หมุนรูปโพยต้นฉบับ ${degrees > 0 ? 'ขวา 90°' : 'ซ้าย 90°'} เรียบร้อย`);
+      return;
+    }
+  }
+  currentInspectorRotation = (currentInspectorRotation + degrees) % 360;
+  imgEl.style.transform = `rotate(${currentInspectorRotation}deg)`;
+  showToast(`🔄 หมุนรูปโพยต้นฉบับ ${degrees > 0 ? 'ขวา 90°' : 'ซ้าย 90°'} เรียบร้อย`);
+}
+
 async function previewUploadImage(inputEl) {
   const file = inputEl.files?.[0];
   if (!file) return;
 
   uploadedBase64Image = await fileToBase64(file);
-  uploadedColumnSlices = await sliceImageInto4Columns(uploadedBase64Image);
-
-  const grid = document.getElementById('slicePreviewGrid');
-  if (uploadedColumnSlices && uploadedColumnSlices.length === 4) {
-    grid.innerHTML = uploadedColumnSlices
-      .map(
-        (src, i) => `
-      <div class="slice-item">
-        <div style="margin-bottom:4px;font-weight:700;">คอลัมน์ ${i + 1}</div>
-        <img src="${src}" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;" />
-      </div>
-    `
-      )
-      .join('');
-  }
-  showToast('✂️ ตัดแบ่งภาพเป็น 4 คอลัมน์อัตโนมัติพร้อมส่งให้ AI แล้ว');
+  // Send full high-resolution image directly to Gemini 2.5 Pro so 2, 4, 5, and 8-column slips and sideways photos are never sliced through numbers
+  uploadedColumnSlices = null;
+  renderUploadFullImagePreview();
+  showToast('📸 โหลดรูปโพยความละเอียดสูงเต็มใบพร้อมส่งให้ AI อ่านแล้ว (กดหมุนภาพได้หากรูปตะแคง)');
 }
 
 async function runDirectOcrUpload() {

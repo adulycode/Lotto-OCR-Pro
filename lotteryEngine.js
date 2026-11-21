@@ -3,9 +3,11 @@
 function normalizeHandwritingAmount(raw) {
   if (!raw) return '';
   let s = String(raw).trim();
+  s = s.replace(/[AΔ]/g, '4');
   s = s.replace(/no|n0|ก0/gi, '110');
   s = s.replace(/n|ก/gi, '11');
   s = s.replace(/[xX\*]/g, '×');
+  s = s.replace(/(\d+)\s*\+\s*(\d+)/g, '$1×$2');
   s = s.replace(/\s+/g, '');
   return s;
 }
@@ -13,6 +15,7 @@ function normalizeHandwritingAmount(raw) {
 function normalizeHandwritingNumber(raw) {
   if (!raw) return '';
   let s = String(raw).trim();
+  s = s.replace(/[AΔ]/g, '4');
   s = s.replace(/[xX\*]/g, '×');
   s = s.replace(/no|n0/gi, '110');
   s = s.replace(/n/gi, '11');
@@ -45,9 +48,30 @@ function getUniquePermutations2(numStr) {
   return a === b ? [numStr] : [a + b, b + a];
 }
 
-function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', categoryHint = '3_top', note = '', needsReview = false, confidence = 0.99 }, settings = {}) {
-  const cleanNum = normalizeHandwritingNumber(numText);
-  const cleanAmt = normalizeHandwritingAmount(amtText);
+function parseAndValidateRow({ col = 1, row = 1, colHeader = '', numText = '', amtText = '', categoryHint = '3_top', note = '', needsReview = false, confidence = 0.99 }, settings = {}) {
+  let cleanNum = normalizeHandwritingNumber(numText);
+  let cleanAmt = normalizeHandwritingAmount(amtText);
+
+  // If cleanNum contains an inline "=total" expression (e.g., "922×3=99" or "236×6=132" or "514=33×30"), split it into cleanNum and cleanAmt
+  const inlineEqMatch = cleanNum.match(/^(\d{2,3}(?:×\d+)?)[=:](\d+(?:×\d+)?)$/);
+  if (inlineEqMatch) {
+    cleanNum = inlineEqMatch[1];
+    if (!cleanAmt || cleanAmt === inlineEqMatch[2] || cleanAmt === `=${inlineEqMatch[2]}`) {
+      cleanAmt = inlineEqMatch[2];
+    }
+  }
+
+  // If cleanAmt starts with "×3=264" or "×6=132" (where the permutation multiplier was written inside the amount box across the column divider)
+  const amtPermMatch = cleanAmt.match(/^×(\d+)[=:]?(\d+)$/);
+  if (amtPermMatch) {
+    if (!/×\d+$/.test(cleanNum)) {
+      cleanNum = `${cleanNum}×${amtPermMatch[1]}`;
+    }
+    cleanAmt = amtPermMatch[2];
+  }
+
+  // Strip leading "=" or ":" if present in cleanAmt (e.g. "=264" -> "264")
+  cleanAmt = cleanAmt.replace(/^[=:]+/, '');
 
   const warnings = [];
   if (note) warnings.push(note);
@@ -56,6 +80,8 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
     return {
       col,
       row,
+      colHeader,
+      categoryHint,
       numText: '',
       amtText: '',
       isEmpty: true,
@@ -136,6 +162,12 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
       straightAmt = amt1;
       toadAmt = amt2;
       rowTotalMoney = amt1 + amt2;
+    } else if (categoryHint === '3_toad' || /โต๊ด/.test(colHeader)) {
+      patternType = '3_toad';
+      patternLabel = '3 ตัวโต๊ด';
+      straightAmt = 0;
+      toadAmt = amt1;
+      rowTotalMoney = amt1;
     } else {
       patternType = '3_straight';
       patternLabel = '3 ตัวบน (ตรง)';
@@ -156,12 +188,20 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
         warnings.push(`ยอดเงิน ${permTotalAmt} บาท หาร 2 ประตูไม่ลงตัว`);
       }
     } else if (amt2 !== null) {
-      patternType = '2_top_bottom';
-      patternLabel = '2 ตัว (บน×ล่าง)';
-      straightAmt = amt1;
-      bottomAmt = amt2;
-      rowTotalMoney = amt1 + amt2;
-    } else if (categoryHint === '2_bottom') {
+      if (categoryHint === '2_bottom_top' || /ล[\.\-\s]?บ|ล่าง[\.\-\s]?บน/.test(colHeader)) {
+        patternType = '2_top_bottom';
+        patternLabel = '2 ตัว (ล่าง×บน)';
+        bottomAmt = amt1;
+        straightAmt = amt2;
+        rowTotalMoney = amt1 + amt2;
+      } else {
+        patternType = '2_top_bottom';
+        patternLabel = '2 ตัว (บน×ล่าง)';
+        straightAmt = amt1;
+        bottomAmt = amt2;
+        rowTotalMoney = amt1 + amt2;
+      }
+    } else if (categoryHint === '2_bottom' || categoryHint === '2_bottom_top' || /ล่าง|ล[\.\-\s]?บ/.test(colHeader)) {
       patternType = '2_bottom';
       patternLabel = '2 ตัวล่าง';
       bottomAmt = amt1;
@@ -181,8 +221,8 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
   const enforceEleven = settings.checkMultiplesOf11 !== false;
   if (enforceEleven && rowTotalMoney > 0) {
     const checkUnit = (val, label) => {
-      if (val > 0 && val % 11 !== 0 && val % 10 !== 0 && val % 5 !== 0) {
-        warnings.push(`ยอด ${label} (${val} บาท) ไม่ใช่ทวีคูณของ 11, 10 หรือ 5 บาท กรุณาเช็ครูปต้นฉบับ`);
+      if (val > 0 && val % 11 !== 0 && val % 12 !== 0 && val % 10 !== 0 && val % 5 !== 0 && val % 2 !== 0) {
+        warnings.push(`ยอด ${label} (${val} บาท) ไม่ใช่ทวีคูณของ 11, 12, 10 หรือ 5 บาท กรุณาเช็ครูปต้นฉบับ`);
       }
     };
     if (permMult) {
@@ -206,6 +246,8 @@ function parseAndValidateRow({ col = 1, row = 1, numText = '', amtText = '', cat
   return {
     col,
     row,
+    colHeader,
+    categoryHint,
     numText: cleanNum,
     amtText: cleanAmt,
     note: note || '',

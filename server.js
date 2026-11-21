@@ -120,7 +120,7 @@ function buildInitialDb() {
     geminiModel: 'gemini-2.5-pro',
     geminiApiKey: '',
     permutationMode: 'expand',
-    useColumnSlicing: true,
+    useColumnSlicing: false,
     checkMultiplesOf11: true,
     drawCutoffTime: '14:30',        // เวลาปิดรับโพยในวันหวยออก (เช่น 14:30 น.)
     nextDrawOpenTime: '17:00',      // เวลาเริ่มตัดเข้าเป็นงวดถัดไปอัตโนมัติ (เช่น หลัง 17:00 น. ของวันหวยออก)
@@ -332,6 +332,56 @@ function buildInitialDb() {
         wrongText: 'n3×3',
         correctText: '113×3',
         reason: 'เลขเบิ้ล 113 เขียน 11 ติดกันคล้าย n3 (คอลัมน์ 4 แถว 14)',
+        learnedAt: tMuayRound1
+      },
+      {
+        id: 'LEARN-GLOBAL-1',
+        customerName: 'ทุกสาย (Global)',
+        roundNumber: 1,
+        field: 'numText',
+        wrongText: 'A9 / 9A / 2A×2A / A8×2A',
+        correctText: '49 / 94 / 24×24 / 48×24',
+        reason: 'เลข 4 เขียนหัวแหลมปิดคล้ายตัว A หรือสามเหลี่ยม Δ เช่น 2A=24, A8=48, 2AA×3=244×3',
+        learnedAt: tMuayRound1
+      },
+      {
+        id: 'LEARN-GLOBAL-2',
+        customerName: 'ทุกสาย (Global)',
+        roundNumber: 1,
+        field: 'amtText',
+        wrongText: '33+30 / 55+50 / 22+20',
+        correctText: '33×30 / 55×50 / 22×20',
+        reason: 'เครื่องหมาย × เขียนลากเร็วคล้ายเครื่องหมาย + ในโพยสมุดเส้น เช่น 33×30, 55×50',
+        learnedAt: tMuayRound1
+      },
+      {
+        id: 'LEARN-GLOBAL-3',
+        customerName: 'ทุกสาย (Global)',
+        roundNumber: 1,
+        field: 'amtText',
+        wrongText: '×3=264 / ×3=99 / ×6=132',
+        correctText: 'ชุดกลับ ×3 หรือ ×6 พร้อมยอดรวมหลังเครื่องหมาย =',
+        reason: 'เขียน ×3=ยอดรวม หรือ ×6=ยอดรวม คั่นกลางเส้นแบ่งช่อง เช่น 144×3 = 264',
+        learnedAt: tMuayRound1
+      },
+      {
+        id: 'LEARN-GLOBAL-4',
+        customerName: 'ทุกสาย (Global)',
+        roundNumber: 1,
+        field: 'amtText',
+        wrongText: 'ปีกกา } หรือเส้นลากยาว |',
+        correctText: 'คัดลอกยอดเงินให้ทุกแถวในปีกกา',
+        reason: 'ลากเส้นแนวตั้ง | หรือวงเล็บปีกกา } คลุมหลายเลขเพื่อใช้ยอดเงินเดียวกัน',
+        learnedAt: tMuayRound1
+      },
+      {
+        id: 'LEARN-GLOBAL-5',
+        customerName: 'ทุกสาย (Global)',
+        roundNumber: 1,
+        field: 'numText',
+        wrongText: 'คอลัมน์ "โต๊ด ห.ท.1" / "ล.บ" / "2 ล่าง"',
+        correctText: 'แยกประเภทตามหัวตารางอัตโนมัติ',
+        reason: 'รองรับกระดาษโพย 2, 4, 5 และ 8 คอลัมน์ พร้อมจำแนกหัวตาราง ห.ท., โต๊ด, ล.บ, 2 ล่าง',
         learnedAt: tMuayRound1
       }
     ],
@@ -600,6 +650,22 @@ function loadDb() {
     if (Array.isArray(db.slips)) {
       db.slips.forEach(normalizeSlipVerificationStatus);
     }
+    // Ensure newly seeded global handwriting rules exist in db.learnedRules
+    const initialRules = buildInitialDb().learnedRules || [];
+    db.learnedRules = Array.isArray(db.learnedRules) ? db.learnedRules : [];
+    let rulesAdded = false;
+    for (const defRule of initialRules) {
+      const exists = db.learnedRules.some(
+        r => r.id === defRule.id || (r.wrongText === defRule.wrongText && r.customerName === defRule.customerName)
+      );
+      if (!exists) {
+        db.learnedRules.push(defRule);
+        rulesAdded = true;
+      }
+    }
+    if (rulesAdded) {
+      fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+    }
     return db;
   } catch (e) {
     const initial = buildInitialDb();
@@ -618,6 +684,7 @@ function recalculateSlipItems(slip, settings) {
       {
         col: it.col || 1,
         row: it.row || 1,
+        colHeader: it.colHeader || '',
         numText: it.numText || '',
         amtText: it.amtText || '',
         categoryHint: it.categoryHint || '3_top',
@@ -1288,6 +1355,8 @@ const server = http.createServer(async (req, res) => {
             {
               col: it.col || 1,
               row: it.row || 1,
+              colHeader: it.colHeader || prev?.colHeader || '',
+              categoryHint: it.categoryHint || prev?.categoryHint || '3_top',
               numText: newNum,
               amtText: newAmt,
               note: it.clearedNote ? '' : (it.note || ''),
