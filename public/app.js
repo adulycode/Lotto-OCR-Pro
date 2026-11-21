@@ -14,6 +14,8 @@ let appState = {
 };
 
 let currentAggFilter = 'all';
+let aggSortCol = 'total';
+let aggSortDir = 'desc';
 let selectedCustomerFilter = null; // กรองดูเฉพาะเด็กโพยที่คลิกเลือก (รวมทุกรอบของคนนั้น)
 let selectedSlipRoundFilter = null; // กรองดูเฉพาะบิล/รอบที่คลิกเลือก (เฉพาะรอบนั้นใบเดียว)
 let expandedRunnerCards = new Set(); // เก็บรายชื่อเด็กโพยที่กดกางดูรายการแต่ละรอบ
@@ -647,11 +649,58 @@ function setAggFilter(filter, btnEl) {
   renderAggregatedTable();
 }
 
+function toggleAggColumnSort(col) {
+  if (aggSortCol === col) {
+    aggSortDir = aggSortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    aggSortCol = col;
+    aggSortDir = col === 'number' ? 'asc' : 'desc';
+  }
+
+  const sortSelect = document.getElementById('sortAggSelect');
+  if (sortSelect) {
+    const presetKey = `${aggSortCol}_${aggSortDir}`;
+    if (['total_desc', 'kept_desc', 'sent_desc', 'number_asc'].includes(presetKey)) {
+      sortSelect.value = presetKey;
+    }
+  }
+  renderAggregatedTable();
+}
+
+function onAggSortDropdownChange(val) {
+  if (val === 'kept_desc') {
+    aggSortCol = 'kept';
+    aggSortDir = 'desc';
+  } else if (val === 'sent_desc') {
+    aggSortCol = 'sent';
+    aggSortDir = 'desc';
+  } else if (val === 'number_asc') {
+    aggSortCol = 'number';
+    aggSortDir = 'asc';
+  } else {
+    aggSortCol = 'total';
+    aggSortDir = 'desc';
+  }
+  renderAggregatedTable();
+}
+
+function updateAggSortHeaderIndicators() {
+  document.querySelectorAll('#tab-dashboard th.sortable-th[data-sort-col]').forEach(th => {
+    const col = th.getAttribute('data-sort-col');
+    const ind = th.querySelector('.sort-indicator');
+    const isActive = col === aggSortCol;
+    th.classList.toggle('sort-active', isActive);
+    if (ind) {
+      ind.textContent = isActive ? (aggSortDir === 'asc' ? '▲' : '▼') : '⇅';
+    }
+  });
+}
+
 function renderAggregatedTable() {
   const tbody = document.getElementById('aggTableBody');
   const search = (document.getElementById('searchNumberInput')?.value || '').trim();
-  const sortMode = document.getElementById('sortAggSelect')?.value || 'total_desc';
   const titleEl = document.getElementById('aggTableTitle');
+  updateAggSortHeaderIndicators();
 
   if (selectedSlipRoundFilter) {
     const slipObj = (appState.slips || []).find(s => s.id === selectedSlipRoundFilter);
@@ -821,23 +870,31 @@ function renderAggregatedTable() {
     list = list.filter(item => item.digitCount === 3);
   }
 
-  // เรียงลำดับตามตัวเลือกใน #sortAggSelect
+  // เรียงลำดับตามหัวคอลัมน์ที่คลิกเลือก (หรือตัวเลือกใน #sortAggSelect)
+  const dir = aggSortDir === 'asc' ? 1 : -1;
+  const getColSortVal = (item, col) => {
+    if (col === 'restricted') return item.isRestricted ? 1 : 0;
+    if (col === 'top') return item.digitCount === 2 ? (item.twoTopAmt || 0) : (item.threeStraightAmt || 0);
+    if (col === 'second') return item.digitCount === 2 ? (item.twoBottomAmt || 0) : (item.threeToadAmt || 0);
+    if (col === 'perm') return item.threePermRawAmt || 0;
+    if (col === 'total') return item.totalAmt || 0;
+    if (col === 'full100') return item.fullPayout100Amt || 0;
+    if (col === 'half50') return item.halfPayout50Amt || 0;
+    if (col === 'kept') return item.netKeptAmt ?? Math.max(0, (item.totalAmt || 0) - (item.alreadySentAmt || 0));
+    if (col === 'sent') return item.alreadySentAmt || 0;
+    if (col === 'hits') return item.hitCount || 0;
+    return item.totalAmt || 0;
+  };
+
   list = [...list].sort((a, b) => {
-    if (sortMode === 'sent_desc') {
-      const diff = (b.alreadySentAmt || 0) - (a.alreadySentAmt || 0);
-      return diff !== 0 ? diff : b.totalAmt - a.totalAmt;
+    if (aggSortCol === 'number') {
+      if (a.digitCount !== b.digitCount) return (a.digitCount - b.digitCount) * dir;
+      return a.number.localeCompare(b.number, 'en') * dir;
     }
-    if (sortMode === 'kept_desc') {
-      const aKept = a.netKeptAmt ?? Math.max(0, a.totalAmt - (a.alreadySentAmt || 0));
-      const bKept = b.netKeptAmt ?? Math.max(0, b.totalAmt - (b.alreadySentAmt || 0));
-      const diff = bKept - aKept;
-      return diff !== 0 ? diff : b.totalAmt - a.totalAmt;
-    }
-    if (sortMode === 'number_asc') {
-      if (a.digitCount !== b.digitCount) return a.digitCount - b.digitCount;
-      return a.number.localeCompare(b.number, 'en');
-    }
-    return b.totalAmt - a.totalAmt;
+    const diff = getColSortVal(a, aggSortCol) - getColSortVal(b, aggSortCol);
+    if (diff !== 0) return diff * dir;
+    const totalDiff = (b.totalAmt || 0) - (a.totalAmt || 0);
+    return totalDiff !== 0 ? totalDiff : a.number.localeCompare(b.number, 'en');
   });
 
   if (!selectedAggNumberKey && list.length > 0) {

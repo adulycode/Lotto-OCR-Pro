@@ -1040,6 +1040,35 @@ body {
   border-bottom-color: var(--border);
 }
 
+.data-table th.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.data-table th.sortable-th:hover {
+  background: var(--bg-input);
+  color: var(--text-main);
+}
+
+.data-table th.sortable-th.sort-active {
+  color: var(--primary);
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+.sort-indicator {
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 10px;
+  opacity: 0.45;
+  vertical-align: middle;
+}
+
+.data-table th.sortable-th.sort-active .sort-indicator {
+  opacity: 1;
+  color: var(--primary);
+}
+
 .data-table td {
   padding: 9px 10px;
   vertical-align: middle;

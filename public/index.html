@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_41" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_42" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -273,7 +273,7 @@
           <div class="filter-bar">
             <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;width:100%;">
               <input type="text" id="searchNumberInput" class="input-search" style="flex:1;min-width:170px;padding:6px 10px;font-size:12.5px;" placeholder="🔎 ค้นหาเลข เช่น 21, 583, 154, 072..." oninput="renderAggregatedTable()" />
-              <select id="sortAggSelect" class="input" style="max-width:230px;padding:6px 8px;font-size:12px;" onchange="renderAggregatedTable()">
+              <select id="sortAggSelect" class="input" style="max-width:230px;padding:6px 8px;font-size:12px;" onchange="onAggSortDropdownChange(this.value)">
                 <option value="total_desc">🔃 เรียง: ยอดซื้อรวม (มาก ➔ น้อย)</option>
                 <option value="kept_desc">🏠 เรียง: ยอดเก็บไว้เอง (มาก ➔ น้อย)</option>
                 <option value="sent_desc">📤 เรียง: ยอดส่งเจ้ามือ (มาก ➔ น้อย)</option>
@@ -295,17 +295,17 @@
             <table class="data-table">
               <thead>
                 <tr>
-                  <th title="ตัวเลขหวย 2 ตัว หรือ 3 ตัว">เลข</th>
-                  <th title="สถานะอัตราจ่ายของเลขนี้ (ปกติ 100% หรือเลขอั้น 50%)">เรทจ่าย</th>
-                  <th class="num-col" title="ยอดรวม 3 ตัวบน (ตรง) หรือ 2 ตัวบน">เต็ง / บน</th>
-                  <th class="num-col" title="ยอดรวม 3 ตัวโต๊ด หรือ 2 ตัวล่าง">โต๊ด / ล่าง</th>
-                  <th class="num-col" title="ยอดรวมชุดกลับ 6 ประตู (×6) หรือ 3 ประตู (×3) หรือ 2 ประตู (×2)">🔀 ชุดกลับ (×6/×3)</th>
-                  <th class="num-col" title="ผลรวมยอดเงินทั้งหมดของเลขนี้">ยอดรวม</th>
-                  <th class="num-col" style="color:var(--success);" title="ยอดเงินที่ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100%)">🟢 ส่งก่อนอั้น (100%)</th>
-                  <th class="num-col" style="color:var(--primary);" title="ยอดเงินที่ส่งมาหลังเวลาประกาศเลขอั้น (ได้เรทจ่ายครึ่ง 50%)">🔒 ส่งหลังอั้น (50%)</th>
-                  <th class="num-col" style="color:var(--success);" title="ยอดของเลขนี้ที่เราเลือกเก็บไว้รับกินเอง">🏠 เก็บไว้เอง</th>
-                  <th class="num-col" style="color:var(--info);" title="ยอดของเลขนี้ที่ตัดส่งเจ้ามือใหญ่ไปแล้ว">📤 ส่งเจ้ามือ</th>
-                  <th title="จำนวนรายการที่นำมารวมกัน คลิกที่แถวเพื่อดูรายละเอียดรายคน">ที่มา</th>
+                  <th class="sortable-th" data-sort-col="number" onclick="toggleAggColumnSort('number')" title="ตัวเลขหวย 2 ตัว หรือ 3 ตัว (คลิกเพื่อเรียงลำดับ)">เลข <span class="sort-indicator">⇅</span></th>
+                  <th class="sortable-th" data-sort-col="restricted" onclick="toggleAggColumnSort('restricted')" title="สถานะอัตราจ่ายของเลขนี้ (คลิกเพื่อเรียงลำดับ)">เรทจ่าย <span class="sort-indicator">⇅</span></th>
+                  <th class="num-col sortable-th" data-sort-col="top" onclick="toggleAggColumnSort('top')" title="ยอดรวม 3 ตัวบน (ตรง) หรือ 2 ตัวบน (คลิกเพื่อเรียงลำดับ)">เต็ง / บน <span class="sort-indicator">⇅</span></th>
+                  <th class="num-col sortable-th" data-sort-col="second" onclick="toggleAggColumnSort('second')" title="ยอดรวม 3 ตัวโต๊ด หรือ 2 ตัวล่าง (คลิกเพื่อเรียงลำดับ)">โต๊ด / ล่าง <span class="sort-indicator">⇅</span></th>
+                  <th class="num-col sortable-th" data-sort-col="perm" onclick="toggleAggColumnSort('perm')" title="ยอดรวมชุดกลับ 6 ประตู (×6) หรือ 3 ประตู (×3) หรือ 2 ประตู (×2) (คลิกเพื่อเรียงลำดับ)">🔀 ชุดกลับ (×6/×3) <span class="sort-indicator">⇅</span></th>
+                  <th class="num-col sortable-th sort-active" data-sort-col="total" onclick="toggleAggColumnSort('total')" title="ผลรวมยอดเงินทั้งหมดของเลขนี้ (คลิกเพื่อเรียงลำดับ)">ยอดรวม <span class="sort-indicator">▼</span></th>
+                  <th class="num-col sortable-th" data-sort-col="full100" onclick="toggleAggColumnSort('full100')" style="color:var(--success);" title="ยอดเงินที่ส่งมาก่อนเวลาประกาศเลขอั้น (คลิกเพื่อเรียงลำดับ)">🟢 ส่งก่อนอั้น (100%) <span class="sort-indicator">⇅</span></th>
+                  <th class="num-col sortable-th" data-sort-col="half50" onclick="toggleAggColumnSort('half50')" style="color:var(--primary);" title="ยอดเงินที่ส่งมาหลังเวลาประกาศเลขอั้น (คลิกเพื่อเรียงลำดับ)">🔒 ส่งหลังอั้น (50%) <span class="sort-indicator">⇅</span></th>
+                  <th class="num-col sortable-th" data-sort-col="kept" onclick="toggleAggColumnSort('kept')" style="color:var(--success);" title="ยอดของเลขนี้ที่เราเลือกเก็บไว้รับกินเอง (คลิกเพื่อเรียงลำดับ)">🏠 เก็บไว้เอง <span class="sort-indicator">⇅</span></th>
+                  <th class="num-col sortable-th" data-sort-col="sent" onclick="toggleAggColumnSort('sent')" style="color:var(--info);" title="ยอดของเลขนี้ที่ตัดส่งเจ้ามือใหญ่ไปแล้ว (คลิกเพื่อเรียงลำดับ)">📤 ส่งเจ้ามือ <span class="sort-indicator">⇅</span></th>
+                  <th class="sortable-th" data-sort-col="hits" onclick="toggleAggColumnSort('hits')" title="จำนวนรายการที่นำมารวมกัน (คลิกเพื่อเรียงลำดับ)">ที่มา <span class="sort-indicator">⇅</span></th>
                 </tr>
               </thead>
               <tbody id="aggTableBody"></tbody>
@@ -1185,6 +1185,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_41"></script>
+  <script src="/app.js?v=20261120_42"></script>
 </body>
 </html>
