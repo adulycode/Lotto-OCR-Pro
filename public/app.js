@@ -848,10 +848,11 @@ function renderAggregatedTable() {
     .map(item => {
       const isSelected = item.key === selectedAggNumberKey;
       const topAmt = item.digitCount === 2 ? item.twoTopAmt : item.threeStraightAmt;
-      const secondAmt =
-        item.digitCount === 2
-          ? item.twoBottomAmt
-          : item.threeToadAmt + item.threePermRawAmt;
+      const secondAmt = item.digitCount === 2 ? item.twoBottomAmt : item.threeToadAmt;
+      const permAmt = item.threePermRawAmt || 0;
+      const doorCount = Array.isArray(item.permBreakdown) && item.permBreakdown.length > 0
+        ? item.permBreakdown.length
+        : (item.permMult || (item.digitCount === 2 ? 2 : 6));
 
       const customerNames = Array.from(new Set(item.contributors.map(c => c.customerName))).join(', ');
       const isExpandMode = appState.settings?.permutationMode !== 'keep_raw';
@@ -871,7 +872,7 @@ function renderAggregatedTable() {
         hasPermDoors && isPermExpanded
           ? `
           <tr class="perm-dropdown-row">
-            <td colspan="10">
+            <td colspan="11">
               <div style="font-size:12px;color:var(--text-main);margin-bottom:6px;font-weight:600;">
                 ↳ รายการแยกประตูของเลข <strong>${item.number}×${item.permBreakdown.length}</strong> (ยอดชุดกลับ ${item.threePermRawAmt.toLocaleString()}฿ ÷ ${item.permBreakdown.length} ประตู = เฉลี่ยประตูละ <strong>${avgDoorVal} บาท</strong>):
               </div>
@@ -927,6 +928,11 @@ function renderAggregatedTable() {
           </td>
           <td class="num-col">${topAmt > 0 ? `${topAmt.toLocaleString()} ฿` : '-'}</td>
           <td class="num-col">${secondAmt > 0 ? `${secondAmt.toLocaleString()} ฿` : '-'}</td>
+          <td class="num-col">${
+            permAmt > 0
+              ? `<span style="color:var(--info);font-weight:600;">${permAmt.toLocaleString()} ฿</span> <span class="text-muted" style="font-size:10.5px;">(×${doorCount})</span>`
+              : '-'
+          }</td>
           <td class="num-col" style="color:var(--text-main);font-weight:700;font-size:13.5px;">
             ${item.totalAmt.toLocaleString()} ฿
           </td>
@@ -1774,6 +1780,9 @@ function exportFullDrawSummaryExcel() {
 
   const drawTitle = appState.currentDraw?.title || 'งวดวันที่ 16/11';
   const totalAll = list.reduce((sum, a) => sum + (a.totalAmt || 0), 0);
+  const totalTop = list.reduce((sum, a) => sum + (a.digitCount === 2 ? (a.twoTopAmt || 0) : (a.threeStraightAmt || 0)), 0);
+  const totalSecond = list.reduce((sum, a) => sum + (a.digitCount === 2 ? (a.twoBottomAmt || 0) : (a.threeToadAmt || 0)), 0);
+  const totalPerm = list.reduce((sum, a) => sum + (a.threePermRawAmt || 0), 0);
   const total100 = list.reduce((sum, a) => sum + (a.fullPayout100Amt || 0), 0);
   const total50 = list.reduce((sum, a) => sum + (a.halfPayout50Amt || 0), 0);
   const totalSent = list.reduce((sum, a) => sum + (a.alreadySentAmt || 0), 0);
@@ -1782,7 +1791,8 @@ function exportFullDrawSummaryExcel() {
   const rowsHtml = list
     .map((item, idx) => {
       const topAmt = item.digitCount === 2 ? item.twoTopAmt : item.threeStraightAmt;
-      const secondAmt = item.digitCount === 2 ? item.twoBottomAmt : item.threeToadAmt + item.threePermRawAmt;
+      const secondAmt = item.digitCount === 2 ? item.twoBottomAmt : item.threeToadAmt;
+      const permAmt = item.threePermRawAmt || 0;
       const runners = Array.from(new Set(item.contributors.map(c => c.customerName))).join(', ');
       const sentAmt = item.alreadySentAmt || 0;
       const netKeptAmt = Math.max(0, (item.totalAmt || 0) - sentAmt);
@@ -1794,6 +1804,7 @@ function exportFullDrawSummaryExcel() {
           <td style="text-align:center;border:1px solid #cbd5e1;padding:5px;">${item.isRestricted ? 'เลขอั้น 50%' : 'ปกติ 100%'}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;">${topAmt}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;">${secondAmt}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#2563eb;">${permAmt}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;font-weight:bold;background:#fef3c7;">${item.totalAmt}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#059669;">${item.fullPayout100Amt}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#d97706;">${item.halfPayout50Amt}</td>
@@ -1811,7 +1822,7 @@ function exportFullDrawSummaryExcel() {
     <body style="font-family:'Tahoma',sans-serif;">
       <table style="border-collapse:collapse;width:100%;">
         <tr>
-          <td colspan="11" style="font-size:15pt;font-weight:bold;background:#1e293b;color:#ffffff;padding:10px;text-align:center;">
+          <td colspan="12" style="font-size:15pt;font-weight:bold;background:#1e293b;color:#ffffff;padding:10px;text-align:center;">
             สรุปยอดรวมเลขหวยทั้งหมด — ${escapeHtml(drawTitle)}
           </td>
         </tr>
@@ -1821,6 +1832,7 @@ function exportFullDrawSummaryExcel() {
           <th style="border:1px solid #cbd5e1;padding:6px;">สถานะ</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">เต็ง/บน</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">โต๊ด/ล่าง</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">ชุดกลับ (×6/×3)</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">ยอดรวมเงินเดียว</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">ส่งก่อนอั้น (100%)</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">ส่งหลังอั้น (50%)</th>
@@ -1830,7 +1842,10 @@ function exportFullDrawSummaryExcel() {
         </tr>
         ${rowsHtml}
         <tr style="background:#1e293b;color:#ffffff;font-weight:bold;">
-          <td colspan="5" style="text-align:right;border:1px solid #cbd5e1;padding:8px;">รวมทั้งงวด:</td>
+          <td colspan="3" style="text-align:right;border:1px solid #cbd5e1;padding:8px;">รวมทั้งงวด:</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;">${totalTop}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;">${totalSecond}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#93c5fd;">${totalPerm}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#fbbf24;">${totalAll}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#6ee7b7;">${total100}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#fdba74;">${total50}</td>
