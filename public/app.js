@@ -236,6 +236,8 @@ function switchTab(tabId) {
   if (btn) btn.classList.add('active');
 }
 
+let antigravityQueuePollTimer = null;
+
 async function fetchAppState(drawIdParam = '') {
   const url = drawIdParam ? `/api/state?drawId=${encodeURIComponent(drawIdParam)}` : '/api/state';
   const res = await fetch(url);
@@ -261,6 +263,20 @@ async function fetchAppState(drawIdParam = '') {
   renderWinnersTab();
   populateSettingsForm();
   renderUsersAndAuditLogs();
+
+  // If any slip is waiting in queue for Antigravity Agent OCR, poll every 4 seconds automatically
+  const hasPendingAg = [...(appState.slips || []), ...(appState.trainingSlips || [])].some(
+    s => s.status === 'pending_antigravity'
+  );
+  if (antigravityQueuePollTimer) {
+    clearTimeout(antigravityQueuePollTimer);
+    antigravityQueuePollTimer = null;
+  }
+  if (hasPendingAg) {
+    antigravityQueuePollTimer = setTimeout(() => {
+      fetchAppState(appState.currentDrawId);
+    }, 4000);
+  }
 }
 
 async function onSwitchDraw(drawId) {
@@ -387,6 +403,87 @@ function renderHeaderAndKpis() {
       ? 'แสดงตัวเลขตามหน้าโพยจริง • เลขที่มีชุดกลับ (<code>×6</code> หรือ <code>×3</code>) สามารถกดปุ่ม <strong>"🔀 ดูประตูเฉลี่ย ▼"</strong> เพื่อกางดูทุกประตูพร้อมราคาเฉลี่ยได้ทันที'
       : 'แสดงตัวเลขคงตามหน้าโพยจริง (ไม่แยกหางชุดกลับ ×6 / ×3)';
   }
+
+  renderAntigravityStatusUi();
+}
+
+function renderAntigravityStatusUi() {
+  const ag = appState.antigravityStatus || {
+    online: false,
+    lastSeenAt: null,
+    priorityMode: appState.settings?.ocrPriorityMode || 'auto_hybrid',
+    hasApiKey: Boolean((appState.settings?.geminiApiKey || '').trim()),
+    pendingQueueCount: 0
+  };
+
+  const pillEl = document.getElementById('antigravityStatusSidebarPill');
+  if (pillEl) {
+    if (ag.online) {
+      pillEl.style.borderColor = 'rgba(52,211,153,0.45)';
+      pillEl.style.background = 'rgba(16,185,129,0.12)';
+      pillEl.style.color = '#34d399';
+      pillEl.innerHTML = `<span>🟢 Antigravity: ออนไลน์ (Priority #1)</span>${ag.pendingQueueCount > 0 ? `<span class="badge-50" style="font-size:10px;padding:1px 5px;">คิว ${ag.pendingQueueCount}</span>` : ''}`;
+    } else if (ag.hasApiKey) {
+      pillEl.style.borderColor = 'rgba(96,165,250,0.45)';
+      pillEl.style.background = 'rgba(59,130,246,0.12)';
+      pillEl.style.color = '#60a5fa';
+      pillEl.innerHTML = `<span>🔵 Antigravity ออฟไลน์ (ใช้ API Key 24 ชม.)</span>`;
+    } else {
+      pillEl.style.borderColor = 'var(--border)';
+      pillEl.style.background = 'var(--bg-input)';
+      pillEl.style.color = 'var(--text-muted)';
+      pillEl.innerHTML = `<span>⚪ Antigravity ออฟไลน์ (โหมดจำลอง / รอใส่ API Key)</span>`;
+    }
+  }
+
+  const bannerEl = document.getElementById('antigravityStatusBanner');
+  if (bannerEl) {
+    const modeLabel =
+      ag.priorityMode === 'antigravity_only'
+        ? '🤖 บังคับใช้ Antigravity Agent เท่านั้น'
+        : ag.priorityMode === 'api_only'
+          ? '🔑 บังคับใช้ Gemini API Key เสมอ'
+          : '⚡ โหมดผสมอัตโนมัติ (Antigravity Priority #1 ➔ API Key Fallback)';
+    const lastSeenStr = ag.lastSeenAt ? formatThaiDateTime(ag.lastSeenAt) : 'ยังไม่มีประวัติเชื่อมต่อ';
+
+    if (ag.online) {
+      bannerEl.style.borderColor = 'rgba(52,211,153,0.45)';
+      bannerEl.style.background = 'rgba(16,185,129,0.09)';
+      bannerEl.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div style="font-weight:700;color:#34d399;font-size:13.5px;">🟢 Antigravity: ออนไลน์ (Priority #1) — พร้อมอ่านโพยโดยตรง ไม่เสียโควต้า API Key!</div>
+            <div class="text-muted" style="font-size:11.5px;margin-top:2px;">โหมดที่เลือก: <strong>${modeLabel}</strong> • ซิงค์ล่าสุด: ${lastSeenStr}</div>
+          </div>
+          <span class="badge-100">คิวรออ่าน: ${ag.pendingQueueCount || 0} ใบ</span>
+        </div>
+      `;
+    } else if (ag.hasApiKey) {
+      bannerEl.style.borderColor = 'rgba(96,165,250,0.45)';
+      bannerEl.style.background = 'rgba(59,130,246,0.09)';
+      bannerEl.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div style="font-weight:700;color:#60a5fa;font-size:13.5px;">🔵 Antigravity ออฟไลน์ (ใช้ API Key 24 ชม.) — ระบบสลับใช้ Gemini API Key บนเซิร์ฟเวอร์อัตโนมัติ</div>
+            <div class="text-muted" style="font-size:11.5px;margin-top:2px;">โหมดที่เลือก: <strong>${modeLabel}</strong> • Antigravity ออนไลน์ล่าสุด: ${lastSeenStr}</div>
+          </div>
+          <span class="badge-ai">พร้อมทำงาน 24 ชม.</span>
+        </div>
+      `;
+    } else {
+      bannerEl.style.borderColor = 'rgba(245,158,11,0.45)';
+      bannerEl.style.background = 'rgba(245,158,11,0.08)';
+      bannerEl.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div style="font-weight:700;color:var(--gold);font-size:13.5px;">⚪ Antigravity ออฟไลน์ (โหมดจำลอง / รอใส่ API Key)</div>
+            <div class="text-muted" style="font-size:11.5px;margin-top:2px;">โหมดที่เลือก: <strong>${modeLabel}</strong> • หากต้องการให้อ่านโพยจริงตอนปิด Antigravity กรุณาใส่ Gemini API Key ด้านล่าง</div>
+          </div>
+          <span class="badge-50">คิวรออ่าน: ${ag.pendingQueueCount || 0} ใบ</span>
+        </div>
+      `;
+    }
+  }
 }
 
 async function setPermutationMode(mode) {
@@ -465,11 +562,13 @@ function renderCustomersInDraw() {
                       : `<span class="badge-100">🟢 ส่งก่อนอั้น จ่ายเต็ม 100%</span>`
                   }
                   ${
-                    (sl.reviewCount || 0) > 0
-                      ? `<span class="badge-50" title="AI พบจุดที่ควรตรวจสอบเทียบกับรูปกระดาษ">⚠️ รอเช็ค ${sl.reviewCount} จุด</span>`
-                      : sl.humanApproved
-                        ? `<span class="badge-100" title="คนตรวจและกดยืนยันแล้วโดย ${escapeHtml(sl.approvedBy || 'แอดมิน')}">✅ คนยืนยันแล้ว</span>`
-                        : `<span class="badge-ai" title="AI อ่านและตรวจกฎคณิตศาสตร์ผ่านอัตโนมัติ (รอคนกดปุ่มยืนยัน)">🤖 AI อ่านผ่าน</span>`
+                    sl.status === 'pending_antigravity'
+                      ? `<span class="badge-ai" style="background:rgba(139,92,246,0.22);color:#c4b5fd;border-color:rgba(139,92,246,0.5);" title="อยู่ในคิวรอ Antigravity Agent อ่านลายมือ">⏳ รอ Antigravity อ่าน...</span>`
+                      : (sl.reviewCount || 0) > 0
+                        ? `<span class="badge-50" title="AI พบจุดที่ควรตรวจสอบเทียบกับรูปกระดาษ">⚠️ รอเช็ค ${sl.reviewCount} จุด</span>`
+                        : sl.humanApproved
+                          ? `<span class="badge-100" title="คนตรวจและกดยืนยันแล้วโดย ${escapeHtml(sl.approvedBy || 'แอดมิน')}">✅ คนยืนยันแล้ว</span>`
+                          : `<span class="badge-ai" title="AI อ่านและตรวจกฎคณิตศาสตร์ผ่านอัตโนมัติ (รอคนกดปุ่มยืนยัน)">🤖 AI อ่านผ่าน</span>`
                   }
                 </div>
               </div>
@@ -1839,7 +1938,9 @@ function renderSidebarListForInspector() {
           const isCurrent = s.id === currentInspectedSlipId;
           const hasWarn = (s.reviewCount || 0) > 0;
           let statusBadgeHtml = '';
-          if (hasWarn) {
+          if (s.status === 'pending_antigravity') {
+            statusBadgeHtml = `<span class="badge-ai" style="background:rgba(139,92,246,0.22);color:#c4b5fd;border-color:rgba(139,92,246,0.5);padding:1px 7px;font-size:10.5px;" title="กำลังรอ Antigravity Agent อ่านลายมือโพยใบนี้">⏳ รอ Antigravity อ่าน...</span>`;
+          } else if (hasWarn) {
             statusBadgeHtml = `<span class="badge-50" style="padding:1px 7px;font-size:10.5px;" title="AI พบจุดที่ควรตรวจสอบเทียบกับรูปกระดาษ">⚠️ รอเช็ค ${s.reviewCount} จุด</span>`;
           } else if (s.humanApproved) {
             statusBadgeHtml = `<span class="badge-100" style="padding:1px 7px;font-size:10.5px;" title="คนตรวจและกดยืนยันแล้วโดย ${escapeHtml(s.approvedBy || 'แอดมิน')}">✅ คนยืนยันแล้ว</span>`;
@@ -1903,7 +2004,15 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   const warnItems = (slip.items || []).filter(
     i => i.needsReview || (i.warnings && i.warnings.length > 0)
   );
-  if (warnItems.length > 0) {
+  if (slip.status === 'pending_antigravity') {
+    banner.className = 'validation-banner ai';
+    banner.innerHTML = `
+      <div>
+        <strong>🤖 บิลนี้อยู่ในคิวรอ Antigravity Agent อ่านลายมือ... (หน้าเว็บจะอัปเดตตัวเลขอัตโนมัติทันทีที่อ่านเสร็จ)</strong>
+      </div>
+      <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">⏳ กำลังรอคิว Antigravity Priority #1</span>
+    `;
+  } else if (warnItems.length > 0) {
     banner.className = 'validation-banner warn';
     const warnDesc = warnItems
       .map(w => {
@@ -2620,11 +2729,17 @@ async function runDirectOcrUpload() {
       currentInspectedSlipId = data.slip.id;
       switchTab('tab-inspector');
       renderInspectorSelector();
-      showToast(
-        isTrainingOnly
-          ? `🧠 โหลดโพยเก่าเข้าโหมดฝึกสอนสำเร็จ! แก้ไขตัวเลขที่เพี้ยนในตารางเพื่อให้ AI จำลายมือได้เลย (ไม่รวมในยอดเงินงวดปัจจุบัน)`
-          : `✅ อ่านโพยสำเร็จ (${data.slip.totalItems} รายการ รวม ${data.slip.totalMoney.toLocaleString()} บาท)`
-      );
+      if (data.queuedForAntigravity || data.slip.status === 'pending_antigravity') {
+        showToast(
+          `🤖 ส่งรูปโพยเข้าคิว Antigravity Agent (Priority #1) แล้ว! หน้าเว็บจะอัปเดตตัวเลขอัตโนมัติทันทีที่อ่านเสร็จ`
+        );
+      } else {
+        showToast(
+          isTrainingOnly
+            ? `🧠 โหลดโพยเก่าเข้าโหมดฝึกสอนสำเร็จ! แก้ไขตัวเลขที่เพี้ยนในตารางเพื่อให้ AI จำลายมือได้เลย (ไม่รวมในยอดเงินงวดปัจจุบัน)`
+            : `✅ อ่านโพยสำเร็จ (${data.slip.totalItems} รายการ รวม ${data.slip.totalMoney.toLocaleString()} บาท)`
+        );
+      }
     }
   } catch (err) {
     showToast(`❌ เกิดข้อผิดพลาด: ${err.message}`);
@@ -3011,7 +3126,7 @@ function renderUsersAndAuditLogs() {
           l => `
           <tr>
             <td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">${formatThaiDateTime(l.timestamp)}</td>
-            <td><strong style="color:#60a5fa;">👤 ${escapeHtml(l.actor || 'แอดมิน')}</strong></td>
+            <td><strong style="color:#60a5fa;">👤 ${escapeHtml(l.actorName || l.actor || 'แอดมิน')}</strong></td>
             <td><span class="badge-100">${escapeHtml(l.actionType || 'ทำรายการ')}</span></td>
             <td style="white-space:normal;max-width:440px;">${escapeHtml(l.detail || '')}</td>
           </tr>
@@ -3082,6 +3197,9 @@ function buildPrintable4x30Template() {
 
 function populateSettingsForm() {
   const s = appState.settings || {};
+  if (document.getElementById('settingOcrPriorityMode')) {
+    document.getElementById('settingOcrPriorityMode').value = s.ocrPriorityMode || 'auto_hybrid';
+  }
   document.getElementById('settingGeminiModel').value = s.geminiModel || 'gemini-2.5-pro';
   document.getElementById('settingGeminiKey').value = s.geminiApiKey || '';
   document.getElementById('settingPermMode').value = s.permutationMode || 'expand';
@@ -3104,6 +3222,7 @@ function populateSettingsForm() {
 
 async function saveSettingsFromForm() {
   const payload = {
+    ocrPriorityMode: document.getElementById('settingOcrPriorityMode')?.value || 'auto_hybrid',
     geminiModel: document.getElementById('settingGeminiModel').value,
     geminiApiKey: document.getElementById('settingGeminiKey').value.trim(),
     permutationMode: document.getElementById('settingPermMode').value,

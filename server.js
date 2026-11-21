@@ -14,7 +14,7 @@ const {
   checkDrawWinners,
   getUpcomingGloDraws
 } = require('./lotteryEngine');
-const { analyzeSlipImage } = require('./geminiOcr');
+const { analyzeSlipImage, applyLearnedCorrectionsToRow } = require('./geminiOcr');
 
 const PORT = process.env.PORT || 3088;
 const DATA_DIR = path.join(__dirname, 'data');
@@ -24,6 +24,14 @@ const UPLOADS_DIR = path.join(PUBLIC_DIR, 'uploads');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+// Dual-Mode Hybrid OCR Priority State (Antigravity Agent Online Priority + Gemini API Key Offline Fallback)
+let antigravityLastSeenAt = 0;
+let antigravityPendingJobs = new Map();
+
+function isAntigravityOnline() {
+  return Boolean(antigravityLastSeenAt && Date.now() - antigravityLastSeenAt < 180_000);
+}
 
 function appendAuditLog(db, actorName, actionType, detail) {
   db.auditLogs = db.auditLogs || [];
@@ -117,6 +125,7 @@ function resolveTargetDrawForSubmission(db, submittedAtIso, explicitDrawId = '',
 
 function buildInitialDb() {
   const defaultSettings = {
+    ocrPriorityMode: 'auto_hybrid', // 'auto_hybrid' | 'antigravity_only' | 'api_only'
     geminiModel: 'gemini-2.5-pro',
     geminiApiKey: '',
     permutationMode: 'expand',
@@ -616,6 +625,10 @@ function buildInitialDb() {
 }
 
 function normalizeSlipVerificationStatus(slip) {
+  if (slip.status === 'pending_antigravity') {
+    slip.humanApproved = false;
+    return slip;
+  }
   const revCount = Number(slip.reviewCount) || 0;
   if (revCount > 0) {
     slip.status = 'needs_review';
@@ -647,6 +660,13 @@ function loadDb() {
       fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf8');
       return initial;
     }
+    db.settings = db.settings || {};
+    if (!db.settings.ocrPriorityMode) {
+      db.settings.ocrPriorityMode = 'auto_hybrid';
+    }
+    if (!antigravityLastSeenAt && db.antigravityLastSeenAt) {
+      antigravityLastSeenAt = Number(db.antigravityLastSeenAt) || 0;
+    }
     if (Array.isArray(db.slips)) {
       db.slips.forEach(normalizeSlipVerificationStatus);
     }
@@ -675,10 +695,14 @@ function loadDb() {
 }
 
 function saveDb(db) {
+  if (antigravityLastSeenAt) {
+    db.antigravityLastSeenAt = antigravityLastSeenAt;
+  }
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
 }
 
 function recalculateSlipItems(slip, settings) {
+  if (slip.status === 'pending_antigravity') return slip;
   const newItems = (slip.items || []).map(it =>
     parseAndValidateRow(
       {
@@ -814,7 +838,14 @@ const server = http.createServer(async (req, res) => {
           humanApproved: Boolean(s.humanApproved),
           approvedBy: s.approvedBy || null,
           approvedAt: s.approvedAt || null,
-          status: (s.reviewCount || 0) > 0 ? 'needs_review' : s.humanApproved ? 'human_verified' : 'ai_passed'
+          status:
+            s.status === 'pending_antigravity'
+              ? 'pending_antigravity'
+              : (s.reviewCount || 0) > 0
+                ? 'needs_review'
+                : s.humanApproved
+                  ? 'human_verified'
+                  : 'ai_passed'
         };
       });
 
@@ -880,6 +911,13 @@ const server = http.createServer(async (req, res) => {
         draws: db.draws,
         upcomingGloDraws: getUpcomingGloDraws(db.draws, 16),
         settings: db.settings,
+        antigravityStatus: {
+          online: isAntigravityOnline(),
+          lastSeenAt: antigravityLastSeenAt ? new Date(antigravityLastSeenAt).toISOString() : null,
+          priorityMode: db.settings.ocrPriorityMode || 'auto_hybrid',
+          hasApiKey: Boolean((db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim()),
+          pendingQueueCount: (db.slips || []).filter(s => s.status === 'pending_antigravity').length
+        },
         users: (db.users || []).map(u => ({
           id: u.id,
           username: u.username,
@@ -911,10 +949,130 @@ const server = http.createServer(async (req, res) => {
           learnedRulesCount: (db.learnedRules || []).length,
           overLimitCount: aggregated.filter(a => a.isOverLimit).length,
           pendingReviewSlips: drawSlips.filter(s => (s.reviewCount || 0) > 0 && !s.humanApproved).length,
-          aiPassedSlips: drawSlips.filter(s => (s.reviewCount || 0) === 0 && !s.humanApproved).length,
-          humanVerifiedSlips: drawSlips.filter(s => (s.reviewCount || 0) === 0 && s.humanApproved).length
+          aiPassedSlips: drawSlips.filter(s => (s.reviewCount || 0) === 0 && !s.humanApproved && s.status !== 'pending_antigravity').length,
+          humanVerifiedSlips: drawSlips.filter(s => (s.reviewCount || 0) === 0 && s.humanApproved).length,
+          pendingAntigravitySlips: drawSlips.filter(s => s.status === 'pending_antigravity').length
         }
       });
+    }
+
+    // API: Antigravity Agent Queue & Heartbeat (Dual-Mode Hybrid OCR Priority)
+    if (
+      (req.method === 'GET' && pathname === '/api/antigravity/queue') ||
+      (req.method === 'POST' && pathname === '/api/antigravity/heartbeat')
+    ) {
+      const db = loadDb();
+      const isPassive = parsedUrl.searchParams.get('passive') === '1';
+      if (!isPassive) {
+        antigravityLastSeenAt = Date.now();
+        saveDb(db);
+      }
+
+      const pendingSlips = (db.slips || [])
+        .filter(s => s.status === 'pending_antigravity')
+        .map(s => ({
+          id: s.id,
+          slipId: s.id,
+          customerName: s.customerName,
+          title: s.title,
+          imageUrl: s.imageUrl,
+          drawId: s.drawId,
+          roundNumber: s.roundNumber,
+          createdAt: s.createdAt
+        }));
+
+      return sendJson(res, 200, {
+        ok: true,
+        online: isAntigravityOnline(),
+        lastSeenAt: antigravityLastSeenAt ? new Date(antigravityLastSeenAt).toISOString() : null,
+        priorityMode: db.settings.ocrPriorityMode || 'auto_hybrid',
+        pendingCount: pendingSlips.length,
+        pendingSlips,
+        queue: pendingSlips,
+        learnedRules: db.learnedRules || []
+      });
+    }
+
+    // API: Antigravity Agent Complete OCR Job
+    if (req.method === 'POST' && pathname === '/api/antigravity/complete') {
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      antigravityLastSeenAt = Date.now();
+
+      const slipId = String(body.slipId || body.id || '').trim();
+      const slip = (db.slips || []).find(s => s.id === slipId);
+      if (!slip) {
+        return sendJson(res, 404, { ok: false, error: 'ไม่พบบิลที่ระบุในระบบ' });
+      }
+
+      const rawItems = Array.isArray(body.items) ? body.items : [];
+      const validatedItems = rawItems.map(rawIt => {
+        const item = applyLearnedCorrectionsToRow(rawIt, db.learnedRules || [], slip.customerName);
+        const header = String(item.colHeader || '').trim();
+        let categoryHint = String(item.categoryHint || '').trim();
+        if (!categoryHint) {
+          if (/โต๊ด/.test(header)) categoryHint = '3_toad';
+          else if (/ล[\.\-\s]?บ|ล่าง[\.\-\s]?บน/.test(header)) categoryHint = '2_bottom_top';
+          else if (/2\s*ล่าง|^ล่าง$/.test(header)) categoryHint = '2_bottom';
+          else if (/2\s*บน/.test(header)) categoryHint = '2_top';
+          else categoryHint = '3_top';
+        }
+        const parsedRow = parseAndValidateRow(
+          {
+            col: item.col || 1,
+            row: item.row || 1,
+            colHeader: item.colHeader || '',
+            categoryHint,
+            numText: item.numText || '',
+            amtText: item.amtText || '',
+            confidence: item.confidence ?? 0.99,
+            needsReview: Boolean(item.needsReview),
+            note: item.note || ''
+          },
+          db.settings
+        );
+        return {
+          ...parsedRow,
+          colHeader: item.colHeader || parsedRow.colHeader || '',
+          categoryHint,
+          box2d: Array.isArray(rawIt.box2d) && rawIt.box2d.length === 4 ? rawIt.box2d : null,
+          ocrOriginalNumText: parsedRow.numText,
+          ocrOriginalAmtText: parsedRow.amtText
+        };
+      });
+
+      if (body.sheetDate) slip.sheetDate = body.sheetDate;
+      if (body.sheetPage) slip.sheetPage = String(body.sheetPage);
+      if (Array.isArray(body.tableBox) && body.tableBox.length === 4) {
+        slip.tableBox = body.tableBox;
+      }
+
+      slip.items = validatedItems;
+      slip.isGrid4x30 = validatedItems.length > 30;
+      slip.totalItems = validatedItems.filter(i => !i.isEmpty).length;
+      slip.totalMoney = validatedItems.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
+      slip.reviewCount = validatedItems.filter(i => i.needsReview).length;
+      slip.modelUsed = 'antigravity-agent (Priority)';
+      slip.ocrMode = 'antigravity_direct';
+      slip.status = slip.reviewCount > 0 ? 'needs_review' : 'ai_passed';
+
+      if (antigravityPendingJobs.has(slip.id)) {
+        const pendingJob = antigravityPendingJobs.get(slip.id);
+        pendingJob.status = 'completed';
+        if (typeof pendingJob.resolve === 'function') {
+          pendingJob.resolve(slip);
+        }
+        antigravityPendingJobs.delete(slip.id);
+      }
+
+      appendAuditLog(
+        db,
+        'Antigravity AI Agent',
+        'อ่านโพยอัตโนมัติ (Antigravity Priority)',
+        `อ่านโพย "${slip.title}" ของ ${slip.customerName} สำเร็จ (${slip.totalItems} รายการ รวม ${slip.totalMoney.toLocaleString()} บาท)`
+      );
+      saveDb(db);
+      return sendJson(res, 200, { ok: true, slip });
     }
 
     // API: Manage Self-Learning OCR Rules (เพิ่ม/ลบกฎความจำลายมือ)
@@ -1221,6 +1379,128 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      const isTrainingOnly = Boolean(body.isTrainingOnly);
+      const priorityMode = db.settings.ocrPriorityMode || 'auto_hybrid';
+      const agOnline = isAntigravityOnline();
+      const hasApiKey = Boolean((db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim());
+
+      if ((priorityMode === 'antigravity_only') || (priorityMode === 'auto_hybrid' && agOnline)) {
+        const newSlip = {
+          id: `${isTrainingOnly ? 'TRAIN' : 'SLIP'}-${Date.now().toString().slice(-6)}`,
+          drawId: isTrainingOnly ? 'TRAINING_ARCHIVE' : currentDraw.id,
+          isTrainingOnly,
+          roundNumber: isTrainingOnly ? 0 : nextRound,
+          title: isTrainingOnly ? `[โพยเก่าฝึกสอน AI] ${title}` : title,
+          sheetDate: '16/11',
+          sheetPage: String(nextRound),
+          customerName,
+          customerLineId: body.customerLineId || `U_${Date.now().toString().slice(-5)}`,
+          source: isTrainingOnly ? 'โหมดฝึกสอนจากโพยเก่า' : (body.source || 'อัปโหลดรูปโพย (Antigravity Priority)'),
+          imageUrl: savedImageUrl,
+          isGrid4x30: true,
+          status: 'pending_antigravity',
+          humanApproved: false,
+          approvedBy: null,
+          approvedAt: null,
+          modelUsed: 'antigravity-agent (รอคิวอ่าน...)',
+          ocrMode: 'antigravity_queue',
+          usage: { inputTokens: 0, outputTokens: 0, estimatedCostTHB: 0 },
+          totalItems: 0,
+          totalMoney: 0,
+          reviewCount: 0,
+          createdAt: submittedAt,
+          items: []
+        };
+
+        db.slips.push(newSlip);
+        appendAuditLog(
+          db,
+          getActorFromReq(req, body),
+          'ส่งโพยเข้าคิว Antigravity (Priority #1)',
+          `อัปโหลดโพยของ "${customerName}" (${newSlip.title}) เข้าคิวให้ Antigravity Agent อ่านลายมืออัตโนมัติ`
+        );
+        saveDb(db);
+
+        // Wait up to 8000ms (polling every 500ms) in case Antigravity completes it while the HTTP request is open
+        let completedSlip = null;
+        const jobPromise = new Promise(resolve => {
+          antigravityPendingJobs.set(newSlip.id, {
+            jobId: newSlip.id,
+            slipId: newSlip.id,
+            imageUrl: savedImageUrl,
+            customerName,
+            title: newSlip.title,
+            createdAt: submittedAt,
+            status: 'pending',
+            resolve
+          });
+        });
+
+        const pollWaitPromise = (async () => {
+          for (let tick = 0; tick < 16; tick++) {
+            await new Promise(r => setTimeout(r, 500));
+            const latestDb = loadDb();
+            const found = (latestDb.slips || []).find(s => s.id === newSlip.id);
+            if (found && found.status !== 'pending_antigravity') {
+              return found;
+            }
+          }
+          return null;
+        })();
+
+        completedSlip = await Promise.race([jobPromise, pollWaitPromise]);
+        antigravityPendingJobs.delete(newSlip.id);
+
+        if (completedSlip && completedSlip.status !== 'pending_antigravity') {
+          return sendJson(res, 200, {
+            ok: true,
+            slip: completedSlip,
+            ocrResult: {
+              mode: 'antigravity_direct',
+              modelUsed: completedSlip.modelUsed,
+              items: completedSlip.items
+            }
+          });
+        }
+
+        // If not completed within 8s and Antigravity went offline in auto_hybrid mode with an API key available, fallback to Gemini API Key
+        if (priorityMode === 'auto_hybrid' && !isAntigravityOnline() && hasApiKey) {
+          const ocrResult = await analyzeSlipImage({
+            base64Image: base64Image || fs.readFileSync(path.join(UPLOADS_DIR, 'slip-16-11-page1.jpg')).toString('base64'),
+            columnSlices,
+            settings: db.settings,
+            learnedRules: db.learnedRules || [],
+            customerName
+          });
+          const latestDb = loadDb();
+          const targetSlip = (latestDb.slips || []).find(s => s.id === newSlip.id);
+          if (targetSlip) {
+            const items = ocrResult.items || [];
+            targetSlip.items = items;
+            targetSlip.isGrid4x30 = items.length > 30;
+            targetSlip.totalItems = items.filter(i => !i.isEmpty).length;
+            targetSlip.totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
+            targetSlip.reviewCount = items.filter(i => i.needsReview).length;
+            targetSlip.status = targetSlip.reviewCount > 0 ? 'needs_review' : 'ai_passed';
+            targetSlip.modelUsed = ocrResult.modelUsed;
+            targetSlip.ocrMode = ocrResult.mode;
+            targetSlip.usage = ocrResult.usage;
+            saveDb(latestDb);
+            return sendJson(res, 200, {
+              ok: true,
+              slip: targetSlip,
+              ocrResult
+            });
+          }
+        }
+
+        return sendJson(res, 200, {
+          ok: true,
+          queuedForAntigravity: true,
+          slip: newSlip
+        });
+      }
+
       const ocrResult = await analyzeSlipImage({
         base64Image: base64Image || fs.readFileSync(path.join(UPLOADS_DIR, 'slip-16-11-page1.jpg')).toString('base64'),
         columnSlices,
@@ -1232,7 +1512,6 @@ const server = http.createServer(async (req, res) => {
       const items = ocrResult.items || [];
       const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
       const reviewCount = items.filter(i => i.needsReview).length;
-      const isTrainingOnly = Boolean(body.isTrainingOnly);
 
       const newSlip = {
         id: `${isTrainingOnly ? 'TRAIN' : 'SLIP'}-${Date.now().toString().slice(-6)}`,
