@@ -573,89 +573,72 @@ function renderAggregatedTable() {
     titleEl.textContent = `📊 2. สรุปยอดรวมแต่ละเลขในงวดนี้ (รวมเด็กโพยทุกคน ทุกรอบ เป็นยอดเงินเดียว)`;
   }
 
-  const allAgg = appState.aggregated || [];
-  const keptItems = allAgg.filter(a => (a.alreadyKeptAmt || 0) > 0).sort((a, b) => b.alreadyKeptAmt - a.alreadyKeptAmt);
+  const allAgg = (appState.aggregated || []).map(a => {
+    const sent = a.alreadySentAmt || 0;
+    const netKept = Math.max(0, (a.totalAmt || 0) - sent);
+    return {
+      ...a,
+      netKeptAmt: netKept
+    };
+  });
+  const keptItems = allAgg.filter(a => a.netKeptAmt > 0).sort((a, b) => b.netKeptAmt - a.netKeptAmt);
   const sentItems = allAgg.filter(a => (a.alreadySentAmt || 0) > 0).sort((a, b) => b.alreadySentAmt - a.alreadySentAmt);
-  const pendingItems = allAgg.filter(a => (a.newPendingAmt || 0) > 0).sort((a, b) => b.newPendingAmt - a.newPendingAmt);
 
-  const totalKeptAmt = keptItems.reduce((sum, a) => sum + (a.alreadyKeptAmt || 0), 0);
+  const totalKeptAmt = keptItems.reduce((sum, a) => sum + a.netKeptAmt, 0);
   const totalSentAmt = sentItems.reduce((sum, a) => sum + (a.alreadySentAmt || 0), 0);
-  const totalPendingAmt = pendingItems.reduce((sum, a) => sum + (a.newPendingAmt || 0), 0);
   const layoffRoundCount = (appState.layoffs || []).length;
 
   // อัปเดตตัวเลขบนปุ่ม Filter Chips
   const chipAllEl = document.getElementById('chipCountAll');
   const chipSentEl = document.getElementById('chipCountSent');
   const chipKeptEl = document.getElementById('chipCountKept');
-  const chipPendingEl = document.getElementById('chipCountPending');
   if (chipAllEl) chipAllEl.textContent = `(${allAgg.length})`;
   if (chipSentEl) chipSentEl.textContent = `(${sentItems.length})`;
   if (chipKeptEl) chipKeptEl.textContent = `(${keptItems.length})`;
-  if (chipPendingEl) chipPendingEl.textContent = `(${pendingItems.length})`;
 
-  // แถบสรุปสถานะจัดสรรของงวดนี้ (เก็บไว้เอง vs ส่งเจ้ามือแล้ว vs ยอดใหม่รอตัด)
+  // แถบสรุปสถานะจัดสรรของงวดนี้ (เก็บไว้เองอัตโนมัติ vs ตัดส่งเจ้ามือแล้ว)
   const allocBar = document.getElementById('drawAllocationSummaryBar');
   if (allocBar) {
     const topKeptBadges = keptItems
-      .slice(0, 4)
-      .map(a => `<span class="alloc-mini-pill" onclick="event.stopPropagation(); inspectAggNumber('${a.key}')"><strong>${a.number}</strong> (${a.alreadyKeptAmt.toLocaleString()}฿)</span>`)
+      .slice(0, 5)
+      .map(a => `<span class="alloc-mini-pill" onclick="event.stopPropagation(); inspectAggNumber('${a.key}')"><strong>${a.number}</strong> (${a.netKeptAmt.toLocaleString()}฿)</span>`)
       .join('');
     const topSentBadges = sentItems
-      .slice(0, 4)
+      .slice(0, 5)
       .map(a => `<span class="alloc-mini-pill" onclick="event.stopPropagation(); inspectAggNumber('${a.key}')"><strong>${a.number}</strong> (${a.alreadySentAmt.toLocaleString()}฿)</span>`)
-      .join('');
-    const topPendingBadges = pendingItems
-      .slice(0, 4)
-      .map(a => `<span class="alloc-mini-pill" onclick="event.stopPropagation(); inspectAggNumber('${a.key}')"><strong>${a.number}</strong> (+${a.newPendingAmt.toLocaleString()}฿)</span>`)
       .join('');
 
     allocBar.innerHTML = `
       <div class="draw-alloc-card alloc-kept ${currentAggFilter === 'kept_us' ? 'active-filter' : ''}"
         onclick="setAggFilter('${currentAggFilter === 'kept_us' ? 'all' : 'kept_us'}')"
-        title="คลิกเพื่อกรองดูเฉพาะเลขที่เราเลือกเก็บไว้รับกินเอง">
+        title="คลิกเพื่อกรองดูเฉพาะเลขที่เราเก็บไว้รับกินเอง (ยอดซื้อรวม หักลบยอดที่ตัดส่งเจ้ามือแล้ว)">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:11.5px;font-weight:700;color:#34d399;">🏠 เก็บไว้รับเองแล้ว (${keptItems.length} เลข)</span>
+          <span style="font-size:11.5px;font-weight:700;color:#34d399;">🏠 เก็บไว้รับเอง (${keptItems.length} เลข)</span>
           <span style="font-size:10px;color:var(--text-muted);">${currentAggFilter === 'kept_us' ? '✕ ยกเลิกกรอง' : 'คลิกกรองดู'}</span>
         </div>
-        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:#34d399;">
+        <div style="font-family:var(--font-mono);font-size:15.5px;font-weight:700;color:#34d399;">
           ${totalKeptAmt.toLocaleString()} ฿
         </div>
         <div class="alloc-mini-pills">
-          ${topKeptBadges || `<span class="text-muted" style="font-size:10.5px;">ยังไม่ได้กดยืนยันเก็บยอดในหน้าตัดยอด</span>`}
-          ${keptItems.length > 4 ? `<span class="text-muted" style="font-size:10.5px;">+${keptItems.length - 4} เลข</span>` : ''}
+          ${topKeptBadges || `<span class="text-muted" style="font-size:10.5px;">ส่งเจ้ามือครบทุกเลขแล้ว</span>`}
+          ${keptItems.length > 5 ? `<span class="text-muted" style="font-size:10.5px;">+${keptItems.length - 5} เลข</span>` : ''}
         </div>
       </div>
 
       <div class="draw-alloc-card alloc-sent ${currentAggFilter === 'sent_dealer' ? 'active-filter' : ''}"
         onclick="setAggFilter('${currentAggFilter === 'sent_dealer' ? 'all' : 'sent_dealer'}')"
         title="คลิกเพื่อกรองดูเฉพาะเลขที่ตัดส่งเจ้ามือใหญ่ไปแล้ว">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
           <span style="font-size:11.5px;font-weight:700;color:#60a5fa;">📤 ส่งเจ้ามือแล้ว (${sentItems.length} เลข • ${layoffRoundCount} รอบ)</span>
-          <span style="font-size:10px;color:var(--text-muted);">${currentAggFilter === 'sent_dealer' ? '✕ ยกเลิกกรอง' : 'คลิกกรองดู'}</span>
+          <button type="button" class="btn btn-outline btn-sm" style="padding:1px 7px;font-size:10px;"
+            onclick="event.stopPropagation(); switchTab('tab-layoff')">ไปหน้าตัดยอด ➤</button>
         </div>
-        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:#60a5fa;">
+        <div style="font-family:var(--font-mono);font-size:15.5px;font-weight:700;color:#60a5fa;">
           ${totalSentAmt.toLocaleString()} ฿
         </div>
         <div class="alloc-mini-pills">
-          ${topSentBadges || `<span class="text-muted" style="font-size:10.5px;">ยังไม่มีประวัติส่งเจ้ามือในงวดนี้</span>`}
-          ${sentItems.length > 4 ? `<span class="text-muted" style="font-size:10.5px;">+${sentItems.length - 4} เลข</span>` : ''}
-        </div>
-      </div>
-
-      <div class="draw-alloc-card alloc-pending ${currentAggFilter === 'pending_new' ? 'active-filter' : ''}"
-        onclick="setAggFilter('${currentAggFilter === 'pending_new' ? 'all' : 'pending_new'}')"
-        title="คลิกเพื่อกรองดูเฉพาะเลขที่มียอดบิลเข้ามาใหม่และยังไม่ได้จัดสรรว่าจะเก็บหรือส่ง">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
-          <span style="font-size:11.5px;font-weight:700;color:#fbbf24;">⏳ ยอดใหม่รอตัด/จัดสรร (${pendingItems.length} เลข)</span>
-          <button type="button" class="btn btn-outline btn-sm" style="padding:1px 6px;font-size:10px;"
-            onclick="event.stopPropagation(); switchTab('tab-layoff')">ไปตัดยอด ➤</button>
-        </div>
-        <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:#fbbf24;">
-          ${totalPendingAmt.toLocaleString()} ฿
-        </div>
-        <div class="alloc-mini-pills">
-          ${topPendingBadges || `<span style="font-size:10.5px;color:#34d399;">✅ จัดสรรครบทุกเลขในงวดนี้แล้ว</span>`}
-          ${pendingItems.length > 4 ? `<span class="text-muted" style="font-size:10.5px;">+${pendingItems.length - 4} เลข</span>` : ''}
+          ${topSentBadges || `<span class="text-muted" style="font-size:10.5px;">ยังไม่มีการตัดส่งเจ้ามือในงวดนี้ (เก็บไว้เอง 100%)</span>`}
+          ${sentItems.length > 5 ? `<span class="text-muted" style="font-size:10.5px;">+${sentItems.length - 5} เลข</span>` : ''}
         </div>
       </div>
     `;
@@ -722,6 +705,7 @@ function renderAggregatedTable() {
       twoTopAmt,
       twoBottomAmt,
       totalAmt,
+      netKeptAmt: Math.max(0, totalAmt - (item.alreadySentAmt || 0)),
       fullPayout100Amt: full100,
       halfPayout50Amt: half50,
       hitCount: distinctRowCount,
@@ -736,9 +720,7 @@ function renderAggregatedTable() {
   if (currentAggFilter === 'sent_dealer') {
     list = list.filter(item => (item.alreadySentAmt || 0) > 0);
   } else if (currentAggFilter === 'kept_us') {
-    list = list.filter(item => (item.alreadyKeptAmt || 0) > 0);
-  } else if (currentAggFilter === 'pending_new') {
-    list = list.filter(item => (item.newPendingAmt || 0) > 0);
+    list = list.filter(item => (item.netKeptAmt ?? Math.max(0, item.totalAmt - (item.alreadySentAmt || 0))) > 0);
   } else if (currentAggFilter === 'multi_hit') {
     list = list.filter(item => item.hitCount > 1);
   } else if (currentAggFilter === 'restricted') {
@@ -758,11 +740,9 @@ function renderAggregatedTable() {
       return diff !== 0 ? diff : b.totalAmt - a.totalAmt;
     }
     if (sortMode === 'kept_desc') {
-      const diff = (b.alreadyKeptAmt || 0) - (a.alreadyKeptAmt || 0);
-      return diff !== 0 ? diff : b.totalAmt - a.totalAmt;
-    }
-    if (sortMode === 'pending_desc') {
-      const diff = (b.newPendingAmt || 0) - (a.newPendingAmt || 0);
+      const aKept = a.netKeptAmt ?? Math.max(0, a.totalAmt - (a.alreadySentAmt || 0));
+      const bKept = b.netKeptAmt ?? Math.max(0, b.totalAmt - (b.alreadySentAmt || 0));
+      const diff = bKept - aKept;
       return diff !== 0 ? diff : b.totalAmt - a.totalAmt;
     }
     if (sortMode === 'number_asc') {
@@ -829,26 +809,18 @@ function renderAggregatedTable() {
         `
           : '';
 
-      const keptAmt = item.alreadyKeptAmt || 0;
       const sentAmt = item.alreadySentAmt || 0;
-      const pendingAmt = item.newPendingAmt || 0;
+      const netKeptAmt = item.netKeptAmt ?? Math.max(0, (item.totalAmt || 0) - sentAmt);
 
-      let keptCellHtml = '-';
-      if (keptAmt > 0) {
-        keptCellHtml = `<strong style="color:#34d399;">🏠 ${keptAmt.toLocaleString()} ฿</strong>`;
-        if (pendingAmt > 0) {
-          keptCellHtml += `<div style="font-size:10.5px;color:#fbbf24;">+รอตัด ${pendingAmt.toLocaleString()}฿</div>`;
-        }
-      } else if (pendingAmt > 0) {
-        keptCellHtml = `<span style="font-size:11px;color:#fbbf24;" title="ยังไม่ได้กดยืนยันตัดยอด/เก็บยอดในแท็บที่ 3">⏳ รอจัดสรร ${pendingAmt.toLocaleString()}฿</span>`;
-      }
+      const keptCellHtml =
+        netKeptAmt > 0
+          ? `<strong style="color:#34d399;">🏠 ${netKeptAmt.toLocaleString()} ฿</strong>`
+          : '-';
 
-      let sentCellHtml = '-';
-      if (sentAmt > 0) {
-        sentCellHtml = `<strong style="color:#60a5fa;">📤 ${sentAmt.toLocaleString()} ฿</strong>`;
-      } else if ((item.recommendedLayoff || 0) > 0 && pendingAmt > 0) {
-        sentCellHtml = `<span style="font-size:11px;color:#f87171;" title="ยอดเกินเพดานรับเอง แนะนำให้ตัดส่งเจ้ามือ">แนะนำส่ง ${item.recommendedLayoff.toLocaleString()}฿</span>`;
-      }
+      const sentCellHtml =
+        sentAmt > 0
+          ? `<strong style="color:#60a5fa;">📤 ${sentAmt.toLocaleString()} ฿</strong>`
+          : '-';
 
       return `
         <tr class="${isSelected ? 'selected-row' : ''}" onclick="inspectAggNumber('${item.key}')">
@@ -1723,15 +1695,16 @@ function exportFullDrawSummaryExcel() {
   const totalAll = list.reduce((sum, a) => sum + (a.totalAmt || 0), 0);
   const total100 = list.reduce((sum, a) => sum + (a.fullPayout100Amt || 0), 0);
   const total50 = list.reduce((sum, a) => sum + (a.halfPayout50Amt || 0), 0);
-  const totalKept = list.reduce((sum, a) => sum + (a.alreadyKeptAmt || 0), 0);
   const totalSent = list.reduce((sum, a) => sum + (a.alreadySentAmt || 0), 0);
-  const totalPending = list.reduce((sum, a) => sum + (a.newPendingAmt || 0), 0);
+  const totalKept = list.reduce((sum, a) => sum + Math.max(0, (a.totalAmt || 0) - (a.alreadySentAmt || 0)), 0);
 
   const rowsHtml = list
     .map((item, idx) => {
       const topAmt = item.digitCount === 2 ? item.twoTopAmt : item.threeStraightAmt;
       const secondAmt = item.digitCount === 2 ? item.twoBottomAmt : item.threeToadAmt + item.threePermRawAmt;
       const runners = Array.from(new Set(item.contributors.map(c => c.customerName))).join(', ');
+      const sentAmt = item.alreadySentAmt || 0;
+      const netKeptAmt = Math.max(0, (item.totalAmt || 0) - sentAmt);
 
       return `
         <tr>
@@ -1743,9 +1716,8 @@ function exportFullDrawSummaryExcel() {
           <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;font-weight:bold;background:#fef3c7;">${item.totalAmt}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#059669;">${item.fullPayout100Amt}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#d97706;">${item.halfPayout50Amt}</td>
-          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#059669;font-weight:bold;">${item.alreadyKeptAmt || 0}</td>
-          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#2563eb;font-weight:bold;">${item.alreadySentAmt || 0}</td>
-          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#d97706;">${item.newPendingAmt || 0}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#059669;font-weight:bold;">${netKeptAmt}</td>
+          <td style="text-align:right;border:1px solid #cbd5e1;padding:5px;color:#2563eb;font-weight:bold;">${sentAmt}</td>
           <td style="text-align:left;border:1px solid #cbd5e1;padding:5px;">${escapeHtml(runners)}</td>
         </tr>
       `;
@@ -1758,7 +1730,7 @@ function exportFullDrawSummaryExcel() {
     <body style="font-family:'Tahoma',sans-serif;">
       <table style="border-collapse:collapse;width:100%;">
         <tr>
-          <td colspan="12" style="font-size:15pt;font-weight:bold;background:#1e293b;color:#ffffff;padding:10px;text-align:center;">
+          <td colspan="11" style="font-size:15pt;font-weight:bold;background:#1e293b;color:#ffffff;padding:10px;text-align:center;">
             สรุปยอดรวมเลขหวยทั้งหมด — ${escapeHtml(drawTitle)}
           </td>
         </tr>
@@ -1769,11 +1741,10 @@ function exportFullDrawSummaryExcel() {
           <th style="border:1px solid #cbd5e1;padding:6px;">เต็ง/บน</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">โต๊ด/ล่าง</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">ยอดรวมเงินเดียว</th>
-          <th style="border:1px solid #cbd5e1;padding:6px;">ได้ 100% (ก่อนอั้น)</th>
-          <th style="border:1px solid #cbd5e1;padding:6px;">ได้ 50% (หลังอั้น)</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">ส่งก่อนอั้น (100%)</th>
+          <th style="border:1px solid #cbd5e1;padding:6px;">ส่งหลังอั้น (50%)</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">เก็บไว้เอง (บาท)</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">ส่งเจ้ามือแล้ว (บาท)</th>
-          <th style="border:1px solid #cbd5e1;padding:6px;">รอจัดสรร (บาท)</th>
           <th style="border:1px solid #cbd5e1;padding:6px;">สายเด็กโพย</th>
         </tr>
         ${rowsHtml}
@@ -1784,7 +1755,6 @@ function exportFullDrawSummaryExcel() {
           <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#fdba74;">${total50}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#6ee7b7;">${totalKept}</td>
           <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#93c5fd;">${totalSent}</td>
-          <td style="text-align:right;border:1px solid #cbd5e1;padding:8px;color:#fbbf24;">${totalPending}</td>
           <td style="border:1px solid #cbd5e1;padding:8px;"></td>
         </tr>
       </table>

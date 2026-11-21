@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_34" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_35" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -270,17 +270,15 @@
               <input type="text" id="searchNumberInput" class="input-search" style="flex:1;min-width:170px;padding:6px 10px;font-size:12.5px;" placeholder="🔎 ค้นหาเลข เช่น 21, 583, 154, 072..." oninput="renderAggregatedTable()" />
               <select id="sortAggSelect" class="input" style="max-width:230px;padding:6px 8px;font-size:12px;" onchange="renderAggregatedTable()">
                 <option value="total_desc">🔃 เรียง: ยอดซื้อรวม (มาก ➔ น้อย)</option>
-                <option value="sent_desc">📤 เรียง: ยอดส่งเจ้ามือ (มาก ➔ น้อย)</option>
                 <option value="kept_desc">🏠 เรียง: ยอดเก็บไว้เอง (มาก ➔ น้อย)</option>
-                <option value="pending_desc">⏳ เรียง: ยอดใหม่รอตัด (มาก ➔ น้อย)</option>
+                <option value="sent_desc">📤 เรียง: ยอดส่งเจ้ามือ (มาก ➔ น้อย)</option>
                 <option value="number_asc">🔢 เรียง: ตัวเลข (00 ➔ 999)</option>
               </select>
             </div>
             <div class="filter-chips">
               <button class="chip active" data-filter="all" onclick="setAggFilter('all', this)">ทั้งหมด <span id="chipCountAll"></span></button>
-              <button class="chip" data-filter="sent_dealer" onclick="setAggFilter('sent_dealer', this)">📤 ส่งเจ้ามือแล้ว <span id="chipCountSent"></span></button>
               <button class="chip" data-filter="kept_us" onclick="setAggFilter('kept_us', this)">🏠 เก็บไว้เอง <span id="chipCountKept"></span></button>
-              <button class="chip" data-filter="pending_new" onclick="setAggFilter('pending_new', this)">⏳ รอตัดยอด <span id="chipCountPending"></span></button>
+              <button class="chip" data-filter="sent_dealer" onclick="setAggFilter('sent_dealer', this)">📤 ส่งเจ้ามือแล้ว <span id="chipCountSent"></span></button>
               <button class="chip" data-filter="multi_hit" onclick="setAggFilter('multi_hit', this)">🔥 รวมหลายบิล</button>
               <button class="chip" data-filter="restricted" onclick="setAggFilter('restricted', this)">🔒 เลขอั้น (50%)</button>
               <button class="chip" data-filter="over_limit" onclick="setAggFilter('over_limit', this)">🚨 เกินเพดานรับเอง</button>
@@ -1223,6 +1221,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_34"></script>
+  <script src="/app.js?v=20261120_35"></script>
 </body>
 </html>
