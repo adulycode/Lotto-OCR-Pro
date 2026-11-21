@@ -31,7 +31,7 @@ let uploadedBase64Image = '';
 let uploadedColumnSlices = null;
 
 // Theme & User Authentication State
-let currentTheme = localStorage.getItem('lotto_theme') || 'dark';
+let currentTheme = localStorage.getItem('lotto_theme_v2') || 'light';
 let currentUser = (() => {
   try {
     const raw = localStorage.getItem('lotto_user');
@@ -61,9 +61,9 @@ window.fetch = async function (input, init) {
 };
 
 function applyTheme(theme) {
-  currentTheme = theme === 'light' ? 'light' : 'dark';
+  currentTheme = theme === 'dark' ? 'dark' : 'light';
   document.documentElement.setAttribute('data-theme', currentTheme);
-  localStorage.setItem('lotto_theme', currentTheme);
+  localStorage.setItem('lotto_theme_v2', currentTheme);
   const btn = document.getElementById('btnThemeToggle');
   if (btn) {
     btn.textContent = currentTheme === 'light' ? '🌙 โหมดมืด' : '☀️ โหมดสว่าง';
@@ -301,10 +301,10 @@ function openNewDrawModal() {
   listEl.innerHTML = upcoming
     .map(u => {
       return `
-        <div class="contributor-item" style="margin-bottom:0;border-color:${u.isShifted ? 'rgba(245,158,11,0.5)' : 'var(--border)'};background:${u.isShifted ? 'rgba(245,158,11,0.08)' : 'var(--bg-elevated)'};">
+        <div class="contributor-item" style="margin-bottom:0;border-color:${u.isShifted ? 'var(--primary-border)' : 'var(--border)'};background:${u.isShifted ? 'var(--primary-soft)' : 'var(--bg-elevated)'};">
           <div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <strong style="font-size:15px;color:${u.isShifted ? 'var(--gold)' : '#93c5fd'};">📅 ${u.title}</strong>
+              <strong style="font-size:15px;color:${u.isShifted ? 'var(--primary)' : 'var(--text-main)'};">📅 ${u.title}</strong>
               ${
                 u.isShifted
                   ? `<span class="badge-50">${u.shiftReason}</span>`
@@ -419,14 +419,14 @@ function renderAntigravityStatusUi() {
   const pillEl = document.getElementById('antigravityStatusSidebarPill');
   if (pillEl) {
     if (ag.online) {
-      pillEl.style.borderColor = 'rgba(52,211,153,0.45)';
-      pillEl.style.background = 'rgba(16,185,129,0.12)';
-      pillEl.style.color = '#34d399';
+      pillEl.style.borderColor = 'rgba(16,185,129,0.35)';
+      pillEl.style.background = 'var(--success-soft)';
+      pillEl.style.color = 'var(--success)';
       pillEl.innerHTML = `<span>🟢 Antigravity: ออนไลน์ (Priority #1)</span>${ag.pendingQueueCount > 0 ? `<span class="badge-50" style="font-size:10px;padding:1px 5px;">คิว ${ag.pendingQueueCount}</span>` : ''}`;
     } else if (ag.hasApiKey) {
-      pillEl.style.borderColor = 'rgba(96,165,250,0.45)';
-      pillEl.style.background = 'rgba(59,130,246,0.12)';
-      pillEl.style.color = '#60a5fa';
+      pillEl.style.borderColor = 'rgba(37,99,235,0.35)';
+      pillEl.style.background = 'var(--info-soft)';
+      pillEl.style.color = 'var(--info)';
       pillEl.innerHTML = `<span>🔵 Antigravity ออฟไลน์ (ใช้ API Key 24 ชม.)</span>`;
     } else {
       pillEl.style.borderColor = 'var(--border)';
@@ -447,36 +447,36 @@ function renderAntigravityStatusUi() {
     const lastSeenStr = ag.lastSeenAt ? formatThaiDateTime(ag.lastSeenAt) : 'ยังไม่มีประวัติเชื่อมต่อ';
 
     if (ag.online) {
-      bannerEl.style.borderColor = 'rgba(52,211,153,0.45)';
-      bannerEl.style.background = 'rgba(16,185,129,0.09)';
+      bannerEl.style.borderColor = 'rgba(16,185,129,0.35)';
+      bannerEl.style.background = 'var(--success-soft)';
       bannerEl.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <div>
-            <div style="font-weight:700;color:#34d399;font-size:13.5px;">🟢 Antigravity: ออนไลน์ (Priority #1) — พร้อมอ่านโพยโดยตรง ไม่เสียโควต้า API Key!</div>
+            <div style="font-weight:700;color:var(--success);font-size:13.5px;">🟢 Antigravity: ออนไลน์ (Priority #1) — พร้อมอ่านโพยโดยตรง ไม่เสียโควต้า API Key!</div>
             <div class="text-muted" style="font-size:11.5px;margin-top:2px;">โหมดที่เลือก: <strong>${modeLabel}</strong> • ซิงค์ล่าสุด: ${lastSeenStr}</div>
           </div>
           <span class="badge-100">คิวรออ่าน: ${ag.pendingQueueCount || 0} ใบ</span>
         </div>
       `;
     } else if (ag.hasApiKey) {
-      bannerEl.style.borderColor = 'rgba(96,165,250,0.45)';
-      bannerEl.style.background = 'rgba(59,130,246,0.09)';
+      bannerEl.style.borderColor = 'rgba(37,99,235,0.35)';
+      bannerEl.style.background = 'var(--info-soft)';
       bannerEl.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <div>
-            <div style="font-weight:700;color:#60a5fa;font-size:13.5px;">🔵 Antigravity ออฟไลน์ (ใช้ API Key 24 ชม.) — ระบบสลับใช้ Gemini API Key บนเซิร์ฟเวอร์อัตโนมัติ</div>
+            <div style="font-weight:700;color:var(--info);font-size:13.5px;">🔵 Antigravity ออฟไลน์ (ใช้ API Key 24 ชม.) — ระบบสลับใช้ Gemini API Key บนเซิร์ฟเวอร์อัตโนมัติ</div>
             <div class="text-muted" style="font-size:11.5px;margin-top:2px;">โหมดที่เลือก: <strong>${modeLabel}</strong> • Antigravity ออนไลน์ล่าสุด: ${lastSeenStr}</div>
           </div>
           <span class="badge-ai">พร้อมทำงาน 24 ชม.</span>
         </div>
       `;
     } else {
-      bannerEl.style.borderColor = 'rgba(245,158,11,0.45)';
-      bannerEl.style.background = 'rgba(245,158,11,0.08)';
+      bannerEl.style.borderColor = 'var(--primary-border)';
+      bannerEl.style.background = 'var(--primary-soft)';
       bannerEl.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <div>
-            <div style="font-weight:700;color:var(--gold);font-size:13.5px;">⚪ Antigravity ออฟไลน์ (โหมดจำลอง / รอใส่ API Key)</div>
+            <div style="font-weight:700;color:var(--primary);font-size:13.5px;">⚪ Antigravity ออฟไลน์ (โหมดจำลอง / รอใส่ API Key)</div>
             <div class="text-muted" style="font-size:11.5px;margin-top:2px;">โหมดที่เลือก: <strong>${modeLabel}</strong> • หากต้องการให้อ่านโพยจริงตอนปิด Antigravity กรุณาใส่ Gemini API Key ด้านล่าง</div>
           </div>
           <span class="badge-50">คิวรออ่าน: ${ag.pendingQueueCount || 0} ใบ</span>
@@ -551,8 +551,8 @@ function renderCustomersInDraw() {
             <div class="slip-mini-row ${isRoundSelected ? 'active-round' : ''}"
               onclick="event.stopPropagation(); filterBySingleRound('${c.customerName}', '${sl.id}', ${rNum})">
               <div style="flex:1;min-width:0;">
-                <div style="font-weight:700;color:#fde68a;word-break:break-word;">
-                  📌 รอบที่ ${rNum}: <span style="color:#e2e8f0;font-weight:600;">${sl.title.replace(/^รอบที่ \d+ — /, '')}</span>
+                <div style="font-weight:700;color:var(--primary);word-break:break-word;">
+                  📌 รอบที่ ${rNum}: <span style="color:var(--text-main);font-weight:600;">${sl.title.replace(/^รอบที่ \d+ — /, '')}</span>
                 </div>
                 <div class="text-muted">ส่งเมื่อ: ${formatThaiDateTime(sl.createdAt)} (${sl.totalItems} รายการ)</div>
                 <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">
@@ -563,7 +563,7 @@ function renderCustomersInDraw() {
                   }
                   ${
                     sl.status === 'pending_antigravity'
-                      ? `<span class="badge-ai" style="background:rgba(139,92,246,0.22);color:#c4b5fd;border-color:rgba(139,92,246,0.5);" title="อยู่ในคิวรอ Antigravity Agent อ่านลายมือ">⏳ รอ Antigravity อ่าน...</span>`
+                      ? `<span class="badge-ai" title="อยู่ในคิวรอ Antigravity Agent อ่านลายมือ">⏳ รอ Antigravity อ่าน...</span>`
                       : (sl.reviewCount || 0) > 0
                         ? `<span class="badge-50" title="AI พบจุดที่ควรตรวจสอบเทียบกับรูปกระดาษ">⚠️ รอเช็ค ${sl.reviewCount} จุด</span>`
                         : sl.humanApproved
@@ -573,8 +573,8 @@ function renderCustomersInDraw() {
                 </div>
               </div>
               <div style="flex-shrink:0;text-align:right;">
-                <div style="font-family:var(--font-mono);font-weight:700;color:var(--gold);white-space:nowrap;">${sl.totalMoney.toLocaleString()} ฿</div>
-                <button type="button" class="btn btn-ghost btn-sm" style="margin-top:4px;padding:2px 7px;font-size:11px;color:#60a5fa;white-space:nowrap;"
+                <div style="font-family:var(--font-mono);font-weight:700;color:var(--text-main);white-space:nowrap;">${sl.totalMoney.toLocaleString()} ฿</div>
+                <button type="button" class="btn btn-outline btn-sm" style="margin-top:4px;padding:2px 7px;font-size:11px;white-space:nowrap;"
                   onclick="event.stopPropagation(); jumpToSlipInspector('${sl.id}', 1, 1)">
                   🔍 ตรวจใบนี้
                 </button>
@@ -588,7 +588,7 @@ function renderCustomersInDraw() {
         <div class="customer-card ${isActive ? 'active-customer' : ''}" onclick="filterByCustomer('${c.customerName}')">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
             <div style="flex:1;min-width:0;">
-              <div style="font-size:13.5px;font-weight:700;color:#93c5fd;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
+              <div style="font-size:13.5px;font-weight:700;color:var(--text-main);display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
                 <span>👤 ${c.customerName}</span>
                 <span class="runner-rounds-badge">ส่งแล้ว ${c.slipCount} รอบ</span>
               </div>
@@ -598,7 +598,7 @@ function renderCustomersInDraw() {
             </div>
             <div style="flex-shrink:0;text-align:right;">
               <div style="font-size:10px;color:var(--text-muted);white-space:nowrap;">ยอดรวม ${c.slipCount} รอบ</div>
-              <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--gold);white-space:nowrap;">
+              <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--text-main);white-space:nowrap;">
                 ${c.totalMoney.toLocaleString()} ฿
               </div>
             </div>
@@ -664,10 +664,10 @@ function renderAggregatedTable() {
 
   if (selectedSlipRoundFilter) {
     const slipObj = (appState.slips || []).find(s => s.id === selectedSlipRoundFilter);
-    titleEl.innerHTML = `📄 2. กำลังดูเฉพาะ: <span style="color:var(--gold);">${selectedCustomerFilter} — รอบที่ ${slipObj?.roundNumber || ''} (${(slipObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-outline btn-sm" style="margin-left:8px;" onclick="filterByCustomer('${selectedCustomerFilter}')">📊 ดูรวมทุกรอบของคนนี้</button> <button class="btn btn-ghost btn-sm" onclick="filterByCustomer(null)">🌐 ดูรวมทุกคน</button>`;
+    titleEl.innerHTML = `📄 2. กำลังดูเฉพาะ: <span style="color:var(--primary);">${selectedCustomerFilter} — รอบที่ ${slipObj?.roundNumber || ''} (${(slipObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-outline btn-sm" style="margin-left:8px;" onclick="filterByCustomer('${selectedCustomerFilter}')">📊 ดูรวมทุกรอบของคนนี้</button> <button class="btn btn-ghost btn-sm" onclick="filterByCustomer(null)">🌐 ดูรวมทุกคน</button>`;
   } else if (selectedCustomerFilter) {
     const custObj = (appState.customersInDraw || []).find(c => c.customerName === selectedCustomerFilter);
-    titleEl.innerHTML = `👤 2. ยอดรวมทุกรอบของ: <span style="color:#60a5fa;">${selectedCustomerFilter} (รวม ${custObj?.slipCount || 1} รอบ = ${(custObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="filterByCustomer(null)">🌐 กลับไปดูรวมทุกคนทั้งงวด</button>`;
+    titleEl.innerHTML = `👤 2. ยอดรวมทุกรอบของ: <span style="color:var(--primary);">${selectedCustomerFilter} (รวม ${custObj?.slipCount || 1} รอบ = ${(custObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="filterByCustomer(null)">🌐 กลับไปดูรวมทุกคนทั้งงวด</button>`;
   } else {
     titleEl.textContent = `📊 2. สรุปยอดรวมแต่ละเลขในงวดนี้ (รวมเด็กโพยทุกคน ทุกรอบ เป็นยอดเงินเดียว)`;
   }
@@ -712,10 +712,10 @@ function renderAggregatedTable() {
         onclick="setAggFilter('${currentAggFilter === 'kept_us' ? 'all' : 'kept_us'}')"
         title="คลิกเพื่อกรองดูเฉพาะเลขที่เราเก็บไว้รับกินเอง (ยอดซื้อรวม หักลบยอดที่ตัดส่งเจ้ามือแล้ว)">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-size:11.5px;font-weight:700;color:#34d399;">🏠 เก็บไว้รับเอง (${keptItems.length} เลข)</span>
+          <span style="font-size:11.5px;font-weight:700;color:var(--success);">🏠 เก็บไว้รับเอง (${keptItems.length} เลข)</span>
           <span style="font-size:10px;color:var(--text-muted);">${currentAggFilter === 'kept_us' ? '✕ ยกเลิกกรอง' : 'คลิกกรองดู'}</span>
         </div>
-        <div style="font-family:var(--font-mono);font-size:15.5px;font-weight:700;color:#34d399;">
+        <div style="font-family:var(--font-mono);font-size:15.5px;font-weight:700;color:var(--text-main);">
           ${totalKeptAmt.toLocaleString()} ฿
         </div>
         <div class="alloc-mini-pills">
@@ -728,11 +728,11 @@ function renderAggregatedTable() {
         onclick="setAggFilter('${currentAggFilter === 'sent_dealer' ? 'all' : 'sent_dealer'}')"
         title="คลิกเพื่อกรองดูเฉพาะเลขที่ตัดส่งเจ้ามือใหญ่ไปแล้ว">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
-          <span style="font-size:11.5px;font-weight:700;color:#60a5fa;">📤 ส่งเจ้ามือแล้ว (${sentItems.length} เลข • ${layoffRoundCount} รอบ)</span>
+          <span style="font-size:11.5px;font-weight:700;color:var(--info);">📤 ส่งเจ้ามือแล้ว (${sentItems.length} เลข • ${layoffRoundCount} รอบ)</span>
           <button type="button" class="btn btn-outline btn-sm" style="padding:1px 7px;font-size:10px;"
             onclick="event.stopPropagation(); switchTab('tab-layoff')">ไปหน้าตัดยอด ➤</button>
         </div>
-        <div style="font-family:var(--font-mono);font-size:15.5px;font-weight:700;color:#60a5fa;">
+        <div style="font-family:var(--font-mono);font-size:15.5px;font-weight:700;color:var(--text-main);">
           ${totalSentAmt.toLocaleString()} ฿
         </div>
         <div class="alloc-mini-pills">
@@ -883,7 +883,7 @@ function renderAggregatedTable() {
           ? `
           <tr class="perm-dropdown-row">
             <td colspan="10">
-              <div style="font-size:12px;color:#93c5fd;margin-bottom:6px;font-weight:600;">
+              <div style="font-size:12px;color:var(--text-main);margin-bottom:6px;font-weight:600;">
                 ↳ รายการแยกประตูของเลข <strong>${item.number}×${item.permBreakdown.length}</strong> (ยอดชุดกลับ ${item.threePermRawAmt.toLocaleString()}฿ ÷ ${item.permBreakdown.length} ประตู = เฉลี่ยประตูละ <strong>${avgDoorVal} บาท</strong>):
               </div>
               <div class="perm-doors-grid">
@@ -891,11 +891,11 @@ function renderAggregatedTable() {
                   .map(
                     d => `
                   <div class="perm-door-chip">
-                    <strong style="color:var(--gold);font-size:14px;">${d.doorNumber}</strong>
-                    <span style="color:#6ee7b7;">เฉลี่ย ${d.avgPermAmt} ฿</span>
+                    <strong style="color:var(--primary);font-size:14px;">${d.doorNumber}</strong>
+                    <span style="color:var(--success);font-weight:600;">เฉลี่ย ${d.avgPermAmt} ฿</span>
                     ${
                       d.directStraightAmt > 0
-                        ? `<span style="font-size:11px;color:#93c5fd;">(+เต็ง ${d.directStraightAmt}฿ = รวม ${d.combinedRiskAmt}฿)</span>`
+                        ? `<span style="font-size:11px;color:var(--text-muted);">(+เต็ง ${d.directStraightAmt}฿ = รวม ${d.combinedRiskAmt}฿)</span>`
                         : ''
                     }
                   </div>
@@ -913,12 +913,12 @@ function renderAggregatedTable() {
 
       const keptCellHtml =
         netKeptAmt > 0
-          ? `<strong style="color:#34d399;">🏠 ${netKeptAmt.toLocaleString()} ฿</strong>`
+          ? `<strong style="color:var(--success);">🏠 ${netKeptAmt.toLocaleString()} ฿</strong>`
           : '-';
 
       const sentCellHtml =
         sentAmt > 0
-          ? `<strong style="color:#60a5fa;">📤 ${sentAmt.toLocaleString()} ฿</strong>`
+          ? `<strong style="color:var(--info);">📤 ${sentAmt.toLocaleString()} ฿</strong>`
           : '-';
 
       return `
@@ -938,20 +938,20 @@ function renderAggregatedTable() {
           </td>
           <td class="num-col">${topAmt > 0 ? `${topAmt.toLocaleString()} ฿` : '-'}</td>
           <td class="num-col">${secondAmt > 0 ? `${secondAmt.toLocaleString()} ฿` : '-'}</td>
-          <td class="num-col" style="color:var(--gold);font-weight:700;font-size:13.5px;">
+          <td class="num-col" style="color:var(--text-main);font-weight:700;font-size:13.5px;">
             ${item.totalAmt.toLocaleString()} ฿
           </td>
           <td class="num-col">
             ${
               item.fullPayout100Amt > 0
-                ? `<strong style="color:#34d399;">${item.fullPayout100Amt.toLocaleString()} ฿</strong>`
+                ? `<strong style="color:var(--success);">${item.fullPayout100Amt.toLocaleString()} ฿</strong>`
                 : '-'
             }
           </td>
           <td class="num-col">
             ${
               item.halfPayout50Amt > 0
-                ? `<strong style="color:#fb923c;">${item.halfPayout50Amt.toLocaleString()} ฿</strong>`
+                ? `<strong style="color:var(--primary);">${item.halfPayout50Amt.toLocaleString()} ฿</strong>`
                 : '-'
             }
           </td>
@@ -990,7 +990,7 @@ function renderSelectedNumberDetail() {
         <div class="contributor-item" style="margin-top:8px;">
           <div>
             <div style="display:flex;align-items:center;gap:8px;">
-              <strong style="color:#60a5fa;font-size:14px;">👤 ${c.customerName}</strong>
+              <strong style="color:var(--text-main);font-size:14px;">👤 ${c.customerName}</strong>
               ${
                 is100
                   ? `<span class="badge-100">🟢 แทงก่อนเวลาอั้น ➔ ได้เต็ม 100%</span>`
@@ -1001,14 +1001,14 @@ function renderSelectedNumberDetail() {
               จาก: <strong>${c.slipTitle}</strong> • เวลาที่ส่ง: ${formatThaiDateTime(c.createdAt)}
             </div>
             <div style="font-size:12px;margin-top:2px;">
-              ที่เขียนในโพย: <code style="color:var(--gold);">${c.originalWrite}</code> (${c.typeLabel})
+              ที่เขียนในโพย: <code style="color:var(--primary);font-weight:600;">${c.originalWrite}</code> (${c.typeLabel})
             </div>
           </div>
           <div style="text-align:right;">
-            <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:${is100 ? '#34d399' : '#fb923c'};">
+            <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:${is100 ? 'var(--success)' : 'var(--primary)'};">
               +${c.amount.toLocaleString()} บาท
             </div>
-            <button class="btn btn-ghost btn-sm" style="margin-top:4px;" onclick="jumpToSlipInspector('${c.slipId}', ${c.col || 1}, ${c.row || 1})">
+            <button class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="jumpToSlipInspector('${c.slipId}', ${c.col || 1}, ${c.row || 1})">
               🔍 ดูในใบโพย
             </button>
           </div>
@@ -1063,9 +1063,9 @@ function renderRestrictedNumbersTab() {
           <td><span class="number-pill">${r.number}</span></td>
           <td><span class="badge-50">จ่าย ${r.payoutPercent}%</span></td>
           <td>${formatThaiDateTime(r.announcedAt)}</td>
-          <td class="num-col" style="color:#34d399;font-weight:700;">${full100.toLocaleString()} ฿</td>
-          <td class="num-col" style="color:#fb923c;font-weight:700;">${half50.toLocaleString()} ฿</td>
-          <td class="num-col" style="color:var(--gold);font-weight:700;">${total.toLocaleString()} ฿</td>
+          <td class="num-col" style="color:var(--success);font-weight:700;">${full100.toLocaleString()} ฿</td>
+          <td class="num-col" style="color:var(--primary);font-weight:700;">${half50.toLocaleString()} ฿</td>
+          <td class="num-col" style="color:var(--text-main);font-weight:700;">${total.toLocaleString()} ฿</td>
           <td style="text-align:right;">
             <button class="btn btn-ghost btn-sm" onclick="removeRestrictedNumber('${r.number}')">ลบ</button>
           </td>
@@ -1301,13 +1301,13 @@ function renderLayoffBuilder(skipInputRebuild = false) {
                 </div>
               </td>
               <td class="num-col">${item.totalAmt.toLocaleString()} ฿</td>
-              <td class="num-col" style="color:#60a5fa;">
+              <td class="num-col" style="color:var(--info);">
                 ${item.alreadySentAmt > 0 ? `${item.alreadySentAmt.toLocaleString()} ฿` : '-'}
               </td>
-              <td class="num-col" style="color:#34d399;">
+              <td class="num-col" style="color:var(--success);">
                 ${item.alreadyKeptAmt > 0 ? `${item.alreadyKeptAmt.toLocaleString()} ฿` : '-'}
               </td>
-              <td class="num-col" style="color:#fbbf24;font-weight:700;font-size:15px;">
+              <td class="num-col" style="color:var(--primary);font-weight:700;font-size:15px;">
                 ${item.newPendingAmt > 0 ? `+${item.newPendingAmt.toLocaleString()} ฿` : '0 ฿'}
               </td>
               <td onclick="event.stopPropagation()">
@@ -1316,7 +1316,7 @@ function renderLayoffBuilder(skipInputRebuild = false) {
                     ? `<div style="display:flex;gap:4px;">
                         <button class="btn btn-outline btn-sm" style="padding:3px 8px;font-size:11px;"
                           onclick="setRowActionQuick('${item.key}', 'send_all', ${item.newPendingAmt})">📤 ส่งเจ้ามือ</button>
-                        <button class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:11px;color:#34d399;"
+                        <button class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:11px;color:var(--success);"
                           onclick="setRowActionQuick('${item.key}', 'keep_all', ${item.newPendingAmt})">🏠 เก็บไว้ที่เรา</button>
                       </div>`
                     : statusBadge
@@ -1379,8 +1379,8 @@ function renderLayoffBuilder(skipInputRebuild = false) {
           r => `
         <div class="layoff-row-item" style="flex-wrap:wrap;gap:8px;">
           <div>
-            <strong style="font-family:var(--font-mono);color:var(--gold);font-size:15px;">${r.number}</strong>
-            <span style="font-size:12px;color:#fbbf24;margin-left:6px;font-weight:600;">
+            <strong style="font-family:var(--font-mono);color:var(--text-main);font-size:15px;">${r.number}</strong>
+            <span style="font-size:12px;color:var(--primary);margin-left:6px;font-weight:600;">
               ยอดใหม่รอบนี้: ${r.newPendingAmt.toLocaleString()}฿
             </span>
             ${
@@ -1390,9 +1390,9 @@ function renderLayoffBuilder(skipInputRebuild = false) {
             }
           </div>
           <div style="display:flex;align-items:center;gap:10px;">
-            <span style="font-size:12px;color:#34d399;">🏠 เก็บที่เรา: <strong>${r.keepTotal.toLocaleString()}฿</strong></span>
+            <span style="font-size:12px;color:var(--success);">🏠 เก็บที่เรา: <strong>${r.keepTotal.toLocaleString()}฿</strong></span>
             <div style="display:flex;align-items:center;gap:4px;">
-              <span style="font-size:12px;color:#60a5fa;">📤 ส่งเจ้ามือ:</span>
+              <span style="font-size:12px;color:var(--info);">📤 ส่งเจ้ามือ:</span>
               <input type="number" class="cell-input" style="width:76px;" value="${r.sendTotal}" max="${r.newPendingAmt}" min="0"
                 oninput="onCustomLayoffAmountChange('${r.key}', this.value, ${r.newPendingAmt})" />
               <span>฿</span>
@@ -1443,10 +1443,10 @@ function renderLayoffBuilder(skipInputRebuild = false) {
                 <span class="text-muted" style="font-size:11.5px;margin-left:6px;">(${formatThaiDateTime(l.createdAt)})</span>
               </div>
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <span style="font-size:12px;color:#34d399;">🏠 เก็บเอง: ${(l.totalKeptMoney || 0).toLocaleString()}฿</span>
-                <strong style="color:var(--gold);font-family:var(--font-mono);">📤 ส่งเจ้ามือ: ${(l.totalLayoffMoney || 0).toLocaleString()}฿</strong>
-                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;color:#34d399;border-color:rgba(16,185,129,0.45);" onclick="exportSavedLayoffRoundExcel('${l.id}')">📊 โหลด Excel รอบนี้</button>
-                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;color:#93c5fd;border-color:rgba(96,165,250,0.45);" onclick="exportSavedLayoffRoundCsv('${l.id}')">📄 โหลด CSV รอบนี้</button>
+                <span style="font-size:12px;color:var(--success);">🏠 เก็บเอง: ${(l.totalKeptMoney || 0).toLocaleString()}฿</span>
+                <strong style="color:var(--primary);font-family:var(--font-mono);">📤 ส่งเจ้ามือ: ${(l.totalLayoffMoney || 0).toLocaleString()}฿</strong>
+                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="exportSavedLayoffRoundExcel('${l.id}')">📊 โหลด Excel รอบนี้</button>
+                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="exportSavedLayoffRoundCsv('${l.id}')">📄 โหลด CSV รอบนี้</button>
                 <button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px;" onclick="undoLayoffRound('${l.id}')">ยกเลิกรอบนี้</button>
               </div>
             </div>
@@ -1939,7 +1939,7 @@ function renderSidebarListForInspector() {
           const hasWarn = (s.reviewCount || 0) > 0;
           let statusBadgeHtml = '';
           if (s.status === 'pending_antigravity') {
-            statusBadgeHtml = `<span class="badge-ai" style="background:rgba(139,92,246,0.22);color:#c4b5fd;border-color:rgba(139,92,246,0.5);padding:1px 7px;font-size:10.5px;" title="กำลังรอ Antigravity Agent อ่านลายมือโพยใบนี้">⏳ รอ Antigravity อ่าน...</span>`;
+            statusBadgeHtml = `<span class="badge-ai" style="padding:1px 7px;font-size:10.5px;" title="กำลังรอ Antigravity Agent อ่านลายมือโพยใบนี้">⏳ รอ Antigravity อ่าน...</span>`;
           } else if (hasWarn) {
             statusBadgeHtml = `<span class="badge-50" style="padding:1px 7px;font-size:10.5px;" title="AI พบจุดที่ควรตรวจสอบเทียบกับรูปกระดาษ">⚠️ รอเช็ค ${s.reviewCount} จุด</span>`;
           } else if (s.humanApproved) {
@@ -1950,18 +1950,18 @@ function renderSidebarListForInspector() {
           return `
             <div class="round-list-item ${isCurrent ? 'active' : ''}" onclick="selectSlipForInspection('${s.id}')">
               <div style="display:flex;justify-content:space-between;align-items:center;">
-                <strong style="color:${isCurrent ? '#fde68a' : '#e2e8f0'};font-size:13px;">
+                <strong style="color:${isCurrent ? 'var(--primary)' : 'var(--text-main)'};font-size:13px;">
                   📌 รอบที่ ${rNum}
                 </strong>
                 ${statusBadgeHtml}
               </div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:11.5px;">
                 <span class="text-muted">${formatThaiDateTime(s.createdAt)} (${s.totalItems} รายการ)</span>
-                <strong style="font-family:var(--font-mono);color:var(--gold);">${s.totalMoney.toLocaleString()} ฿</strong>
+                <strong style="font-family:var(--font-mono);color:var(--text-main);">${s.totalMoney.toLocaleString()} ฿</strong>
               </div>
               ${
                 !hasWarn && s.humanApproved && s.approvedBy
-                  ? `<div style="font-size:10.5px;color:#34d399;margin-top:3px;">👤 ยืนยันโดย: ${escapeHtml(s.approvedBy)}${s.approvedAt ? ` (${formatThaiDateTime(s.approvedAt)})` : ''}</div>`
+                  ? `<div style="font-size:10.5px;color:var(--success);margin-top:3px;">👤 ยืนยันโดย: ${escapeHtml(s.approvedBy)}${s.approvedAt ? ` (${formatThaiDateTime(s.approvedAt)})` : ''}</div>`
                   : ''
               }
             </div>
@@ -2383,9 +2383,9 @@ function renderLearnedRules() {
           </span>
           <span>
             ช่อง${r.field === 'amtText' ? 'ยอดเงิน' : 'ตัวเลข'}: หากเขียนคล้าย
-            <code style="color:#f87171;font-weight:700;">${r.wrongText}</code>
+            <code style="color:var(--danger);font-weight:700;">${r.wrongText}</code>
             ➔ ให้แปลงเป็น
-            <code style="color:#34d399;font-weight:700;">${r.correctText}</code>
+            <code style="color:var(--success);font-weight:700;">${r.correctText}</code>
           </span>
           <span class="text-muted">(${r.reason || ''})</span>
         </div>
@@ -2650,7 +2650,7 @@ function renderUploadFullImagePreview() {
   if (!grid || !uploadedBase64Image) return;
   grid.innerHTML = `
     <div class="slice-item" style="grid-column: 1 / -1; text-align:center;">
-      <div style="margin-bottom:6px;font-weight:700;color:#60a5fa;">📄 ภาพโพยความละเอียดสูงเต็มใบ (รองรับ 2, 4, 5 และ 8 คอลัมน์อัตโนมัติ)</div>
+      <div style="margin-bottom:6px;font-weight:700;color:var(--text-main);">📄 ภาพโพยความละเอียดสูงเต็มใบ (รองรับ 2, 4, 5 และ 8 คอลัมน์อัตโนมัติ)</div>
       <img src="${uploadedBase64Image}" style="max-width:100%;max-height:280px;object-fit:contain;border-radius:6px;border:1px solid var(--border);" />
     </div>
   `;
@@ -2856,11 +2856,11 @@ function renderWinnersTab() {
           return `
             <tr>
               <td>
-                <div style="font-weight:700;color:#93c5fd;">👤 ${t.customerName}</div>
+                <div style="font-weight:700;color:var(--text-main);">👤 ${t.customerName}</div>
                 <div class="text-muted" style="font-size:11.5px;">📌 รอบที่ ${t.roundNumber} (${formatThaiDateTime(t.createdAt)})</div>
               </td>
               <td>
-                <code style="color:var(--gold);font-weight:700;">${t.originalWrite}</code>
+                <code style="color:var(--primary);font-weight:700;">${t.originalWrite}</code>
                 <div class="text-muted" style="font-size:11px;">คอลัมน์ ${t.col} • แถวที่ ${t.row}</div>
               </td>
               <td>
@@ -2876,16 +2876,16 @@ function renderWinnersTab() {
                 }
               </td>
               <td class="num-col">×${t.effectiveRate.toLocaleString()}</td>
-              <td class="num-col" style="color:var(--gold);font-weight:700;font-size:15px;">
+              <td class="num-col" style="color:var(--primary);font-weight:700;font-size:15px;">
                 ${t.actualPrize.toLocaleString()} ฿
                 ${
                   t.savedAmt > 0
-                    ? `<div style="font-size:10.5px;color:#34d399;">(ประหยัดไป ${t.savedAmt.toLocaleString()}฿)</div>`
+                    ? `<div style="font-size:10.5px;color:var(--success);">(ประหยัดไป ${t.savedAmt.toLocaleString()}฿)</div>`
                     : ''
                 }
               </td>
               <td style="text-align:right;">
-                <button class="btn btn-ghost btn-sm" onclick="jumpToSlipInspector('${t.slipId}', ${t.col}, ${t.row})">
+                <button class="btn btn-outline btn-sm" onclick="jumpToSlipInspector('${t.slipId}', ${t.col}, ${t.row})">
                   🔍 ดูในโพย
                 </button>
               </td>
@@ -2906,12 +2906,12 @@ function renderWinnersTab() {
               rw => `
           <div class="contributor-item" style="margin-bottom:8px;">
             <div>
-              <strong style="color:#93c5fd;font-size:14.5px;">👤 ${rw.customerName}</strong>
+              <strong style="color:var(--text-main);font-size:14.5px;">👤 ${rw.customerName}</strong>
               <div class="text-muted">ถูกรางวัลรวม ${rw.winCount} รายการ</div>
             </div>
             <div style="text-align:right;">
               <div style="font-size:11px;color:var(--text-muted);">ยอดจ่ายเงินรางวัลรวม</div>
-              <strong style="font-family:var(--font-mono);font-size:17px;color:var(--gold);">${rw.totalPrize.toLocaleString()} ฿</strong>
+              <strong style="font-family:var(--font-mono);font-size:17px;color:var(--primary);">${rw.totalPrize.toLocaleString()} ฿</strong>
             </div>
           </div>
         `
@@ -2934,8 +2934,8 @@ function renderWinnersTab() {
               <div class="text-muted" style="margin-top:2px;">ส่งออกให้ ${c.dealerName}: ${c.sentAmount.toLocaleString()} ฿</div>
             </div>
             <div style="text-align:right;">
-              <div style="font-size:11px;color:#60a5fa;">เคลมเงินคืนจากเจ้ามือ</div>
-              <strong style="font-family:var(--font-mono);font-size:16px;color:#34d399;">+${c.claimPrize.toLocaleString()} ฿</strong>
+              <div style="font-size:11px;color:var(--text-muted);">เคลมเงินคืนจากเจ้ามือ</div>
+              <strong style="font-family:var(--font-mono);font-size:16px;color:var(--success);">+${c.claimPrize.toLocaleString()} ฿</strong>
             </div>
           </div>
         `
@@ -3126,7 +3126,7 @@ function renderUsersAndAuditLogs() {
           l => `
           <tr>
             <td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">${formatThaiDateTime(l.timestamp)}</td>
-            <td><strong style="color:#60a5fa;">👤 ${escapeHtml(l.actorName || l.actor || 'แอดมิน')}</strong></td>
+            <td><strong style="color:var(--text-main);">👤 ${escapeHtml(l.actorName || l.actor || 'แอดมิน')}</strong></td>
             <td><span class="badge-100">${escapeHtml(l.actionType || 'ทำรายการ')}</span></td>
             <td style="white-space:normal;max-width:440px;">${escapeHtml(l.detail || '')}</td>
           </tr>

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_37" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_38" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -177,13 +177,13 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
           <span style="font-size:11px;color:var(--text-muted);">โหมดสีหน้าจอ:</span>
           <button type="button" class="btn btn-outline btn-sm" id="btnThemeToggle" onclick="toggleThemeMode()" style="padding:2px 8px;font-size:11px;">
-            ☀️ โหมดสว่าง
+            🌙 โหมดมืด
           </button>
         </div>
         <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:7px;padding:5px 8px;display:flex;justify-content:space-between;align-items:center;gap:4px;">
           <div style="min-width:0;">
             <div style="font-size:10px;color:var(--text-muted);line-height:1.1;">ผู้ใช้งานขณะนี้:</div>
-            <div id="currentUserDisplayName" style="font-size:11.5px;font-weight:700;color:#60a5fa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">เฮียเจ้าของระบบ</div>
+            <div id="currentUserDisplayName" style="font-size:11.5px;font-weight:700;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">เฮียเจ้าของระบบ</div>
           </div>
           <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10.5px;flex-shrink:0;" onclick="openLoginModal()">สลับคน</button>
         </div>
@@ -301,10 +301,10 @@
                   <th class="num-col" title="ยอดรวม 3 ตัวบน (ตรง) หรือ 2 ตัวบน">เต็ง / บน</th>
                   <th class="num-col" title="ยอดรวม 3 ตัวโต๊ด หรือ 2 ตัวล่าง">โต๊ด / ล่าง</th>
                   <th class="num-col" title="ผลรวมยอดเงินทั้งหมดของเลขนี้">ยอดรวม</th>
-                  <th class="num-col" style="color:#6ee7b7;" title="ยอดเงินที่ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100%)">🟢 ส่งก่อนอั้น (100%)</th>
-                  <th class="num-col" style="color:#fdba74;" title="ยอดเงินที่ส่งมาหลังเวลาประกาศเลขอั้น (ได้เรทจ่ายครึ่ง 50%)">🔒 ส่งหลังอั้น (50%)</th>
-                  <th class="num-col" style="color:#34d399;" title="ยอดของเลขนี้ที่เราเลือกเก็บไว้รับกินเอง">🏠 เก็บไว้เอง</th>
-                  <th class="num-col" style="color:#60a5fa;" title="ยอดของเลขนี้ที่ตัดส่งเจ้ามือใหญ่ไปแล้ว">📤 ส่งเจ้ามือ</th>
+                  <th class="num-col" style="color:var(--success);" title="ยอดเงินที่ส่งมาก่อนเวลาประกาศเลขอั้น (ได้เรทจ่ายเต็ม 100%)">🟢 ส่งก่อนอั้น (100%)</th>
+                  <th class="num-col" style="color:var(--primary);" title="ยอดเงินที่ส่งมาหลังเวลาประกาศเลขอั้น (ได้เรทจ่ายครึ่ง 50%)">🔒 ส่งหลังอั้น (50%)</th>
+                  <th class="num-col" style="color:var(--success);" title="ยอดของเลขนี้ที่เราเลือกเก็บไว้รับกินเอง">🏠 เก็บไว้เอง</th>
+                  <th class="num-col" style="color:var(--info);" title="ยอดของเลขนี้ที่ตัดส่งเจ้ามือใหญ่ไปแล้ว">📤 ส่งเจ้ามือ</th>
                   <th title="จำนวนรายการที่นำมารวมกัน คลิกที่แถวเพื่อดูรายละเอียดรายคน">ที่มา</th>
                 </tr>
               </thead>
@@ -406,7 +406,7 @@
         </div>
         <div class="kpi-card">
           <div class="kpi-title">📤 2. ส่งเจ้ามือไปแล้ว (รอบก่อนๆ)</div>
-          <div class="kpi-value" style="color:#60a5fa;" id="layoffKpiAlreadySent">0 ฿</div>
+          <div class="kpi-value" style="color:var(--info);" id="layoffKpiAlreadySent">0 ฿</div>
           <div class="kpi-sub">ล็อกยอดแล้ว จะไม่ถูกดึงมาส่งซ้ำอีก</div>
         </div>
         <div class="kpi-card">
@@ -414,7 +414,7 @@
           <div class="kpi-value text-success" id="layoffKpiAlreadyKept">0 ฿</div>
           <div class="kpi-sub">เลขที่เราเลือกเก็บกินเองในรอบก่อน</div>
         </div>
-        <div class="kpi-card" style="border-color:var(--gold);background:rgba(245,158,11,0.08);">
+        <div class="kpi-card" style="background:var(--primary-soft);">
           <div class="kpi-title">🔥 4. ยอดเข้ามาใหม่ (รอจัดการในรอบนี้)</div>
           <div class="kpi-value highlight-warn" id="layoffKpiNewPending">0 ฿</div>
           <div class="kpi-sub" id="layoffKpiNewPendingSub">เฉพาะยอดใหม่ที่เพิ่งเข้ามา ยังไม่ได้ส่งเจ้ามือ</div>
@@ -459,9 +459,9 @@
                   </th>
                   <th>เลข</th>
                   <th class="num-col">รับสะสม</th>
-                  <th class="num-col" style="color:#60a5fa;">📤 ส่งแล้ว</th>
-                  <th class="num-col" style="color:#34d399;">🏠 เก็บเองแล้ว</th>
-                  <th class="num-col" style="color:#fbbf24;">🔥 ยอดเข้ามาใหม่รอบนี้</th>
+                  <th class="num-col" style="color:var(--info);">📤 ส่งแล้ว</th>
+                  <th class="num-col" style="color:var(--success);">🏠 เก็บเองแล้ว</th>
+                  <th class="num-col" style="color:var(--primary);">🔥 ยอดเข้ามาใหม่รอบนี้</th>
                   <th>สถานะ</th>
                 </tr>
               </thead>
@@ -519,7 +519,7 @@
             <textarea id="layoffFormattedText" rows="6" class="input mono-textarea" readonly></textarea>
           </div>
 
-          <div style="font-size:12px;color:#fcd34d;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);border-radius:8px;padding:8px 12px;margin-bottom:10px;line-height:1.5;">
+          <div style="font-size:12px;color:var(--primary-hover);background:var(--primary-soft);border:1px solid var(--primary-border);border-radius:8px;padding:8px 12px;margin-bottom:10px;line-height:1.5;">
             🔒 ระบบบังคับให้กดยืนยันตัดยอดก่อนดาวน์โหลดไฟล์เสมอ เพื่อล็อกยอดเข้าระบบทันที ป้องกันการลืมกดยืนยันแล้วเผลอส่งเจ้ามือซ้ำ (หากต้องการโหลดไฟล์ย้อนหลัง กดปุ่ม "📊 โหลด Excel รอบนี้" หรือ "📄 CSV" ในประวัติแต่ละรอบด้านล่างได้เลย)
           </div>
 
@@ -795,15 +795,15 @@
           </div>
           <div>
             <label class="small-label">3 ตัวบน / ท้ายรางวัลที่ 1:</label>
-            <input type="text" id="winThreeTopInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:#60a5fa;text-align:center;" maxlength="3" placeholder="583" />
+            <input type="text" id="winThreeTopInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--info);text-align:center;" maxlength="3" placeholder="583" />
           </div>
           <div>
             <label class="small-label">2 ตัวบน (2 ตัวท้ายรางวัลที่ 1):</label>
-            <input type="text" id="winTwoTopInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:#34d399;text-align:center;" maxlength="2" placeholder="83" />
+            <input type="text" id="winTwoTopInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--success);text-align:center;" maxlength="2" placeholder="83" />
           </div>
           <div>
             <label class="small-label">2 ตัวล่าง (เลขท้าย 2 ตัวกองสลาก):</label>
-            <input type="text" id="winTwoBottomInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:#fb923c;text-align:center;" maxlength="2" placeholder="21" />
+            <input type="text" id="winTwoBottomInput" class="input" style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--primary);text-align:center;" maxlength="2" placeholder="21" />
           </div>
           <div>
             <button class="btn btn-success" style="width:100%;height:40px;" onclick="saveManualWinningResult()">
@@ -822,12 +822,12 @@
         </div>
         <div class="kpi-card">
           <div class="kpi-title">💸 ยอดจ่ายเงินรางวัลให้ลูกค้า</div>
-          <div class="kpi-value" style="color:#f87171;" id="winKpiTotalPayout">0 ฿</div>
+          <div class="kpi-value" style="color:var(--danger);" id="winKpiTotalPayout">0 ฿</div>
           <div class="kpi-sub" id="winKpiSaved50">ประหยัดจากเลขอั้น 50% ไป 0 ฿</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-title">🏦 เคลมเงินรางวัลคืนจากเจ้ามือใหญ่</div>
-          <div class="kpi-value" style="color:#60a5fa;" id="winKpiDealerRecovery">0 ฿</div>
+          <div class="kpi-value" style="color:var(--info);" id="winKpiDealerRecovery">0 ฿</div>
           <div class="kpi-sub">จากเลขที่เราตัดยอดส่งเจ้ามือไปแล้ว</div>
         </div>
         <div class="kpi-card">
@@ -971,7 +971,7 @@
               </div>
 
               <hr class="divider" style="margin:16px 0;border-color:var(--border);" />
-              <h4 style="margin-bottom:10px;color:#93c5fd;">เพดานรับเองสูงสุดต่อตัวเลข (บาท)</h4>
+              <h4 style="margin-bottom:10px;color:var(--text-main);">เพดานรับเองสูงสุดต่อตัวเลข (บาท)</h4>
               <div class="form-row-2">
                 <div class="form-group">
                   <label>เพดานรับเอง 3 ตัวบน / ตรง (บาท/ตัว):</label>
@@ -1003,8 +1003,8 @@
               <button class="btn btn-primary" onclick="saveSettingsFromForm()">💾 บันทึกการตั้งค่า</button>
             </div>
 
-            <div id="antigravityStatusBanner" style="margin-bottom:14px;padding:12px 14px;border-radius:10px;border:1px solid rgba(52,211,153,0.4);background:rgba(16,185,129,0.08);">
-              <div style="font-weight:700;color:#34d399;">🟢 สถานะ Antigravity Agent: กำลังตรวจสอบ...</div>
+            <div id="antigravityStatusBanner" style="margin-bottom:14px;padding:12px 14px;border-radius:10px;border:1px solid rgba(16,185,129,0.35);background:var(--success-soft);">
+              <div style="font-weight:700;color:var(--success);">🟢 สถานะ Antigravity Agent: กำลังตรวจสอบ...</div>
             </div>
 
             <div class="settings-form">
@@ -1209,6 +1209,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_37"></script>
+  <script src="/app.js?v=20261120_38"></script>
 </body>
 </html>
