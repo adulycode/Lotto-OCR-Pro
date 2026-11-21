@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_39" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_40" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -286,7 +286,6 @@
               <button class="chip" data-filter="sent_dealer" onclick="setAggFilter('sent_dealer', this)">📤 ส่งเจ้ามือแล้ว <span id="chipCountSent"></span></button>
               <button class="chip" data-filter="multi_hit" onclick="setAggFilter('multi_hit', this)">🔥 รวมหลายบิล</button>
               <button class="chip" data-filter="restricted" onclick="setAggFilter('restricted', this)">🔒 เลขอั้น (50%)</button>
-              <button class="chip" data-filter="over_limit" onclick="setAggFilter('over_limit', this)">🚨 เกินเพดานรับเอง</button>
               <button class="chip" data-filter="digit_2" onclick="setAggFilter('digit_2', this)">เลข 2 ตัว</button>
               <button class="chip" data-filter="digit_3" onclick="setAggFilter('digit_3', this)">เลข 3 ตัว</button>
             </div>
@@ -488,7 +487,6 @@
                 <label>ตั้งค่าเริ่มต้นสำหรับเลขที่ติ๊กเลือก:</label>
                 <select id="layoffModeSelect" class="input" onchange="onChangeLayoffPresetMode()">
                   <option value="send_all_new">📤 ส่งยอดคงเหลือทั้งหมดของเลขที่ติ๊กเลือก ให้เจ้ามือ</option>
-                  <option value="keep_within_limit">🛡️ เก็บในเพดานไว้ที่เรา ส่วนเกินตัดส่งเจ้ามือ</option>
                   <option value="split_half">⚖️ แบ่งครึ่ง 50/50 (ส่งเจ้ามือครึ่งหนึ่ง / เก็บไว้ที่เราครึ่งหนึ่ง)</option>
                 </select>
               </div>
@@ -899,7 +897,7 @@
           <div class="sidebar-section-label" style="margin-bottom:10px;">⚙️ หมวดหมู่การตั้งค่า</div>
           <div class="settings-subnav-list">
             <button type="button" class="settings-subbtn active" data-subtab="sub-rules" onclick="switchSettingsSubTab('sub-rules')">
-              <span>🛡️ 1. กติกาหวย & เพดานรับเอง</span>
+              <span>🛡️ 1. กติกาหวย & เวลาปิดรอบ</span>
             </button>
             <button type="button" class="settings-subbtn" data-subtab="sub-ai" onclick="switchSettingsSubTab('sub-ai')">
               <span>🤖 2. โมเดล AI & รหัส API</span>
@@ -920,12 +918,12 @@
         <!-- เนื้อหาของแต่ละหมวดย่อยฝั่งขวา -->
         <div class="settings-content-area">
 
-          <!-- หมวดย่อยที่ 1: กติกาหวย & เพดานรับเอง -->
+          <!-- หมวดย่อยที่ 1: กติกาหวย & เวลาปิดรอบ -->
           <div id="sub-rules" class="settings-subpanel active card">
             <div class="card-header">
               <div>
-                <h3>🛡️ 1. กติกาการคิดเลข & เพดานรับเองสูงสุด</h3>
-                <p class="text-muted">กำหนดวิธีแตกเลขชุดกลับ (×6, ×3) และเพดานความเสี่ยงต่อตัวเลข</p>
+                <h3>🛡️ 1. กติกาการคิดเลข & เวลาปิดรอบรับโพย</h3>
+                <p class="text-muted">กำหนดวิธีแตกเลขชุดกลับ (×6, ×3) และเวลาปิดรับโพยในวันหวยออก</p>
               </div>
               <button class="btn btn-primary" onclick="saveSettingsFromForm()">💾 บันทึกการตั้งค่า</button>
             </div>
@@ -966,27 +964,6 @@
                   <option value="reject_until_open">⛔ ปฏิเสธการรับบิลช่วงหวยออก และให้บอท LINE ตอบแจ้งว่า "ปิดรับโพยงวดนี้แล้ว"</option>
                   <option value="auto_next_draw">⏩ ปัดบิลที่ส่งหลังเวลาปิดรับ เข้าเป็นโพยของ "งวดถัดไป" ทันที</option>
                 </select>
-              </div>
-
-              <hr class="divider" style="margin:16px 0;border-color:var(--border);" />
-              <h4 style="margin-bottom:10px;color:var(--text-main);">เพดานรับเองสูงสุดต่อตัวเลข (บาท)</h4>
-              <div class="form-row-2">
-                <div class="form-group">
-                  <label>เพดานรับเอง 3 ตัวบน / ตรง (บาท/ตัว):</label>
-                  <input type="number" id="limitThreeStraight" class="input" value="100" />
-                </div>
-                <div class="form-group">
-                  <label>เพดานรับเอง 3 ตัวโต๊ด (บาท/ตัว):</label>
-                  <input type="number" id="limitThreeToad" class="input" value="100" />
-                </div>
-                <div class="form-group">
-                  <label>เพดานรับเอง 2 ตัวบน (บาท/ตัว):</label>
-                  <input type="number" id="limitTwoTop" class="input" value="30" />
-                </div>
-                <div class="form-group">
-                  <label>เพดานรับเอง 2 ตัวล่าง (บาท/ตัว):</label>
-                  <input type="number" id="limitTwoBottom" class="input" value="100" />
-                </div>
               </div>
             </div>
           </div>
@@ -1207,6 +1184,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_39"></script>
+  <script src="/app.js?v=20261120_40"></script>
 </body>
 </html>

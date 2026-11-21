@@ -243,15 +243,6 @@ async function fetchAppState(drawIdParam = '') {
   const res = await fetch(url);
   appState = await res.json();
 
-  if (selectedLayoffKeys.size === 0 && appState.aggregated) {
-    // Default select numbers that have NEW pending amounts (> 0) and are over limit or restricted
-    appState.aggregated.forEach(item => {
-      if (item.hasNewPending && (item.isOverLimit || item.isRestricted)) {
-        selectedLayoffKeys.add(item.key);
-      }
-    });
-  }
-
   renderHeaderAndKpis();
   renderCustomersInDraw();
   renderAggregatedTable();
@@ -824,8 +815,6 @@ function renderAggregatedTable() {
     list = list.filter(item => item.hitCount > 1);
   } else if (currentAggFilter === 'restricted') {
     list = list.filter(item => item.isRestricted);
-  } else if (currentAggFilter === 'over_limit') {
-    list = list.filter(item => item.isOverLimit);
   } else if (currentAggFilter === 'digit_2') {
     list = list.filter(item => item.digitCount === 2);
   } else if (currentAggFilter === 'digit_3') {
@@ -1231,13 +1220,6 @@ function computeDefaultSendForNewPending(item, mode) {
 
   if (mode === 'split_half') {
     return Math.round(newAmt / 2);
-  }
-  if (mode === 'keep_within_limit') {
-    const limit = item.digitCount === 2
-      ? (appState.settings?.riskLimits?.twoTop || 30)
-      : (appState.settings?.riskLimits?.threeStraight || 100);
-    const keepAtUs = Math.min(newAmt, limit);
-    return Math.max(0, newAmt - keepAtUs);
   }
   // default: 'send_all_new'
   return newAmt;
@@ -3210,12 +3192,6 @@ function populateSettingsForm() {
     document.getElementById('settingAfterCutoffAction').value = s.afterCutoffAction || 'reject_until_open';
   }
 
-  const lim = s.riskLimits || {};
-  document.getElementById('limitThreeStraight').value = lim.threeStraight ?? 100;
-  document.getElementById('limitThreeToad').value = lim.threeToad ?? 100;
-  document.getElementById('limitTwoTop').value = lim.twoTop ?? 30;
-  document.getElementById('limitTwoBottom').value = lim.twoBottom ?? 100;
-
   document.getElementById('settingLineToken').value = s.lineChannelAccessToken || '';
   document.getElementById('settingLineSecret').value = s.lineChannelSecret || '';
 }
@@ -3230,12 +3206,6 @@ async function saveSettingsFromForm() {
     drawCutoffTime: document.getElementById('settingDrawCutoffTime')?.value || '14:30',
     nextDrawOpenTime: document.getElementById('settingNextDrawOpenTime')?.value || '17:00',
     afterCutoffAction: document.getElementById('settingAfterCutoffAction')?.value || 'reject_until_open',
-    riskLimits: {
-      threeStraight: Number(document.getElementById('limitThreeStraight').value) || 100,
-      threeToad: Number(document.getElementById('limitThreeToad').value) || 100,
-      twoTop: Number(document.getElementById('limitTwoTop').value) || 30,
-      twoBottom: Number(document.getElementById('limitTwoBottom').value) || 100
-    },
     lineChannelAccessToken: document.getElementById('settingLineToken').value.trim(),
     lineChannelSecret: document.getElementById('settingLineSecret').value.trim()
   };
