@@ -378,17 +378,16 @@ function aggregateSlips(slips, settings = {}, restrictedList = [], layoffs = [])
       const acc = allocatedMap.get(num);
       const sAmt = Number(it.sendTotal) || 0;
       const kAmt = Number(it.keepTotal) || 0;
+      if (sAmt <= 0) continue;
       acc.sentToDealerAmt += sAmt;
       acc.keptByUsAmt += kAmt;
-      if (sAmt > 0 || kAmt > 0) {
-        acc.roundsSent.push({
-          roundNumber: lf.roundNumber || 1,
-          dealerName: lf.dealerName,
-          sentAmt: sAmt,
-          keptAmt: kAmt,
-          createdAt: lf.createdAt
-        });
-      }
+      acc.roundsSent.push({
+        roundNumber: lf.roundNumber || 1,
+        dealerName: lf.dealerName,
+        sentAmt: sAmt,
+        keptAmt: kAmt,
+        createdAt: lf.createdAt
+      });
     }
   }
 
@@ -554,9 +553,10 @@ function aggregateSlips(slips, settings = {}, restrictedList = [], layoffs = [])
 
     const alloc = allocatedMap.get(r.number) || { sentToDealerAmt: 0, keptByUsAmt: 0, roundsSent: [] };
     const alreadySentAmt = alloc.sentToDealerAmt;
-    const alreadyKeptAmt = alloc.keptByUsAmt;
-    const alreadyHandledAmt = alreadySentAmt + alreadyKeptAmt;
-    const newPendingAmt = Math.max(0, r.totalAmt - alreadyHandledAmt);
+    const remainingAtUs = Math.max(0, r.totalAmt - alreadySentAmt);
+    const alreadyKeptAmt = remainingAtUs;
+    const alreadyHandledAmt = alreadySentAmt;
+    const newPendingAmt = remainingAtUs;
 
     // Build per-door dropdown breakdown if this number has a permutation bet (×6, ×3, ×2)
     let permBreakdown = [];

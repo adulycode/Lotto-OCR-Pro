@@ -1229,9 +1229,6 @@ function computeDefaultSendForNewPending(item, mode) {
   const newAmt = item.newPendingAmt || 0;
   if (newAmt <= 0) return 0;
 
-  if (mode === 'keep_all_new') {
-    return 0;
-  }
   if (mode === 'split_half') {
     return Math.round(newAmt / 2);
   }
@@ -1239,9 +1236,8 @@ function computeDefaultSendForNewPending(item, mode) {
     const limit = item.digitCount === 2
       ? (appState.settings?.riskLimits?.twoTop || 30)
       : (appState.settings?.riskLimits?.threeStraight || 100);
-    const roomToKeep = Math.max(0, limit - (item.alreadyKeptAmt || 0));
-    const keepThisRound = Math.min(newAmt, roomToKeep);
-    return Math.max(0, newAmt - keepThisRound);
+    const keepAtUs = Math.min(newAmt, limit);
+    return Math.max(0, newAmt - keepAtUs);
   }
   // default: 'send_all_new'
   return newAmt;
@@ -1256,9 +1252,6 @@ function renderLayoffBuilder(skipInputRebuild = false) {
     elGrand.textContent = `${(s.totalGrandMoney || 0).toLocaleString()} ฿`;
     document.getElementById('layoffKpiAlreadySent').textContent = `${(s.totalSentToDealerMoney || 0).toLocaleString()} ฿`;
     document.getElementById('layoffKpiAlreadyKept').textContent = `${(s.totalKeptByUsMoney || 0).toLocaleString()} ฿`;
-    document.getElementById('layoffKpiNewPending').textContent = `${(s.totalNewPendingMoney || 0).toLocaleString()} ฿`;
-    document.getElementById('layoffKpiNewPendingSub').textContent =
-      `มี ${s.pendingNumbersCount || 0} เลขที่มียอดเข้ามาใหม่ รอจัดการในรอบที่ ${nextRound}`;
     document.getElementById('currentLayoffRoundTitle').textContent = `รอบที่ ${nextRound}`;
     document.getElementById('rightLayoffRoundBadge').textContent = `รอบที่ ${nextRound}`;
   }
@@ -1273,8 +1266,8 @@ function renderLayoffBuilder(skipInputRebuild = false) {
     if (tableList.length === 0) {
       selectTbody.innerHTML = `
         <tr>
-          <td colspan="7" style="text-align:center;padding:28px;color:var(--success);font-weight:600;">
-            ✅ จัดการยอดของทุกเลขครบหมดแล้วในรอบนี้ (ไม่มีเลขค้างส่งซ้ำ) — เมื่อลูกค้าส่งโพยรอบใหม่เข้ามา ยอดใหม่จะเด้งขึ้นมาที่นี่อัตโนมัติครับ
+          <td colspan="6" style="text-align:center;padding:28px;color:var(--success);font-weight:600;">
+            ✅ ส่งเจ้ามือครบ 100% ทุกเลขแล้วในงวดนี้ — เมื่อลูกค้าส่งโพยรอบใหม่เข้ามา ยอดคงเหลือจะแสดงที่นี่อัตโนมัติครับ
           </td>
         </tr>
       `;
@@ -1282,14 +1275,19 @@ function renderLayoffBuilder(skipInputRebuild = false) {
       selectTbody.innerHTML = tableList
         .map(item => {
           const isChecked = selectedLayoffKeys.has(item.key) && item.hasNewPending;
-          const statusBadge = !item.hasNewPending
-            ? `<span class="badge-100">✅ จัดการครบแล้ว</span>`
-            : item.alreadyHandledAmt > 0
-              ? `<span class="badge-50">🔥 มียอดเข้ามาเพิ่มใหม่!</span>`
-              : `<span class="badge-50">🔥 ยอดใหม่รอจัดสรร</span>`;
+          let statusBadge = '';
+          if (!item.hasNewPending) {
+            statusBadge = `<span class="badge-ai">✅ ส่งเจ้ามือครบแล้ว</span>`;
+          } else if (isChecked) {
+            statusBadge = `<span class="badge-50">📤 เลือกส่งในรอบนี้</span>`;
+          } else if (item.alreadySentAmt > 0) {
+            statusBadge = `<span class="badge-100">🏠 เหลือเก็บที่เรา (ส่งบางส่วนแล้ว)</span>`;
+          } else {
+            statusBadge = `<span class="badge-100">🏠 เก็บไว้ที่เรา</span>`;
+          }
 
           return `
-            <tr class="${isChecked ? 'selected-row' : ''}" onclick="toggleLayoffItem('${item.key}', ${!isChecked})">
+            <tr class="${isChecked ? 'selected-row' : ''}" onclick="toggleLayoffItem('${item.key}', ${!isChecked})" style="cursor:pointer;">
               <td style="text-align:center;" onclick="event.stopPropagation()">
                 <input type="checkbox" ${isChecked ? 'checked' : ''} ${!item.hasNewPending ? 'disabled' : ''}
                   onchange="toggleLayoffItem('${item.key}', this.checked)" />
@@ -1304,23 +1302,11 @@ function renderLayoffBuilder(skipInputRebuild = false) {
               <td class="num-col" style="color:var(--info);">
                 ${item.alreadySentAmt > 0 ? `${item.alreadySentAmt.toLocaleString()} ฿` : '-'}
               </td>
-              <td class="num-col" style="color:var(--success);">
-                ${item.alreadyKeptAmt > 0 ? `${item.alreadyKeptAmt.toLocaleString()} ฿` : '-'}
+              <td class="num-col" style="color:var(--success);font-weight:700;font-size:14.5px;">
+                ${item.newPendingAmt > 0 ? `${item.newPendingAmt.toLocaleString()} ฿` : '0 ฿'}
               </td>
-              <td class="num-col" style="color:var(--primary);font-weight:700;font-size:15px;">
-                ${item.newPendingAmt > 0 ? `+${item.newPendingAmt.toLocaleString()} ฿` : '0 ฿'}
-              </td>
-              <td onclick="event.stopPropagation()">
-                ${
-                  item.hasNewPending
-                    ? `<div style="display:flex;gap:4px;">
-                        <button class="btn btn-outline btn-sm" style="padding:3px 8px;font-size:11px;"
-                          onclick="setRowActionQuick('${item.key}', 'send_all', ${item.newPendingAmt})">📤 ส่งเจ้ามือ</button>
-                        <button class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:11px;color:var(--success);"
-                          onclick="setRowActionQuick('${item.key}', 'keep_all', ${item.newPendingAmt})">🏠 เก็บไว้ที่เรา</button>
-                      </div>`
-                    : statusBadge
-                }
+              <td>
+                ${statusBadge}
               </td>
             </tr>
           `;
@@ -1370,9 +1356,16 @@ function renderLayoffBuilder(skipInputRebuild = false) {
     };
   });
 
+  const elNewPending = document.getElementById('layoffKpiNewPending');
+  const elNewPendingSub = document.getElementById('layoffKpiNewPendingSub');
+  if (elNewPending && elNewPendingSub) {
+    elNewPending.textContent = `${totalSendThisRound.toLocaleString()} ฿`;
+    elNewPendingSub.textContent = `เลือกไว้ ${layoffRows.length} เลข (คงเหลือเก็บไว้ที่เราหลังส่งรอบนี้: ${Math.max(0, (s.totalKeptByUsMoney || 0) - totalSendThisRound).toLocaleString()} ฿)`;
+  }
+
   if (!skipInputRebuild) {
     if (layoffRows.length === 0) {
-      listContainer.innerHTML = `<div class="text-muted" style="text-align:center;padding:18px;">ติ๊กเลือกตัวเลขจากตารางด้านซ้าย (หรือกดปุ่ม "📤 ส่งเจ้ามือ" / "🏠 เก็บไว้ที่เรา") เพื่อจัดสรรยอดใหม่ของรอบที่ ${nextRound}</div>`;
+      listContainer.innerHTML = `<div class="text-muted" style="text-align:center;padding:18px;">ติ๊กเลือกตัวเลขจากตารางด้านซ้าย เพื่อตัดยอดส่งเจ้ามือในรอบที่ ${nextRound} (เลขที่ไม่ติ๊กจะถูก 🏠 เก็บไว้ที่เราอัตโนมัติ)</div>`;
     } else {
       listContainer.innerHTML = layoffRows
         .map(
@@ -1380,19 +1373,19 @@ function renderLayoffBuilder(skipInputRebuild = false) {
         <div class="layoff-row-item" style="flex-wrap:wrap;gap:8px;">
           <div>
             <strong style="font-family:var(--font-mono);color:var(--text-main);font-size:15px;">${r.number}</strong>
-            <span style="font-size:12px;color:var(--primary);margin-left:6px;font-weight:600;">
-              ยอดใหม่รอบนี้: ${r.newPendingAmt.toLocaleString()}฿
+            <span style="font-size:12px;color:var(--success);margin-left:6px;font-weight:600;">
+              คงเหลืออยู่ที่เรา: ${r.newPendingAmt.toLocaleString()}฿
             </span>
             ${
-              r.alreadySentAmt > 0 || r.alreadyKeptAmt > 0
-                ? `<span class="text-muted" style="font-size:11px;margin-left:4px;">(รอบก่อนส่งแล้ว ${r.alreadySentAmt}฿ / เก็บแล้ว ${r.alreadyKeptAmt}฿)</span>`
+              r.alreadySentAmt > 0
+                ? `<span class="text-muted" style="font-size:11px;margin-left:4px;">(เคยส่งเจ้ามือไปแล้ว ${r.alreadySentAmt.toLocaleString()}฿)</span>`
                 : ''
             }
           </div>
           <div style="display:flex;align-items:center;gap:10px;">
-            <span style="font-size:12px;color:var(--success);">🏠 เก็บที่เรา: <strong>${r.keepTotal.toLocaleString()}฿</strong></span>
+            <span style="font-size:12px;color:var(--success);">🏠 เหลือเก็บที่เรา: <strong>${r.keepTotal.toLocaleString()}฿</strong></span>
             <div style="display:flex;align-items:center;gap:4px;">
-              <span style="font-size:12px;color:var(--info);">📤 ส่งเจ้ามือ:</span>
+              <span style="font-size:12px;color:var(--info);">📤 ส่งเจ้ามือรอบนี้:</span>
               <input type="number" class="cell-input" style="width:76px;" value="${r.sendTotal}" max="${r.newPendingAmt}" min="0"
                 oninput="onCustomLayoffAmountChange('${r.key}', this.value, ${r.newPendingAmt})" />
               <span>฿</span>
@@ -1491,24 +1484,31 @@ async function copyAndSaveLayoff(downloadFormat = 'excel') {
     await navigator.clipboard.writeText(text);
   } catch {}
 
-  const itemsPayload = selectedItems.map(item => {
-    const newAmt = item.newPendingAmt || 0;
-    const defaultSend = computeDefaultSendForNewPending(item, mode);
-    const sendTotal =
-      customLayoffAmounts[item.key] !== undefined
-        ? Math.min(newAmt, Math.max(0, customLayoffAmounts[item.key]))
-        : defaultSend;
-    const keepTotal = Math.max(0, newAmt - sendTotal);
+  const itemsPayload = selectedItems
+    .map(item => {
+      const newAmt = item.newPendingAmt || 0;
+      const defaultSend = computeDefaultSendForNewPending(item, mode);
+      const sendTotal =
+        customLayoffAmounts[item.key] !== undefined
+          ? Math.min(newAmt, Math.max(0, customLayoffAmounts[item.key]))
+          : defaultSend;
+      const keepTotal = Math.max(0, newAmt - sendTotal);
 
-    return {
-      number: item.number,
-      sendTotal,
-      keepTotal,
-      isRestricted: Boolean(item.isRestricted),
-      payoutPercent: item.isRestricted ? (item.restrictedRule?.payoutPercent || 50) : 100,
-      typeDesc: item.digitCount === 2 ? '2 ตัวบน' : (item.threeStraightAmt > 0 && item.threeToadAmt > 0 ? '3 ตัวบน+โต๊ด' : '3 ตัวบน')
-    };
-  });
+      return {
+        number: item.number,
+        sendTotal,
+        keepTotal,
+        isRestricted: Boolean(item.isRestricted),
+        payoutPercent: item.isRestricted ? (item.restrictedRule?.payoutPercent || 50) : 100,
+        typeDesc: item.digitCount === 2 ? '2 ตัวบน' : (item.threeStraightAmt > 0 && item.threeToadAmt > 0 ? '3 ตัวบน+โต๊ด' : '3 ตัวบน')
+      };
+    })
+    .filter(it => it.sendTotal > 0);
+
+  if (itemsPayload.length === 0) {
+    showToast('กรุณาติ๊กเลือกตัวเลขและระบุยอดที่จะส่งเจ้ามือมากกว่า 0 บาทครับ');
+    return;
+  }
 
   const res = await fetch('/api/layoffs', {
     method: 'POST',

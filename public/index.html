@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_38" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_39" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -397,52 +397,52 @@
     <!-- แท็บที่ 3: ระบบเลือกเลขตัดยอดส่งเจ้ามือเป็นรอบๆ (ไม่ส่งซ้ำ)            -->
     <!-- ================================================================= -->
     <section id="tab-layoff" class="tab-panel no-print">
-      <!-- แถบสรุปบัญชี 4 ช่อง: รับมาสะสม vs ส่งเจ้ามือแล้ว vs เก็บไว้ที่เราแล้ว vs ยอดเข้ามาใหม่รอบนี้ -->
+      <!-- แถบสรุปบัญชี 4 ช่อง: รับมาสะสม vs ตัดส่งเจ้ามือไปแล้ว vs ยอดคงเหลืออยู่ที่เราตอนนี้ vs กำลังเลือกตัดส่งในรอบนี้ -->
       <div class="kpi-strip" style="padding:0 0 14px 0;">
         <div class="kpi-card">
           <div class="kpi-title">💰 1. ยอดรับจากลูกค้าสะสมทั้งงวด</div>
           <div class="kpi-value highlight-gold" id="layoffKpiGrandTotal">0 ฿</div>
-          <div class="kpi-sub">รวมทุกบิลที่ลูกค้าส่งเข้ามา</div>
+          <div class="kpi-sub">รวมทุกบิลในงวดนี้</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-title">📤 2. ส่งเจ้ามือไปแล้ว (รอบก่อนๆ)</div>
+          <div class="kpi-title">📤 2. ตัดส่งเจ้ามือไปแล้ว</div>
           <div class="kpi-value" style="color:var(--info);" id="layoffKpiAlreadySent">0 ฿</div>
-          <div class="kpi-sub">ล็อกยอดแล้ว จะไม่ถูกดึงมาส่งซ้ำอีก</div>
+          <div class="kpi-sub">ล็อกยอดแล้ว จะไม่ถูกดึงมาส่งซ้ำ</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-title">🏠 3. เก็บไว้ที่เราแล้ว (รอบก่อนๆ)</div>
+          <div class="kpi-title">🏠 3. ยอดคงเหลืออยู่ที่เราตอนนี้</div>
           <div class="kpi-value text-success" id="layoffKpiAlreadyKept">0 ฿</div>
-          <div class="kpi-sub">เลขที่เราเลือกเก็บกินเองในรอบก่อน</div>
+          <div class="kpi-sub">เก็บไว้รับกินเองอัตโนมัติ (หรือติ๊กเลือกด้านล่างเพื่อตัดส่งเจ้ามือเพิ่ม)</div>
         </div>
         <div class="kpi-card" style="background:var(--primary-soft);">
-          <div class="kpi-title">🔥 4. ยอดเข้ามาใหม่ (รอจัดการในรอบนี้)</div>
+          <div class="kpi-title">🎯 4. กำลังเลือกตัดส่งในรอบนี้</div>
           <div class="kpi-value highlight-warn" id="layoffKpiNewPending">0 ฿</div>
-          <div class="kpi-sub" id="layoffKpiNewPendingSub">เฉพาะยอดใหม่ที่เพิ่งเข้ามา ยังไม่ได้ส่งเจ้ามือ</div>
+          <div class="kpi-sub" id="layoffKpiNewPendingSub">ยอดที่ติ๊กเลือกเพื่อเตรียมส่งเจ้ามือในรอบนี้</div>
         </div>
       </div>
 
       <div class="two-col-grid" style="grid-template-columns: 1.35fr 1fr;">
-        <!-- ซ้าย: ตารางเลือกเลขจากยอดที่เข้ามาใหม่ -->
+        <!-- ซ้าย: ตารางเลือกเลขที่จะตัดส่งเจ้ามือ -->
         <div class="card">
           <div class="card-header">
             <div>
-              <h2>📤 เลือกเลขที่จะ "ส่งเจ้ามือ" หรือ "เก็บไว้ที่เรา" (<span id="currentLayoffRoundTitle" style="color:var(--gold);">รอบที่ 2</span>)</h2>
-              <p class="text-muted">ระบบหักลบยอดที่เคยส่งไปแล้วออกให้อัตโนมัติ แสดงเฉพาะ <strong>"🔥 ยอดเข้ามาใหม่"</strong> เพื่อไม่ให้ส่งซ้ำ</p>
+              <h2>📤 1. ติ๊กเลือกเลขที่จะตัดส่งเจ้ามือ (<span id="currentLayoffRoundTitle" style="color:var(--primary);">รอบที่ 2</span>)</h2>
+              <p class="text-muted">เลขที่ไม่ติ๊กส่ง (หรือยอดคงเหลือ) จะถูก <strong>🏠 เก็บไว้ที่เราอัตโนมัติ</strong> • เลขที่เคยส่งเจ้ามือไปแล้วจะถูกหักออกให้ทันที ไม่ส่งซ้ำ</p>
             </div>
           </div>
 
           <div class="filter-bar" style="margin-bottom:10px;">
             <div class="filter-chips">
               <button class="chip active" id="btnFilterLayoffPending" onclick="setLayoffTableFilter('pending_only')">
-                🔥 เฉพาะเลขที่มี "ยอดเข้ามาใหม่" รอจัดการ
+                🏠 เฉพาะเลขที่มียอดคงเหลืออยู่ที่เรา (ส่งเพิ่มได้)
               </button>
               <button class="chip" id="btnFilterLayoffAll" onclick="setLayoffTableFilter('all')">
-                📋 ดูทุกเลข (รวมที่จัดการครบแล้ว)
+                📋 ดูทุกเลข (รวมที่ส่งเจ้ามือครบ 100% แล้ว)
               </button>
             </div>
             <div style="display:flex;gap:6px;">
               <button class="btn btn-outline btn-sm" onclick="selectAllNewPendingForDealer()">
-                ⚡ เลือกยอดใหม่ทุกเลข
+                ⚡ เลือกทุกเลขที่เหลืออยู่
               </button>
               <button class="btn btn-ghost btn-sm" onclick="clearLayoffSelection()">
                 ล้างที่เลือก
@@ -458,10 +458,9 @@
                     <input type="checkbox" id="chkSelectAllAgg" onchange="toggleSelectAllAgg(this.checked)" />
                   </th>
                   <th>เลข</th>
-                  <th class="num-col">รับสะสม</th>
-                  <th class="num-col" style="color:var(--info);">📤 ส่งแล้ว</th>
-                  <th class="num-col" style="color:var(--success);">🏠 เก็บเองแล้ว</th>
-                  <th class="num-col" style="color:var(--primary);">🔥 ยอดเข้ามาใหม่รอบนี้</th>
+                  <th class="num-col">ยอดรับสะสม</th>
+                  <th class="num-col" style="color:var(--info);">📤 ส่งเจ้ามือไปแล้ว</th>
+                  <th class="num-col" style="color:var(--success);">🏠 คงเหลืออยู่ที่เรา (ส่งได้)</th>
                   <th>สถานะ</th>
                 </tr>
               </thead>
@@ -470,12 +469,12 @@
           </div>
         </div>
 
-        <!-- ขวา: กำหนดว่าจะส่งเจ้ามือเท่าไหร่ vs เก็บไว้ที่เราเท่าไหร่ ในรอบนี้ -->
+        <!-- ขวา: ใบตัดยอดส่งเจ้ามือในรอบนี้ -->
         <div class="card">
           <div class="card-header">
             <div>
-              <h3>📋 จัดสรรยอดในรอบนี้: ส่งเจ้ามือ vs เก็บไว้ที่เรา (<span id="rightLayoffRoundBadge" style="color:var(--gold);">รอบที่ 2</span>)</h3>
-              <p class="text-muted">ระบุว่าในยอดใหม่ของแต่ละเลข จะส่งให้เจ้ามือเท่าไหร่ และเก็บไว้ที่เราเท่าไหร่ (พอกดยืนยัน ระบบจะล็อกยอดทันที ไม่ซ้ำรอบหน้า)</p>
+              <h3>📋 2. ใบตัดยอดส่งเจ้ามือ (<span id="rightLayoffRoundBadge" style="color:var(--primary);">รอบที่ 2</span>)</h3>
+              <p class="text-muted">ปรับลดจำนวนเงินที่จะส่งเจ้ามือได้รายเลข (ส่วนที่ไม่ได้ส่ง จะคงเหลือเก็บไว้ที่เราอัตโนมัติ)</p>
             </div>
           </div>
 
@@ -488,10 +487,9 @@
               <div class="form-row">
                 <label>ตั้งค่าเริ่มต้นสำหรับเลขที่ติ๊กเลือก:</label>
                 <select id="layoffModeSelect" class="input" onchange="onChangeLayoffPresetMode()">
-                  <option value="send_all_new">📤 ส่ง "ยอดเข้ามาใหม่ทั้งหมด" ให้เจ้ามือ (เก็บไว้ที่เรา 0฿)</option>
+                  <option value="send_all_new">📤 ส่งยอดคงเหลือทั้งหมดของเลขที่ติ๊กเลือก ให้เจ้ามือ</option>
                   <option value="keep_within_limit">🛡️ เก็บในเพดานไว้ที่เรา ส่วนเกินตัดส่งเจ้ามือ</option>
                   <option value="split_half">⚖️ แบ่งครึ่ง 50/50 (ส่งเจ้ามือครึ่งหนึ่ง / เก็บไว้ที่เราครึ่งหนึ่ง)</option>
-                  <option value="keep_all_new">🏠 เก็บยอดใหม่ไว้ที่เราทั้งหมด (ส่งเจ้ามือ 0฿)</option>
                 </select>
               </div>
             </div>
@@ -1209,6 +1207,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_38"></script>
+  <script src="/app.js?v=20261120_39"></script>
 </body>
 </html>

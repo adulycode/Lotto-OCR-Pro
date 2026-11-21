@@ -540,26 +540,24 @@ function buildInitialDb() {
         drawId: 'DRAW-2026-11-16',
         roundNumber: 1,
         dealerName: 'เจ้ามือสายใหญ่ #1',
-        itemCount: 4,
+        itemCount: 3,
         sentItemCount: 3,
-        keptItemCount: 2,
+        keptItemCount: 1,
         totalLayoffMoney: 494,
-        totalKeptMoney: 320,
+        totalKeptMoney: 100,
         formattedText:
           '📋 ใบตัดยอดส่ง: เจ้ามือสายใหญ่ #1 (รอบที่ 1)\n' +
           '📅 งวดวันที่ 16 พ.ย. 2569\n' +
           '-------------------------\n' +
-          '583 = 252 บ. (เก็บไว้ที่เรา 100 บ.)\n' +
-          '287 = 220 บ. (ส่งเจ้ามือทั้งหมด)\n' +
-          '21 = 22 บ. (ส่งเจ้ามือทั้งหมด)\n' +
-          '486 = 0 บ. (เก็บไว้ที่เราทั้งหมด 220 บ.)\n' +
+          '583 = 252 บ. (3 ตัวบน+โต๊ด)\n' +
+          '287 = 220 บ. (110×110)\n' +
+          '21 = 22 บ. (2 ตัวบน)\n' +
           '-------------------------\n' +
-          'รวมส่งเจ้ามือรอบที่ 1 = 494 บาท | เก็บไว้ที่เรา = 320 บาท',
+          'รวมส่งเจ้ามือรอบที่ 1 = 494 บาท',
         items: [
           { number: '583', sendTotal: 252, keepTotal: 100, typeDesc: '3 ตัวบน+โต๊ด' },
           { number: '287', sendTotal: 220, keepTotal: 0, typeDesc: '110×110' },
-          { number: '21', sendTotal: 22, keepTotal: 0, typeDesc: '2 ตัวบน' },
-          { number: '486', sendTotal: 0, keepTotal: 220, typeDesc: 'เก็บไว้ที่เรา' }
+          { number: '21', sendTotal: 22, keepTotal: 0, typeDesc: '2 ตัวบน' }
         ],
         createdAt: '2026-11-14T16:00:00.000Z'
       }
@@ -856,9 +854,9 @@ const server = http.createServer(async (req, res) => {
       const totalFull100Money = aggregated.reduce((sum, a) => sum + (a.fullPayout100Amt || 0), 0);
       const totalHalf50Money = aggregated.reduce((sum, a) => sum + (a.halfPayout50Amt || 0), 0);
       const totalSentToDealerMoney = aggregated.reduce((sum, a) => sum + (a.alreadySentAmt || 0), 0);
-      const totalKeptByUsMoney = aggregated.reduce((sum, a) => sum + (a.alreadyKeptAmt || 0), 0);
-      const totalNewPendingMoney = aggregated.reduce((sum, a) => sum + (a.newPendingAmt || 0), 0);
-      const pendingNumbersCount = aggregated.filter(a => a.hasNewPending).length;
+      const totalKeptByUsMoney = aggregated.reduce((sum, a) => sum + Math.max(0, (a.totalAmt || 0) - (a.alreadySentAmt || 0)), 0);
+      const totalNewPendingMoney = totalKeptByUsMoney;
+      const pendingNumbersCount = aggregated.filter(a => (a.totalAmt || 0) - (a.alreadySentAmt || 0) > 0).length;
 
       // Group customer summary for "เด็กโพย 1 คน ส่งหลายรอบ"
       const customerMap = new Map();
@@ -2035,12 +2033,16 @@ const server = http.createServer(async (req, res) => {
       const roundNumber = existingInDraw.length + 1;
 
       const dealerName = (body.dealerName || 'เจ้ามือสายใหญ่ #1').trim();
-      const items = (body.items || []).map(it => ({
-        number: String(it.number || '').trim(),
-        sendTotal: Math.max(0, Number(it.sendTotal) || 0),
-        keepTotal: Math.max(0, Number(it.keepTotal) || 0),
-        typeDesc: it.typeDesc || ''
-      }));
+      const items = (body.items || [])
+        .map(it => ({
+          number: String(it.number || '').trim(),
+          sendTotal: Math.max(0, Number(it.sendTotal) || 0),
+          keepTotal: Math.max(0, Number(it.keepTotal) || 0),
+          isRestricted: Boolean(it.isRestricted),
+          payoutPercent: Number(it.payoutPercent) || 100,
+          typeDesc: it.typeDesc || ''
+        }))
+        .filter(it => it.number && it.sendTotal > 0);
 
       const totalLayoffMoney = items.reduce((s, i) => s + i.sendTotal, 0);
       const totalKeptMoney = items.reduce((s, i) => s + i.keepTotal, 0);
