@@ -150,6 +150,60 @@ function getSessionUser(req) {
   }
 }
 
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const loginAttempts = new Map();
+
+function getClientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    return xff.split(',')[0].trim();
+  }
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) {
+    return realIp.trim();
+  }
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+function isLoginRateLimited(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry) return false;
+  if (now >= entry.resetAt) {
+    loginAttempts.delete(ip);
+    return false;
+  }
+  return entry.count >= MAX_LOGIN_ATTEMPTS;
+}
+
+function recordFailedLogin(ip) {
+  const now = Date.now();
+  for (const [k, v] of loginAttempts.entries()) {
+    if (now >= v.resetAt) loginAttempts.delete(k);
+  }
+  const existing = loginAttempts.get(ip);
+  if (!existing || now >= existing.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+  } else {
+    existing.count += 1;
+  }
+}
+
+function isDirectLoopback(req) {
+  if (req.headers['x-forwarded-for']) return false;
+  const addr = req.socket?.remoteAddress || '';
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+function isAuthorizedAntigravityReq(req) {
+  if (getSessionUser(req)) return true;
+  const agKey = process.env.ANTIGRAVITY_KEY || SESSION_SECRET;
+  if (req.headers['x-antigravity-key'] && req.headers['x-antigravity-key'] === agKey) return true;
+  if (isDirectLoopback(req)) return true;
+  return false;
+}
+
 function safeIsoDate(val) {
   if (!val) return new Date().toISOString();
   const d = new Date(val);
@@ -923,7 +977,8 @@ function sendJson(res, statusCode, payload, extraHeaders = {}) {
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'SAMEORIGIN',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Referrer-Policy': 'no-referrer',
+    'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet, noimageindex',
     ...extraHeaders
   });
   res.end(JSON.stringify(payload));
@@ -958,9 +1013,25 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/health') {
       return sendJson(res, 200, {
         status: 'ok',
-        service: 'efl-lotto-ocr',
         uptime: Math.round(process.uptime())
       });
+    }
+
+    // Strict Auth Gate for all private /api/* endpoints
+    const isPublicApi =
+      (req.method === 'GET' && pathname === '/api/auth/me') ||
+      (req.method === 'POST' && pathname === '/api/auth/login') ||
+      (req.method === 'POST' && pathname === '/api/auth/logout') ||
+      (req.method === 'POST' && pathname === '/api/line/webhook');
+
+    if (pathname.startsWith('/api/') && !isPublicApi) {
+      if (pathname.startsWith('/api/antigravity/')) {
+        if (!isAuthorizedAntigravityReq(req)) {
+          return sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+        }
+      } else if (!getSessionUser(req)) {
+        return sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+      }
     }
 
     // API: Get State for the selected Draw Period
@@ -1277,13 +1348,22 @@ const server = http.createServer(async (req, res) => {
 
     // API: Logout
     if (req.method === 'POST' && pathname === '/api/auth/logout') {
+      const isHttps = req.headers['x-forwarded-proto'] === 'https';
       return sendJson(res, 200, { ok: true }, {
-        'Set-Cookie': 'lotto_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'
+        'Set-Cookie': `lotto_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${isHttps ? '; Secure' : ''}`
       });
     }
 
-    // API: User Authentication (Login with Signed HttpOnly Cookie)
+    // API: User Authentication (Login with Signed HttpOnly Cookie + IP Brute-Force Protection)
     if (req.method === 'POST' && pathname === '/api/auth/login') {
+      const clientIp = getClientIp(req);
+      if (isLoginRateLimited(clientIp)) {
+        return sendJson(res, 429, {
+          ok: false,
+          error: 'พยายามเข้าสู่ระบบผิดพลาดหลายครั้งเกินไป กรุณารอ 15 นาทีแล้วลองใหม่อีกครั้ง'
+        });
+      }
+
       const body = await parseJsonBody(req);
       const db = loadDb();
       const users = db.users || [
@@ -1299,9 +1379,11 @@ const server = http.createServer(async (req, res) => {
       );
 
       if (!found) {
+        recordFailedLogin(clientIp);
         return sendJson(res, 401, { ok: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
       }
 
+      loginAttempts.delete(clientIp);
       const publicUser = {
         id: found.id,
         username: found.username,
@@ -1318,6 +1400,35 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, user: publicUser }, { 'Set-Cookie': cookieVal });
     }
 
+    // API: Change Own Password (Authenticated)
+    if (req.method === 'POST' && pathname === '/api/auth/change-password') {
+      const sessionUser = getSessionUser(req);
+      if (!sessionUser) {
+        return sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+      }
+      const body = await parseJsonBody(req);
+      const currentPassword = String(body.currentPassword || '').trim();
+      const newPassword = String(body.newPassword || '').trim();
+
+      if (newPassword.length < 6) {
+        return sendJson(res, 400, { ok: false, error: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร' });
+      }
+
+      const db = loadDb();
+      const user = (db.users || []).find(u => u.id === sessionUser.id || u.username === sessionUser.username);
+      if (!user) {
+        return sendJson(res, 404, { ok: false, error: 'ไม่พบบัญชีผู้ใช้งาน' });
+      }
+      if (!verifyPassword(currentPassword, user.password)) {
+        return sendJson(res, 400, { ok: false, error: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
+      }
+
+      user.password = hashPassword(newPassword);
+      appendAuditLog(db, user.displayName, 'เปลี่ยนรหัสผ่าน', `เปลี่ยนรหัสผ่านบัญชี @${user.username} เรียบร้อย`);
+      saveDb(db);
+      return sendJson(res, 200, { ok: true });
+    }
+
     // API: Manage User Accounts (Add / Remove Staff or Admin accounts)
     if (req.method === 'POST' && pathname === '/api/users') {
       const sessionUser = getSessionUser(req);
@@ -1331,11 +1442,14 @@ const server = http.createServer(async (req, res) => {
 
       if (body.action === 'add') {
         const username = String(body.username || '').trim();
-        const password = String(body.password || '1234').trim();
+        const password = String(body.password || '').trim();
         const displayName = String(body.displayName || username).trim();
         const role = body.role === 'admin' ? 'admin' : 'staff';
 
         if (!username) return sendJson(res, 400, { error: 'กรุณาระบุชื่อผู้ใช้ (Username)' });
+        if (password.length < 6) {
+          return sendJson(res, 400, { error: 'กรุณาตั้งรหัสผ่านอย่างน้อย 6 ตัวอักษร' });
+        }
         if (db.users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
           return sendJson(res, 400, { error: 'ชื่อผู้ใช้นี้มีในระบบแล้ว' });
         }
@@ -2342,6 +2456,23 @@ const server = http.createServer(async (req, res) => {
       return res.end('Forbidden');
     }
 
+    // Protect /uploads/* static files behind authenticated session (hide existence via 404)
+    if (
+      relPath === 'uploads' ||
+      relPath.startsWith('uploads/') ||
+      filePath === UPLOADS_DIR ||
+      filePath.startsWith(UPLOADS_DIR + path.sep)
+    ) {
+      if (!getSessionUser(req)) {
+        res.writeHead(404, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet, noimageindex'
+        });
+        return res.end('Not Found');
+      }
+    }
+
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       const ext = path.extname(filePath).toLowerCase();
       res.writeHead(200, {
@@ -2351,7 +2482,8 @@ const server = http.createServer(async (req, res) => {
         'Expires': '0',
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'SAMEORIGIN',
-        'Referrer-Policy': 'strict-origin-when-cross-origin'
+        'Referrer-Policy': 'no-referrer',
+        'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet, noimageindex'
       });
       fs.createReadStream(filePath).pipe(res);
     } else {

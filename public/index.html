@@ -3,44 +3,35 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ระบบจัดการโพยหวย & อ่านลายมือ AI (แยกตามงวด • เลขอั้น 50% • ตัดยอดส่งเจ้ามือ)</title>
-  <link rel="icon" type="image/jpeg" href="/mascot-logo.jpg" />
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+  <title>Workspace Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_45" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_46" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
-  <div id="loginOverlay" class="modal-overlay hidden no-print" style="z-index:9500;background:rgba(9,12,18,0.92);">
-    <div class="modal-card" style="max-width:420px;text-align:center;">
-      <img src="/mascot-logo.jpg" alt="Mascot" style="width:84px;height:84px;border-radius:50%;border:2px solid var(--gold);margin-bottom:10px;" />
-      <h2 style="font-size:18px;margin-bottom:4px;">เข้าสู่ระบบจัดการโพยหวย</h2>
-      <p class="text-muted" style="margin-bottom:16px;">กรุณาเข้าสู่ระบบเพื่อบันทึกประวัติผู้ทำรายการ (Audit Log)</p>
+  <div id="loginOverlay" class="modal-overlay no-print" style="z-index:9500;background:var(--bg-body, #0f172a);">
+    <div class="modal-card" style="max-width:400px;text-align:center;position:relative;">
+      <button type="button" id="btnCloseLoginModal" class="btn btn-ghost btn-sm hidden" style="position:absolute;top:12px;right:12px;" onclick="closeLoginModal()">✕ ปิด</button>
+      <h2 style="font-size:18px;margin-bottom:4px;">Sign In</h2>
+      <p class="text-muted" style="margin-bottom:16px;">Workspace Console — Authorized Personnel Only</p>
 
       <div style="text-align:left;margin-bottom:12px;">
-        <label class="small-label">ชื่อผู้ใช้ (Username):</label>
-        <input type="text" id="loginUsernameInput" class="input" value="admin" placeholder="เช่น admin หรือ staff1" />
+        <label class="small-label">Username:</label>
+        <input type="text" id="loginUsernameInput" class="input" value="" placeholder="Username" autocomplete="username" />
       </div>
       <div style="text-align:left;margin-bottom:16px;">
-        <label class="small-label">รหัสผ่าน (Password):</label>
-        <input type="password" id="loginPasswordInput" class="input" value="1234" placeholder="รหัสผ่าน" onkeydown="if(event.key==='Enter') submitLogin()" />
+        <label class="small-label">Password:</label>
+        <input type="password" id="loginPasswordInput" class="input" value="" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter') submitLogin()" />
       </div>
 
-      <button class="btn btn-primary btn-lg" onclick="submitLogin()">🔐 เข้าสู่ระบบ</button>
-
-      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);text-align:left;">
-        <div class="small-label" style="margin-bottom:6px;">คลิกสลับบัญชีทดสอบด่วน (รหัส 1234):</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button type="button" class="chip" onclick="quickFillLogin('admin', '1234')">👑 เฮียเจ้าของระบบ (admin)</button>
-          <button type="button" class="chip" onclick="quickFillLogin('staff1', '1234')">👤 แอดมินเมย์ (staff1)</button>
-          <button type="button" class="chip" onclick="quickFillLogin('staff2', '1234')">👤 แอดมินบอย (staff2)</button>
-        </div>
-      </div>
+      <button class="btn btn-primary btn-lg" onclick="submitLogin()">Sign In</button>
     </div>
   </div>
 
-  <div class="app-shell" id="appShell">
+  <div class="app-shell hidden" id="appShell">
     <!-- ================================================================= -->
     <!-- แถบเมนูหลักด้านซ้ายมือ (ดีไซน์โมเดิร์น + สลับธีมสว่าง/มืด + ชื่อผู้ใช้งาน) -->
     <!-- ================================================================= -->
@@ -185,7 +176,10 @@
             <div style="font-size:10px;color:var(--text-muted);line-height:1.1;">ผู้ใช้งานขณะนี้:</div>
             <div id="currentUserDisplayName" style="font-size:11.5px;font-weight:700;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">เฮียเจ้าของระบบ</div>
           </div>
-          <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10.5px;flex-shrink:0;" onclick="openLoginModal()">สลับคน</button>
+          <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
+            <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10.5px;flex-shrink:0;" onclick="openLoginModal()">สลับคน</button>
+            <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10.5px;flex-shrink:0;color:var(--danger);" onclick="logoutSession()" title="ออกจากระบบ">ออก</button>
+          </div>
         </div>
       </div>
     </aside>
@@ -587,7 +581,7 @@
           </div>
           <div class="photo-viewport" id="photoViewport">
             <div class="photo-canvas-wrap" id="photoCanvasWrap">
-              <img id="inspectorImage" src="/uploads/slip-16-11-page1.jpg" alt="รูปโพยหวย" />
+              <img id="inspectorImage" src="" alt="รูปโพยหวย" />
               <!-- กรอบชี้จุดที่มีปัญหาบนรูปกระดาษโพยอัตโนมัติ -->
               <div id="photoIssueMarkers" class="photo-issue-markers"></div>
               <div id="gridOverlay4x30" class="grid-overlay-4x30 hidden">
@@ -1100,7 +1094,7 @@
                     </div>
                     <div>
                       <label class="small-label">รหัสผ่าน (Password):</label>
-                      <input type="text" id="newPasswordInput" class="input" value="1234" placeholder="1234" />
+                      <input type="password" id="newPasswordInput" class="input" value="" placeholder="ตั้งรหัสผ่านอย่างน้อย 6 ตัว" />
                     </div>
                   </div>
                   <div class="form-row-2">
@@ -1117,6 +1111,25 @@
                     </div>
                   </div>
                   <button type="button" class="btn btn-primary" style="width:100%;" onclick="addUserAccount()">+ เพิ่มบัญชีผู้ใช้</button>
+                </div>
+
+                <div class="settings-form" style="background:var(--bg-input);padding:12px;border-radius:10px;border:1px solid var(--border);margin-bottom:14px;">
+                  <div style="font-weight:700;font-size:13.5px;margin-bottom:8px;">🔑 เปลี่ยนรหัสผ่านของฉัน</div>
+                  <div class="form-row-2" style="margin-bottom:8px;">
+                    <div>
+                      <label class="small-label">รหัสผ่านปัจจุบัน:</label>
+                      <input type="password" id="changeCurrentPasswordInput" class="input" placeholder="รหัสผ่านเดิม" autocomplete="current-password" />
+                    </div>
+                    <div>
+                      <label class="small-label">รหัสผ่านใหม่ (อย่างน้อย 6 ตัว):</label>
+                      <input type="password" id="changeNewPasswordInput" class="input" placeholder="รหัสผ่านใหม่" autocomplete="new-password" />
+                    </div>
+                  </div>
+                  <div style="margin-bottom:10px;">
+                    <label class="small-label">ยืนยันรหัสผ่านใหม่:</label>
+                    <input type="password" id="changeConfirmPasswordInput" class="input" placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง" autocomplete="new-password" onkeydown="if(event.key==='Enter') submitChangePassword()" />
+                  </div>
+                  <button type="button" class="btn btn-outline" style="width:100%;" onclick="submitChangePassword()">🔑 บันทึกรหัสผ่านใหม่</button>
                 </div>
 
                 <div id="usersListContainer"></div>
@@ -1185,6 +1198,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_45"></script>
+  <script src="/app.js?v=20261120_46"></script>
 </body>
 </html>

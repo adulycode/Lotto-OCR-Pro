@@ -34,18 +34,7 @@ let uploadedColumnSlices = null;
 
 // Theme & User Authentication State
 let currentTheme = localStorage.getItem('lotto_theme_v2') || 'light';
-let currentUser = (() => {
-  try {
-    const raw = localStorage.getItem('lotto_user');
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return {
-    id: 'USR-1',
-    username: 'admin',
-    displayName: 'เฮียเจ้าของระบบ (Admin)',
-    role: 'admin'
-  };
-})();
+let currentUser = null;
 
 // Wrap window.fetch to automatically inject actorName into JSON POST/PUT requests for Audit Logging
 const _origFetch = window.fetch.bind(window);
@@ -53,8 +42,8 @@ window.fetch = async function (input, init) {
   if (init && init.body && typeof init.body === 'string') {
     try {
       const parsed = JSON.parse(init.body);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !parsed.actorName) {
-        parsed.actorName = currentUser?.displayName || currentUser?.username || 'เฮียเจ้าของระบบ (Admin)';
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !parsed.actorName && currentUser) {
+        parsed.actorName = currentUser.displayName || currentUser.username;
         init = { ...init, body: JSON.stringify(parsed) };
       }
     } catch {}
@@ -81,33 +70,80 @@ function toggleThemeMode() {
 function updateCurrentUserUi() {
   const el = document.getElementById('currentUserDisplayName');
   if (el) {
-    el.textContent = currentUser?.displayName || currentUser?.username || 'เฮียเจ้าของระบบ (Admin)';
+    el.textContent = currentUser?.displayName || currentUser?.username || '-';
   }
 }
 
-function openLoginModal() {
+function showAuthenticatedApp(user) {
+  currentUser = user;
+  if (user) {
+    localStorage.setItem('lotto_user', JSON.stringify(user));
+  }
+  updateCurrentUserUi();
+  document.getElementById('loginOverlay')?.classList.add('hidden');
+  document.getElementById('appShell')?.classList.remove('hidden');
+  const webhookEl = document.getElementById('webhookUrlDisplay');
+  if (webhookEl) webhookEl.value = `${window.location.origin}/api/line/webhook`;
+}
+
+function showStealthLogin() {
+  if (antigravityQueuePollTimer) {
+    clearTimeout(antigravityQueuePollTimer);
+    antigravityQueuePollTimer = null;
+  }
+  currentUser = null;
+  localStorage.removeItem('lotto_user');
+  updateCurrentUserUi();
+  const pEl = document.getElementById('loginPasswordInput');
+  if (pEl) pEl.value = '';
+  document.getElementById('appShell')?.classList.add('hidden');
+  document.getElementById('btnCloseLoginModal')?.classList.add('hidden');
+  document.getElementById('loginOverlay')?.classList.remove('hidden');
+}
+
+function openLoginModal(prefillUsername = '') {
   const overlay = document.getElementById('loginOverlay');
-  if (overlay) overlay.classList.remove('hidden');
+  if (!overlay) return;
+  const closeBtn = document.getElementById('btnCloseLoginModal');
+  if (closeBtn) {
+    closeBtn.classList.toggle('hidden', !currentUser);
+  }
+  const uEl = document.getElementById('loginUsernameInput');
+  const pEl = document.getElementById('loginPasswordInput');
+  if (prefillUsername && uEl) {
+    uEl.value = prefillUsername;
+  }
+  if (pEl) pEl.value = '';
+  overlay.classList.remove('hidden');
+  if (prefillUsername && pEl) {
+    pEl.focus();
+  }
 }
 
 function closeLoginModal() {
+  if (!currentUser) return;
   const overlay = document.getElementById('loginOverlay');
   if (overlay) overlay.classList.add('hidden');
 }
 
-function quickFillLogin(username, password) {
-  const uEl = document.getElementById('loginUsernameInput');
-  const pEl = document.getElementById('loginPasswordInput');
-  if (uEl) uEl.value = username;
-  if (pEl) pEl.value = password;
-  submitLogin();
+async function checkAuthAndBoot() {
+  try {
+    const res = await fetch('/api/auth/me');
+    const data = await res.json();
+    if (res.ok && data.ok && data.authenticated && data.user) {
+      showAuthenticatedApp(data.user);
+      await fetchAppState();
+      return;
+    }
+  } catch {}
+  showStealthLogin();
 }
 
 async function submitLogin() {
   const username = (document.getElementById('loginUsernameInput')?.value || '').trim();
   const password = (document.getElementById('loginPasswordInput')?.value || '').trim();
-  if (!username) {
-    showToast('กรุณากรอกชื่อผู้ใช้ (Username)');
+  if (!username || !password) {
+    showToast('กรุณากรอก Username และ Password');
     return;
   }
 
@@ -123,15 +159,24 @@ async function submitLogin() {
       return;
     }
 
-    currentUser = data.user;
-    localStorage.setItem('lotto_user', JSON.stringify(currentUser));
-    updateCurrentUserUi();
-    closeLoginModal();
+    const pEl = document.getElementById('loginPasswordInput');
+    if (pEl) pEl.value = '';
+    showAuthenticatedApp(data.user);
     await fetchAppState();
-    showToast(`🔐 เข้าสู่ระบบในนาม "${currentUser.displayName}" เรียบร้อย`);
+    showToast(`🔐 เข้าสู่ระบบในนาม "${data.user.displayName}" เรียบร้อย`);
   } catch (err) {
     showToast(`❌ เกิดข้อผิดพลาดในการเข้าสู่ระบบ: ${err.message}`);
   }
+}
+
+async function logoutSession() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch {}
+  const uEl = document.getElementById('loginUsernameInput');
+  if (uEl) uEl.value = '';
+  showStealthLogin();
+  showToast('🚪 ออกจากระบบเรียบร้อยแล้ว');
 }
 
 async function logCustomAuditEvent(actionType, detail) {
@@ -146,12 +191,9 @@ async function logCustomAuditEvent(actionType, detail) {
 
 document.addEventListener('DOMContentLoaded', async () => {
   applyTheme(currentTheme);
-  updateCurrentUserUi();
   buildPrintable4x30Template();
   initPhotoViewportDragPan();
-  await fetchAppState();
-  const webhookEl = document.getElementById('webhookUrlDisplay');
-  if (webhookEl) webhookEl.value = `${window.location.origin}/api/line/webhook`;
+  await checkAuthAndBoot();
 });
 
 function initPhotoViewportDragPan() {
@@ -243,6 +285,11 @@ let antigravityQueuePollTimer = null;
 async function fetchAppState(drawIdParam = '') {
   const url = drawIdParam ? `/api/state?drawId=${encodeURIComponent(drawIdParam)}` : '/api/state';
   const res = await fetch(url);
+  if (res.status === 401) {
+    showStealthLogin();
+    return;
+  }
+  if (!res.ok) return;
   appState = await res.json();
 
   renderHeaderAndKpis();
@@ -3088,12 +3135,16 @@ function switchSettingsSubtab(subTabId) {
 
 async function addUserAccount() {
   const username = (document.getElementById('newUsernameInput')?.value || '').trim();
-  const password = (document.getElementById('newPasswordInput')?.value || '1234').trim();
+  const password = (document.getElementById('newPasswordInput')?.value || '').trim();
   const displayName = (document.getElementById('newDisplayNameInput')?.value || username).trim();
   const role = document.getElementById('newRoleSelect')?.value || 'staff';
 
   if (!username) {
     showToast('กรุณาระบุชื่อผู้ใช้ (Username)');
+    return;
+  }
+  if (password.length < 6) {
+    showToast('กรุณาตั้งรหัสผ่านอย่างน้อย 6 ตัวอักษร');
     return;
   }
 
@@ -3115,9 +3166,50 @@ async function addUserAccount() {
   }
 
   document.getElementById('newUsernameInput').value = '';
+  document.getElementById('newPasswordInput').value = '';
   document.getElementById('newDisplayNameInput').value = '';
   await fetchAppState();
   showToast(`✅ เพิ่มบัญชีผู้ใช้งาน "${displayName}" (@${username}) เรียบร้อย`);
+}
+
+async function submitChangePassword() {
+  const currentPassword = (document.getElementById('changeCurrentPasswordInput')?.value || '').trim();
+  const newPassword = (document.getElementById('changeNewPasswordInput')?.value || '').trim();
+  const confirmPassword = (document.getElementById('changeConfirmPasswordInput')?.value || '').trim();
+
+  if (!currentPassword) {
+    showToast('กรุณากรอกรหัสผ่านปัจจุบัน');
+    return;
+  }
+  if (newPassword.length < 6) {
+    showToast('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    showToast('❌ รหัสผ่านใหม่ทั้ง 2 ช่องไม่ตรงกัน');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      showToast(`❌ ${data.error || 'ไม่สามารถเปลี่ยนรหัสผ่านได้'}`);
+      return;
+    }
+
+    document.getElementById('changeCurrentPasswordInput').value = '';
+    document.getElementById('changeNewPasswordInput').value = '';
+    document.getElementById('changeConfirmPasswordInput').value = '';
+    await fetchAppState();
+    showToast('🔑 เปลี่ยนรหัสผ่านใหม่เรียบร้อยแล้ว');
+  } catch (err) {
+    showToast(`❌ เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน: ${err.message}`);
+  }
 }
 
 async function removeUserAccount(userId) {
@@ -3154,7 +3246,7 @@ function renderUsersAndAuditLogs() {
             <div style="display:flex;gap:6px;align-items:center;">
               ${
                 !isCurrent
-                  ? `<button type="button" class="btn btn-outline btn-sm" onclick="quickFillLogin('${escapeHtml(u.username)}', '1234')">สลับใช้คนนี้</button>`
+                  ? `<button type="button" class="btn btn-outline btn-sm" onclick="openLoginModal('${escapeJsArg(u.username)}')">สลับใช้คนนี้</button>`
                   : ''
               }
               ${
