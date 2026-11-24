@@ -155,9 +155,9 @@ const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const loginAttempts = new Map();
 
 function getClientIp(req) {
-  const xff = req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff.trim()) {
-    return xff.split(',')[0].trim();
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (typeof cfIp === 'string' && cfIp.trim()) {
+    return cfIp.trim();
   }
   const realIp = req.headers['x-real-ip'];
   if (typeof realIp === 'string' && realIp.trim()) {
@@ -191,7 +191,7 @@ function recordFailedLogin(ip) {
 }
 
 function isDirectLoopback(req) {
-  if (req.headers['x-forwarded-for']) return false;
+  if (req.headers['x-forwarded-for'] || req.headers['cf-connecting-ip'] || req.headers['x-real-ip']) return false;
   const addr = req.socket?.remoteAddress || '';
   return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
@@ -202,6 +202,18 @@ function isAuthorizedAntigravityReq(req) {
   if (req.headers['x-antigravity-key'] && req.headers['x-antigravity-key'] === agKey) return true;
   if (isDirectLoopback(req)) return true;
   return false;
+}
+
+function requireAdmin(req, res) {
+  const u = getSessionUser(req);
+  if (!u || u.role !== 'admin') {
+    sendJson(res, 403, {
+      ok: false,
+      error: 'เฉพาะบัญชีเจ้าของระบบ (Admin) เท่านั้นที่ทำรายการนี้ได้'
+    });
+    return false;
+  }
+  return true;
 }
 
 function safeIsoDate(val) {
@@ -901,7 +913,7 @@ function saveDb(db) {
   if (antigravityLastSeenAt) {
     db.antigravityLastSeenAt = antigravityLastSeenAt;
   }
-  const tmpFile = `${DB_FILE}.tmp`;
+  const tmpFile = `${DB_FILE}.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   fs.writeFileSync(tmpFile, JSON.stringify(db, null, 2), 'utf8');
   fs.renameSync(tmpFile, DB_FILE);
 }
@@ -978,6 +990,7 @@ function sendJson(res, statusCode, payload, extraHeaders = {}) {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'SAMEORIGIN',
     'Referrer-Policy': 'no-referrer',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet, noimageindex',
     ...extraHeaders
   });
@@ -1431,10 +1444,7 @@ const server = http.createServer(async (req, res) => {
 
     // API: Manage User Accounts (Add / Remove Staff or Admin accounts)
     if (req.method === 'POST' && pathname === '/api/users') {
-      const sessionUser = getSessionUser(req);
-      if (sessionUser && sessionUser.role !== 'admin') {
-        return sendJson(res, 403, { error: 'เฉพาะบัญชีเจ้าของระบบ (Admin) เท่านั้นที่จัดการผู้ใช้ได้' });
-      }
+      if (!requireAdmin(req, res)) return;
       const body = await parseJsonBody(req);
       const db = loadDb();
       const actor = getActorFromReq(req, body);
@@ -1513,6 +1523,7 @@ const server = http.createServer(async (req, res) => {
 
     // API: Fetch GLO Lottery Results or Save Manual Winning Numbers
     if (req.method === 'POST' && pathname === '/api/draws/winning-result') {
+      if (!requireAdmin(req, res)) return;
       const body = await parseJsonBody(req);
       const db = loadDb();
       const draw = db.draws.find(d => d.id === (body.drawId || db.currentDrawId)) || db.draws[0];
@@ -1622,6 +1633,7 @@ const server = http.createServer(async (req, res) => {
         draw.restrictedNumbers = (draw.restrictedNumbers || []).filter(r => r.number !== body.number);
         appendAuditLog(db, getActorFromReq(req, body), 'ลบเลขอั้น', `ลบเลข ${body.number} ออกจากรายการอั้น`);
       } else if (body.action === 'clear_all') {
+        if (!requireAdmin(req, res)) return;
         draw.restrictedNumbers = [];
         appendAuditLog(db, getActorFromReq(req, body), 'ล้างเลขอั้น', `ล้างรายการเลขอั้นทั้งหมดของ ${draw.title}`);
       }
@@ -1632,10 +1644,7 @@ const server = http.createServer(async (req, res) => {
 
     // API: Reset Demo Database
     if (req.method === 'POST' && pathname === '/api/reset') {
-      const sessionUser = getSessionUser(req);
-      if (sessionUser && sessionUser.role !== 'admin') {
-        return sendJson(res, 403, { error: 'เฉพาะบัญชีเจ้าของระบบ (Admin) เท่านั้นที่รีเซ็ตข้อมูลได้' });
-      }
+      if (!requireAdmin(req, res)) return;
       const initial = buildInitialDb();
       saveDb(initial);
       return sendJson(res, 200, { ok: true, message: 'รีเซ็ตข้อมูลตัวอย่างเริ่มต้นเรียบร้อยแล้ว' });
@@ -1643,6 +1652,7 @@ const server = http.createServer(async (req, res) => {
 
     // API: Update Settings (Whitelisted Fields + Secret Protection)
     if (req.method === 'POST' && pathname === '/api/settings') {
+      if (!requireAdmin(req, res)) return;
       const body = await parseJsonBody(req);
       const db = loadDb();
       const s = db.settings || {};
@@ -1982,6 +1992,9 @@ const server = http.createServer(async (req, res) => {
 
           return {
             ...parsed,
+            colHeader: it.colHeader || prev?.colHeader || parsed.colHeader || '',
+            categoryHint: it.categoryHint || prev?.categoryHint || parsed.categoryHint || '3_top',
+            box2d: prev?.box2d || it.box2d || null,
             ocrOriginalNumText: newNum,
             ocrOriginalAmtText: newAmt
           };
@@ -2036,9 +2049,36 @@ const server = http.createServer(async (req, res) => {
 
     // API: Delete a Slip
     if (req.method === 'DELETE' && pathname.startsWith('/api/slips/')) {
+      if (!requireAdmin(req, res)) return;
       const slipId = decodeURIComponent(pathname.replace('/api/slips/', ''));
       const db = loadDb();
+      const target = (db.slips || []).find(s => s.id === slipId);
+      if (!target) {
+        return sendJson(res, 404, { ok: false, error: 'ไม่พบบิลนี้ในระบบ' });
+      }
       db.slips = db.slips.filter(s => s.id !== slipId);
+      if (
+        target.imageUrl &&
+        target.imageUrl.startsWith('/uploads/') &&
+        target.imageUrl !== '/uploads/slip-16-11-page1.jpg'
+      ) {
+        const stillUsed = db.slips.some(s => s.imageUrl === target.imageUrl);
+        if (!stillUsed) {
+          const relImg = target.imageUrl.replace(/^\/+/, '');
+          const resolvedImg = path.resolve(PUBLIC_DIR, relImg);
+          if (resolvedImg.startsWith(UPLOADS_DIR + path.sep) && fs.existsSync(resolvedImg)) {
+            try {
+              fs.unlinkSync(resolvedImg);
+            } catch {}
+          }
+        }
+      }
+      appendAuditLog(
+        db,
+        getActorFromReq(req),
+        'ลบบิลโพย',
+        `ลบบิลของ "${target.customerName}" (${target.title}) ยอด ${(target.totalMoney || 0).toLocaleString()} บาท`
+      );
       saveDb(db);
       return sendJson(res, 200, { ok: true });
     }
@@ -2246,14 +2286,15 @@ const server = http.createServer(async (req, res) => {
       const rawBuf = await readRawBodyBuffer(req);
       const db = loadDb();
       const channelSecret = (db.settings.lineChannelSecret || process.env.LINE_CHANNEL_SECRET || '').trim();
-      if (channelSecret) {
-        const sigHeader = String(req.headers['x-line-signature'] || '');
-        const expectedSig = crypto.createHmac('sha256', channelSecret).update(rawBuf).digest('base64');
-        const a = Buffer.from(sigHeader, 'utf8');
-        const b = Buffer.from(expectedSig, 'utf8');
-        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-          return sendJson(res, 401, { error: 'Invalid X-Line-Signature' });
-        }
+      if (!channelSecret) {
+        return sendJson(res, 503, { error: 'LINE Webhook is not configured' });
+      }
+      const sigHeader = String(req.headers['x-line-signature'] || '');
+      const expectedSig = crypto.createHmac('sha256', channelSecret).update(rawBuf).digest('base64');
+      const a = Buffer.from(sigHeader, 'utf8');
+      const b = Buffer.from(expectedSig, 'utf8');
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        return sendJson(res, 401, { error: 'Invalid X-Line-Signature' });
       }
       let body = {};
       try {
@@ -2434,9 +2475,20 @@ const server = http.createServer(async (req, res) => {
 
     // API: Delete / Undo a Layoff Round
     if (req.method === 'DELETE' && pathname.startsWith('/api/layoffs/')) {
+      if (!requireAdmin(req, res)) return;
       const layoffId = decodeURIComponent(pathname.replace('/api/layoffs/', ''));
       const db = loadDb();
+      const target = (db.layoffs || []).find(l => l.id === layoffId);
+      if (!target) {
+        return sendJson(res, 404, { ok: false, error: 'ไม่พบรอบส่งเจ้ามือนี้ในระบบ' });
+      }
       db.layoffs = (db.layoffs || []).filter(l => l.id !== layoffId);
+      appendAuditLog(
+        db,
+        getActorFromReq(req),
+        'ยกเลิกรอบส่งเจ้ามือ',
+        `ยกเลิกส่ง "${target.dealerName}" (รอบที่ ${target.roundNumber || 1}) ยอดส่ง ${(target.totalLayoffMoney || 0).toLocaleString()} บาท`
+      );
       saveDb(db);
       return sendJson(res, 200, { ok: true });
     }
@@ -2449,28 +2501,36 @@ const server = http.createServer(async (req, res) => {
       return res.end('Bad Request');
     }
 
-    const relPath = decodedPathname === '/' ? 'index.html' : decodedPathname.replace(/^\/+/, '');
+    const sessionUser = getSessionUser(req);
+    let relPath = decodedPathname === '/' ? 'index.html' : decodedPathname.replace(/^\/+/, '');
+    if ((decodedPathname === '/' || relPath === 'index.html') && !sessionUser) {
+      relPath = 'login.html';
+    }
+
     const filePath = path.resolve(PUBLIC_DIR, relPath);
     if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + path.sep)) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('Forbidden');
     }
 
-    // Protect /uploads/* static files behind authenticated session (hide existence via 404)
-    if (
+    // Protect all internal app files and uploaded slips when unauthenticated (hide existence via 404)
+    const isProtectedAsset =
+      relPath === 'app.js' ||
+      relPath === 'styles.css' ||
+      relPath === 'mascot-logo.jpg' ||
+      relPath === 'index.html' ||
       relPath === 'uploads' ||
       relPath.startsWith('uploads/') ||
       filePath === UPLOADS_DIR ||
-      filePath.startsWith(UPLOADS_DIR + path.sep)
-    ) {
-      if (!getSessionUser(req)) {
-        res.writeHead(404, {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Cache-Control': 'no-store',
-          'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet, noimageindex'
-        });
-        return res.end('Not Found');
-      }
+      filePath.startsWith(UPLOADS_DIR + path.sep);
+
+    if (isProtectedAsset && !sessionUser) {
+      res.writeHead(404, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet, noimageindex'
+      });
+      return res.end('Not Found');
     }
 
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
@@ -2483,6 +2543,7 @@ const server = http.createServer(async (req, res) => {
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'SAMEORIGIN',
         'Referrer-Policy': 'no-referrer',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
         'X-Robots-Tag': 'noindex, nofollow, noarchive, nosnippet, noimageindex'
       });
       fs.createReadStream(filePath).pipe(res);

@@ -87,18 +87,32 @@ function showAuthenticatedApp(user) {
 }
 
 function showStealthLogin() {
+  const wasAppVisible = !document.getElementById('appShell')?.classList.contains('hidden');
   if (antigravityQueuePollTimer) {
     clearTimeout(antigravityQueuePollTimer);
     antigravityQueuePollTimer = null;
   }
   currentUser = null;
   localStorage.removeItem('lotto_user');
+  if (wasAppVisible) {
+    window.location.replace('/');
+    return;
+  }
   updateCurrentUserUi();
   const pEl = document.getElementById('loginPasswordInput');
   if (pEl) pEl.value = '';
   document.getElementById('appShell')?.classList.add('hidden');
   document.getElementById('btnCloseLoginModal')?.classList.add('hidden');
   document.getElementById('loginOverlay')?.classList.remove('hidden');
+}
+
+async function readApiError(res, fallbackMsg) {
+  try {
+    const data = await res.json();
+    return data?.error || fallbackMsg;
+  } catch {
+    return fallbackMsg;
+  }
 }
 
 function openLoginModal(prefillUsername = '') {
@@ -173,10 +187,8 @@ async function logoutSession() {
   try {
     await fetch('/api/auth/logout', { method: 'POST' });
   } catch {}
-  const uEl = document.getElementById('loginUsernameInput');
-  if (uEl) uEl.value = '';
-  showStealthLogin();
-  showToast('🚪 ออกจากระบบเรียบร้อยแล้ว');
+  localStorage.removeItem('lotto_user');
+  window.location.replace('/');
 }
 
 async function logCustomAuditEvent(actionType, detail) {
@@ -344,20 +356,20 @@ function openNewDrawModal() {
         <div class="contributor-item" style="margin-bottom:0;border-color:${u.isShifted ? 'var(--primary-border)' : 'var(--border)'};background:${u.isShifted ? 'var(--primary-soft)' : 'var(--bg-elevated)'};">
           <div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <strong style="font-size:15px;color:${u.isShifted ? 'var(--primary)' : 'var(--text-main)'};">📅 ${u.title}</strong>
+              <strong style="font-size:15px;color:${u.isShifted ? 'var(--primary)' : 'var(--text-main)'};">📅 ${escapeHtml(u.title)}</strong>
               ${
                 u.isShifted
-                  ? `<span class="badge-50">${u.shiftReason}</span>`
+                  ? `<span class="badge-50">${escapeHtml(u.shiftReason)}</span>`
                   : `<span class="badge-100">🟢 ออกตามวันปกติ</span>`
               }
             </div>
-            <div class="text-muted" style="font-size:11.5px;margin-top:2px;">รหัสวันที่กองสลาก: ${u.drawDate}</div>
+            <div class="text-muted" style="font-size:11.5px;margin-top:2px;">รหัสวันที่กองสลาก: ${escapeHtml(u.drawDate)}</div>
           </div>
           <div>
             ${
               u.alreadyCreated
                 ? `<span class="badge-100">เปิดงวดนี้ไว้แล้ว</span>`
-                : `<button class="btn btn-primary btn-sm" onclick="createDrawFromSchedule('${u.title}', '${u.drawDate}')">+ เปิดรับโพยงวดนี้</button>`
+                : `<button class="btn btn-primary btn-sm" onclick="createDrawFromSchedule('${escapeJsArg(u.title)}', '${escapeJsArg(u.drawDate)}')">+ เปิดรับโพยงวดนี้</button>`
             }
           </div>
         </div>
@@ -751,10 +763,10 @@ function renderAggregatedTable() {
 
   if (selectedSlipRoundFilter) {
     const slipObj = (appState.slips || []).find(s => s.id === selectedSlipRoundFilter);
-    titleEl.innerHTML = `📄 2. กำลังดูเฉพาะ: <span style="color:var(--primary);">${selectedCustomerFilter} — รอบที่ ${slipObj?.roundNumber || ''} (${(slipObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-outline btn-sm" style="margin-left:8px;" onclick="filterByCustomer('${selectedCustomerFilter}')">📊 ดูรวมทุกรอบของคนนี้</button> <button class="btn btn-ghost btn-sm" onclick="filterByCustomer(null)">🌐 ดูรวมทุกคน</button>`;
+    titleEl.innerHTML = `📄 2. กำลังดูเฉพาะ: <span style="color:var(--primary);">${escapeHtml(selectedCustomerFilter)} — รอบที่ ${slipObj?.roundNumber || ''} (${(slipObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-outline btn-sm" style="margin-left:8px;" onclick="filterByCustomer('${escapeJsArg(selectedCustomerFilter)}')">📊 ดูรวมทุกรอบของคนนี้</button> <button class="btn btn-ghost btn-sm" onclick="filterByCustomer(null)">🌐 ดูรวมทุกคน</button>`;
   } else if (selectedCustomerFilter) {
     const custObj = (appState.customersInDraw || []).find(c => c.customerName === selectedCustomerFilter);
-    titleEl.innerHTML = `👤 2. ยอดรวมทุกรอบของ: <span style="color:var(--primary);">${selectedCustomerFilter} (รวม ${custObj?.slipCount || 1} รอบ = ${(custObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="filterByCustomer(null)">🌐 กลับไปดูรวมทุกคนทั้งงวด</button>`;
+    titleEl.innerHTML = `👤 2. ยอดรวมทุกรอบของ: <span style="color:var(--primary);">${escapeHtml(selectedCustomerFilter)} (รวม ${custObj?.slipCount || 1} รอบ = ${(custObj?.totalMoney || 0).toLocaleString()}฿)</span> <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="filterByCustomer(null)">🌐 กลับไปดูรวมทุกคนทั้งงวด</button>`;
   } else {
     titleEl.textContent = `📊 2. สรุปยอดรวมแต่ละเลขในงวดนี้ (รวมเด็กโพยทุกคน ทุกรอบ เป็นยอดเงินเดียว)`;
   }
@@ -1089,7 +1101,7 @@ function renderSelectedNumberDetail() {
         <div class="contributor-item" style="margin-top:8px;">
           <div>
             <div style="display:flex;align-items:center;gap:8px;">
-              <strong style="color:var(--text-main);font-size:14px;">👤 ${c.customerName}</strong>
+              <strong style="color:var(--text-main);font-size:14px;">👤 ${escapeHtml(c.customerName)}</strong>
               ${
                 is100
                   ? `<span class="badge-100">🟢 แทงก่อนเวลาอั้น ➔ ได้เต็ม 100%</span>`
@@ -1097,17 +1109,17 @@ function renderSelectedNumberDetail() {
               }
             </div>
             <div class="text-muted" style="margin-top:2px;">
-              จาก: <strong>${c.slipTitle}</strong> • เวลาที่ส่ง: ${formatThaiDateTime(c.createdAt)}
+              จาก: <strong>${escapeHtml(c.slipTitle)}</strong> • เวลาที่ส่ง: ${formatThaiDateTime(c.createdAt)}
             </div>
             <div style="font-size:12px;margin-top:2px;">
-              ที่เขียนในโพย: <code style="color:var(--primary);font-weight:600;">${c.originalWrite}</code> (${c.typeLabel})
+              ที่เขียนในโพย: <code style="color:var(--primary);font-weight:600;">${escapeHtml(c.originalWrite)}</code> (${escapeHtml(c.typeLabel)})
             </div>
           </div>
           <div style="text-align:right;">
             <div style="font-family:var(--font-mono);font-size:16px;font-weight:700;color:${is100 ? 'var(--success)' : 'var(--primary)'};">
               +${c.amount.toLocaleString()} บาท
             </div>
-            <button class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="jumpToSlipInspector('${c.slipId}', ${c.col || 1}, ${c.row || 1})">
+            <button class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="jumpToSlipInspector('${escapeJsArg(c.slipId)}', ${Number(c.col) || 1}, ${Number(c.row) || 1})">
               🔍 ดูในใบโพย
             </button>
           </div>
@@ -1120,7 +1132,7 @@ function renderSelectedNumberDetail() {
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
       <div>
         <span style="font-size:13px;font-weight:700;">📌 รายละเอียดผู้ส่งเลข:</span>
-        <span class="number-pill" style="font-size:18px;margin-left:8px;">${item.number}</span>
+        <span class="number-pill" style="font-size:18px;margin-left:8px;">${escapeHtml(item.number)}</span>
         ${
           item.isRestricted
             ? `<span class="badge-50" style="margin-left:8px;">🔒 เลขอั้นเจ้ามือ (ประกาศอั้นเมื่อ ${formatThaiDateTime(item.restrictedRule?.announcedAt)})</span>`
@@ -1159,14 +1171,14 @@ function renderRestrictedNumbersTab() {
 
       return `
         <tr>
-          <td><span class="number-pill">${r.number}</span></td>
+          <td><span class="number-pill">${escapeHtml(r.number)}</span></td>
           <td><span class="badge-50">จ่าย ${r.payoutPercent}%</span></td>
           <td>${formatThaiDateTime(r.announcedAt)}</td>
           <td class="num-col" style="color:var(--success);font-weight:700;">${full100.toLocaleString()} ฿</td>
           <td class="num-col" style="color:var(--primary);font-weight:700;">${half50.toLocaleString()} ฿</td>
           <td class="num-col" style="color:var(--text-main);font-weight:700;">${total.toLocaleString()} ฿</td>
           <td style="text-align:right;">
-            <button class="btn btn-ghost btn-sm" onclick="removeRestrictedNumber('${r.number}')">ลบ</button>
+            <button class="btn btn-ghost btn-sm" onclick="removeRestrictedNumber('${escapeJsArg(r.number)}')">ลบ</button>
           </td>
         </tr>
       `;
@@ -1238,7 +1250,7 @@ async function removeRestrictedNumber(number) {
 }
 
 async function clearAllRestrictions() {
-  await fetch('/api/draws/restrictions', {
+  const res = await fetch('/api/draws/restrictions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1246,6 +1258,10 @@ async function clearAllRestrictions() {
       drawId: appState.currentDrawId
     })
   });
+  if (!res.ok) {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถล้างเลขอั้นได้')}`);
+    return;
+  }
   await fetchAppState();
   showToast('ล้างรายการเลขอั้นทั้งหมดในงวดนี้แล้ว');
 }
@@ -1530,14 +1546,14 @@ function renderLayoffBuilder(skipInputRebuild = false) {
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <span style="font-size:12px;color:var(--success);">🏠 เก็บเอง: ${(l.totalKeptMoney || 0).toLocaleString()}฿</span>
                 <strong style="color:var(--primary);font-family:var(--font-mono);">📤 ส่งเจ้ามือ: ${(l.totalLayoffMoney || 0).toLocaleString()}฿</strong>
-                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="exportSavedLayoffRoundExcel('${l.id}')">📊 โหลด Excel รอบนี้</button>
-                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="exportSavedLayoffRoundCsv('${l.id}')">📄 โหลด CSV รอบนี้</button>
-                <button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px;" onclick="undoLayoffRound('${l.id}')">ยกเลิกรอบนี้</button>
+                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="exportSavedLayoffRoundExcel('${escapeJsArg(l.id)}')">📊 โหลด Excel รอบนี้</button>
+                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="exportSavedLayoffRoundCsv('${escapeJsArg(l.id)}')">📄 โหลด CSV รอบนี้</button>
+                <button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px;" onclick="undoLayoffRound('${escapeJsArg(l.id)}')">ยกเลิกรอบนี้</button>
               </div>
             </div>
             <div style="font-size:12px;color:var(--text-muted);">
               รายการในรอบนี้: ${(l.items || [])
-                .map(it => `${it.number} (ส่ง ${it.sendTotal}฿ / เก็บ ${it.keepTotal || 0}฿)`)
+                .map(it => `${escapeHtml(it.number)} (ส่ง ${it.sendTotal}฿ / เก็บ ${it.keepTotal || 0}฿)`)
                 .join(' • ')}
             </div>
           </div>
@@ -1968,7 +1984,11 @@ function exportFullDrawSummaryExcel() {
 }
 
 async function undoLayoffRound(layoffId) {
-  await fetch(`/api/layoffs/${encodeURIComponent(layoffId)}`, { method: 'DELETE' });
+  const res = await fetch(`/api/layoffs/${encodeURIComponent(layoffId)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถยกเลิกรอบนี้ได้')}`);
+    return;
+  }
   await fetchAppState();
   showToast('🔄 ยกเลิกรอบการส่งเจ้ามือนั้นแล้ว ยอดกลับมารอจัดสรรใหม่');
 }
@@ -2121,7 +2141,7 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
           w.warnings && w.warnings.length > 0
             ? w.warnings.join(', ')
             : w.note || 'ตรวจพบรอยขีดฆ่า/ตัวเลขไม่ชัดเจน กรุณาตรวจสอบกับรูปจริง';
-        return `<span style="cursor:pointer;text-decoration:underline;font-weight:700;" onclick="focusInspectorCell(${w.col}, ${w.row})">📍 คอลัมน์ ${w.col} แถว ${w.row} (${w.numText}=${w.amtText}): ${msg} (คลิกเพื่อชี้จุด)</span>`;
+        return `<span style="cursor:pointer;text-decoration:underline;font-weight:700;" onclick="focusInspectorCell(${Number(w.col) || 1}, ${Number(w.row) || 1})">📍 คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)}): ${escapeHtml(msg)} (คลิกเพื่อชี้จุด)</span>`;
       })
       .join(' | ');
     banner.innerHTML = `
@@ -2180,9 +2200,9 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
         return `
           <div class="photo-issue-box"
             style="left:${leftPct}%;width:${widthPct}%;top:${topPct}%;height:${heightPct}%;"
-            onclick="focusInspectorCell(${w.col}, ${w.row})"
-            title="คลิกเพื่อเลื่อนไปยัง คอลัมน์ ${w.col} แถว ${w.row}">
-            <span class="photo-issue-label">⬅️ แถว ${w.row} (${w.numText}=${w.amtText})</span>
+            onclick="focusInspectorCell(${Number(w.col) || 1}, ${Number(w.row) || 1})"
+            title="คลิกเพื่อเลื่อนไปยัง คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1}">
+            <span class="photo-issue-label">⬅️ แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})</span>
           </div>
         `;
       });
@@ -2871,12 +2891,14 @@ async function fetchLatestGloLotteryResult() {
       action: 'fetch_glo'
     })
   });
-  if (res.ok) {
-    const data = await res.json();
-    await fetchAppState();
-    const w = data.winningResult || {};
-    showToast(`🏆 ดึงผลกองสลากสำเร็จ! รางวัลที่ 1: ${w.firstPrize} (3 ตัวบน: ${w.threeTop} | 2 ตัวล่าง: ${w.twoBottom})`);
+  if (!res.ok) {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถดึงผลรางวัลได้')}`);
+    return;
   }
+  const data = await res.json();
+  await fetchAppState();
+  const w = data.winningResult || {};
+  showToast(`🏆 ดึงผลกองสลากสำเร็จ! รางวัลที่ 1: ${w.firstPrize} (3 ตัวบน: ${w.threeTop} | 2 ตัวล่าง: ${w.twoBottom})`);
 }
 
 async function applySampleWinningNumbers(firstPrize, threeTop, twoTop, twoBottom) {
@@ -2893,7 +2915,7 @@ async function saveManualWinningResult() {
   const twoTop = document.getElementById('winTwoTopInput').value.trim();
   const twoBottom = document.getElementById('winTwoBottomInput').value.trim();
 
-  await fetch('/api/draws/winning-result', {
+  const res = await fetch('/api/draws/winning-result', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -2905,6 +2927,10 @@ async function saveManualWinningResult() {
       twoBottom
     })
   });
+  if (!res.ok) {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถบันทึกผลรางวัลได้')}`);
+    return;
+  }
 
   await fetchAppState();
   showToast('🎯 คำนวณตรวจเช็คคนถูกรางวัลครบทุกบิลเรียบร้อยแล้ว!');
@@ -2986,7 +3012,7 @@ function renderWinnersTab() {
                 }
               </td>
               <td style="text-align:right;">
-                <button class="btn btn-outline btn-sm" onclick="jumpToSlipInspector('${t.slipId}', ${t.col}, ${t.row})">
+                <button class="btn btn-outline btn-sm" onclick="jumpToSlipInspector('${escapeJsArg(t.slipId)}', ${Number(t.col) || 1}, ${Number(t.row) || 1})">
                   🔍 ดูในโพย
                 </button>
               </td>
@@ -3251,7 +3277,7 @@ function renderUsersAndAuditLogs() {
               }
               ${
                 u.username !== 'admin'
-                  ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="removeUserAccount('${u.id}')">ลบ</button>`
+                  ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="removeUserAccount('${escapeJsArg(u.id)}')">ลบ</button>`
                   : ''
               }
             </div>
@@ -3394,18 +3420,26 @@ async function saveSettingsFromForm() {
   const newLineSecret = document.getElementById('settingLineSecret').value.trim();
   if (newLineSecret) payload.lineChannelSecret = newLineSecret;
 
-  await fetch('/api/settings', {
+  const res = await fetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
+  if (!res.ok) {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถบันทึกการตั้งค่าได้')}`);
+    return;
+  }
 
   await fetchAppState();
   showToast('✅ บันทึกการตั้งค่าและคำนวณยอดรวมใหม่เรียบร้อยแล้ว');
 }
 
 async function resetDemoDatabase() {
-  await fetch('/api/reset', { method: 'POST' });
+  const res = await fetch('/api/reset', { method: 'POST' });
+  if (!res.ok) {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถรีเซ็ตข้อมูลได้')}`);
+    return;
+  }
   selectedLayoffKeys.clear();
   customLayoffAmounts = {};
   selectedCustomerFilter = null;
