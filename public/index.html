@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_56" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_57" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -582,6 +582,9 @@
               </button>
               <button class="btn btn-sm btn-outline" onclick="toggleGridOverlay()" id="btnGridOverlay">
                 📏 เส้นทาบคอลัมน์
+              </button>
+              <button class="btn btn-sm btn-outline" onclick="togglePhotoMarkers()" id="btnTogglePhotoMarkers" title="เปิด/ปิดกรอบมาร์คจุดบนรูปโพย (ช่องกรอกในตารางขวายังคงไฮไลต์เหมือนเดิม)">
+                🎯 มาร์คบนรูป: เปิด
               </button>
               <button class="btn btn-sm btn-ghost" onclick="adjustZoom(-0.25)">➖</button>
               <span id="zoomLevelText">100%</span>
@@ -1212,6 +1215,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_56"></script>
+  <script src="/app.js?v=20261120_57"></script>
 </body>
 </html>

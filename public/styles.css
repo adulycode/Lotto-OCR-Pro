@@ -1434,6 +1434,10 @@ body {
   pointer-events: none;
 }
 
+.photo-issue-markers.hidden {
+  display: none !important;
+}
+
 .photo-issue-box {
   position: absolute;
   border: 2.5px solid #ef4444;
@@ -1539,6 +1543,18 @@ body {
 .paper-row-item.row-error {
   background: var(--danger-soft);
   border-left: 3px solid var(--danger);
+}
+
+.paper-row-item.row-active {
+  background: rgba(59, 130, 246, 0.16);
+  border-left: 3px solid #3b82f6;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.45);
+}
+
+.paper-row-item.row-warn.row-active {
+  background: rgba(249, 115, 22, 0.22);
+  border-left: 3px solid #f97316;
+  box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.55);
 }
 
 .row-idx {

@@ -28,6 +28,13 @@ let currentInspectorRunner = ''; // ชื่อเด็กโพยที่�
 let currentLearnedRunnerFilter = 'all'; // กรองความจำ AI ตามชื่อเด็กโพย
 let currentInspectedSlipId = null;
 let showWarningsOnlyInInspector = false;
+let showPhotoMarkers = (() => {
+  try {
+    return localStorage.getItem('lotto_show_photo_markers') !== '0';
+  } catch {
+    return true;
+  }
+})();
 let currentZoom = 1.0;
 let uploadedBase64Image = '';
 let uploadedColumnSlices = null;
@@ -2694,6 +2701,7 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     } else {
       markersEl.innerHTML = '';
     }
+    applyPhotoMarkersVisibility();
   }
 
   const container = document.getElementById('paperGridContainer');
@@ -2801,7 +2809,15 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
 }
 
 function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
+  document.querySelectorAll('.paper-row-item.row-active').forEach(el => el.classList.remove('row-active'));
+  const activeCellRow = document.getElementById(`cell-${col}-${row}`);
+  if (activeCellRow) activeCellRow.classList.add('row-active');
+
   const focusContainer = document.getElementById('activeFocusPhotoBox');
+  if (!showPhotoMarkers) {
+    if (focusContainer) focusContainer.innerHTML = '';
+    return;
+  }
   if (!focusContainer) return;
   const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
   const slip = allInspectableSlips.find(s => s.id === currentInspectedSlipId);
@@ -3043,6 +3059,32 @@ async function removeLearnedRule(id) {
 
 function toggleGridOverlay() {
   document.getElementById('gridOverlay4x30').classList.toggle('hidden');
+}
+
+function applyPhotoMarkersVisibility() {
+  const markersEl = document.getElementById('photoIssueMarkers');
+  if (markersEl) {
+    markersEl.classList.toggle('hidden', !showPhotoMarkers);
+  }
+  const btn = document.getElementById('btnTogglePhotoMarkers');
+  if (btn) {
+    btn.textContent = showPhotoMarkers ? '🎯 มาร์คบนรูป: เปิด' : '🙈 มาร์คบนรูป: ปิด';
+    btn.classList.toggle('btn-primary', showPhotoMarkers);
+    btn.classList.toggle('btn-outline', !showPhotoMarkers);
+  }
+}
+
+function togglePhotoMarkers() {
+  showPhotoMarkers = !showPhotoMarkers;
+  try {
+    localStorage.setItem('lotto_show_photo_markers', showPhotoMarkers ? '1' : '0');
+  } catch {}
+  applyPhotoMarkersVisibility();
+  showToast(
+    showPhotoMarkers
+      ? '🎯 เปิดกรอบมาร์คจุดบนรูปโพยแล้ว'
+      : '🙈 ซ่อนกรอบมาร์คบนรูปโพยแล้ว (ช่องกรอกในตารางยังไฮไลต์ตามปกติ)'
+  );
 }
 
 function adjustZoom(delta) {
