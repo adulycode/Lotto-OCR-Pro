@@ -333,8 +333,12 @@ async function fetchAppState(drawIdParam = '') {
 
 async function onSwitchDraw(drawId) {
   selectedCustomerFilter = null;
+  selectedSlipRoundFilter = null;
   selectedAggNumberKey = null;
   selectedLayoffKeys.clear();
+  customLayoffAmounts = {};
+  currentInspectedSlipId = null;
+  currentInspectorRunner = '';
   await fetch('/api/draws', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2108,7 +2112,34 @@ function renderInspectorSelector() {
 
   if (!sidebarEl) return;
   if (allInspectableSlips.length === 0) {
+    currentInspectedSlipId = null;
+    currentInspectorRunner = '';
     sidebarEl.innerHTML = `<div class="text-muted" style="padding:16px;text-align:center;">ไม่มีบิลในงวดนี้</div>`;
+    const metaEl = document.getElementById('inspectorMetaText');
+    if (metaEl) metaEl.textContent = 'ยังไม่มีบิลโพยในงวดนี้';
+    const imgEl = document.getElementById('inspectorImage');
+    if (imgEl) {
+      imgEl.removeAttribute('src');
+      imgEl.style.display = 'none';
+    }
+    const emptyPhotoEl = document.getElementById('inspectorPhotoEmpty');
+    if (emptyPhotoEl) {
+      emptyPhotoEl.classList.remove('hidden');
+      emptyPhotoEl.textContent = '📷 ยังไม่มีรูปโพยกระดาษในงวดนี้';
+    }
+    const markersEl = document.getElementById('photoIssueMarkers');
+    if (markersEl) markersEl.innerHTML = '';
+    document.getElementById('gridOverlay4x30')?.classList.add('hidden');
+    const banner = document.getElementById('validationSummaryBanner');
+    if (banner) {
+      banner.className = 'validation-banner';
+      banner.innerHTML = `<div>ยังไม่มีบิลโพยในงวดนี้ — กดปุ่ม <strong>"+ เพิ่มโพย"</strong> เพื่ออัปโหลดรูปโพยหรือรับโพยทาง LINE ได้เลยครับ</div>`;
+    }
+    const paperGrid = document.getElementById('paperGridContainer');
+    if (paperGrid) {
+      paperGrid.style.gridTemplateColumns = '1fr';
+      paperGrid.innerHTML = `<div class="text-muted" style="padding:36px 16px;text-align:center;">ยังไม่มีรายการตัวเลขในงวดนี้</div>`;
+    }
     return;
   }
 
@@ -2199,7 +2230,19 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   renderLearnedRules();
 
   const imgEl = document.getElementById('inspectorImage');
-  imgEl.src = slip.imageUrl || '/uploads/slip-16-11-page1.jpg';
+  const emptyPhotoEl = document.getElementById('inspectorPhotoEmpty');
+  if (slip.imageUrl) {
+    imgEl.src = slip.imageUrl;
+    imgEl.style.display = '';
+    if (emptyPhotoEl) emptyPhotoEl.classList.add('hidden');
+  } else {
+    imgEl.removeAttribute('src');
+    imgEl.style.display = 'none';
+    if (emptyPhotoEl) {
+      emptyPhotoEl.classList.remove('hidden');
+      emptyPhotoEl.textContent = '💬 บิลนี้ส่งมาเป็นข้อความ LINE (ไม่มีรูปกระดาษต้นฉบับ)';
+    }
+  }
   document.getElementById('inspectorMetaText').textContent =
     `👤 ${slip.customerName} | 📌 รอบที่ ${slip.roundNumber || 1} (${formatThaiDateTime(slip.createdAt)}) | ยอดบิล: ${slip.totalMoney.toLocaleString()}฿`;
 
