@@ -35,6 +35,24 @@ let showPhotoMarkers = (() => {
     return true;
   }
 })();
+let inspectorViewMode = (() => {
+  try {
+    return localStorage.getItem('lotto_inspector_view_mode') || 'auto';
+  } catch {
+    return 'auto';
+  }
+})();
+let inspectorSidebarOpen = null;
+let inspectorFullscreen = false;
+let paperWhiteTheme = (() => {
+  try {
+    return localStorage.getItem('lotto_paper_white_theme') === '1';
+  } catch {
+    return false;
+  }
+})();
+let isCalibratingTableBox = false;
+let calibDraftBox = null;
 let currentZoom = 1.0;
 let uploadedBase64Image = '';
 let uploadedColumnSlices = null;
@@ -297,6 +315,16 @@ function switchTab(tabId) {
 
   const btn = document.querySelector(`.nav-tab[data-tab="${tabId}"]`);
   if (btn) btn.classList.add('active');
+
+  if (tabId !== 'tab-inspector' && inspectorFullscreen) {
+    inspectorFullscreen = false;
+    document.body.classList.remove('inspector-fs');
+    const fsBtn = document.getElementById('btnInspectorFullscreen');
+    if (fsBtn) {
+      fsBtn.classList.remove('btn-primary');
+      fsBtn.classList.add('btn-outline');
+    }
+  }
 }
 
 let antigravityQueuePollTimer = null;
@@ -2559,11 +2587,127 @@ function renderSidebarListForInspector() {
     .join('');
 }
 
+function getSlipGridMetrics(slip) {
+  const items = slip?.items || [];
+  const itemCols = items.map(i => Number(i.col) || 1);
+  const maxCol = Math.max(slip?.isGrid4x30 ? 4 : 1, ...itemCols, 1);
+  const maxRowInSlip = items.reduce((m, i) => Math.max(m, Number(i.row) || 1), 1);
+  const savedLayout = slip ? appState.runnerLayouts?.[slip.customerName] : null;
+  const sheetRows =
+    slip?.isGrid4x30 && maxCol <= 4
+      ? Math.max(30, maxRowInSlip)
+      : Math.max(maxRowInSlip, Number(savedLayout?.rowsPerCol) || 1, 1);
+  const defaultBox = maxCol >= 6 ? [125, 55, 925, 965] : [141, 142, 914, 975];
+  const tableBox =
+    Array.isArray(slip?.tableBox) && slip.tableBox.length === 4
+      ? slip.tableBox
+      : Array.isArray(savedLayout?.tableBox) && savedLayout.tableBox.length === 4
+        ? savedLayout.tableBox
+        : defaultBox;
+  return { maxCol, sheetRows, tableBox, savedLayout };
+}
+
+function isEffectivePaperView(maxCol) {
+  if (inspectorViewMode === 'paper') return true;
+  if (inspectorViewMode === 'side') return false;
+  return maxCol >= 5;
+}
+
+function populateQuickSlipSelect(activeSlipId) {
+  const sel = document.getElementById('inspectorQuickSlipSelect');
+  if (!sel) return;
+  const slips = appState.slips || [];
+  if (slips.length === 0) {
+    sel.innerHTML = '<option value="">-- ไม่มีบิลในงวดนี้ --</option>';
+    return;
+  }
+  sel.innerHTML = slips
+    .map(
+      s =>
+        `<option value="${escapeHtml(s.id)}">${escapeHtml(s.customerName || 'ลูกค้า')} — รอบ ${s.roundNumber || 1} (${(s.totalMoney || 0).toLocaleString()}฿)</option>`
+    )
+    .join('');
+  if (activeSlipId) sel.value = activeSlipId;
+}
+
+function applyInspectorLayoutUI(slip) {
+  const { maxCol, sheetRows } = getSlipGridMetrics(slip);
+  const paperMode = isEffectivePaperView(maxCol);
+  const sidebarShown = inspectorSidebarOpen === null ? !paperMode : inspectorSidebarOpen;
+
+  const root = document.getElementById('inspectorLayoutRoot');
+  if (root) {
+    root.classList.toggle('paper-view-mode', paperMode);
+    root.classList.toggle('sidebar-hidden', !sidebarShown);
+  }
+
+  document.body.classList.toggle('inspector-fs', inspectorFullscreen);
+
+  const btnView = document.getElementById('btnInspectorViewMode');
+  if (btnView) {
+    btnView.textContent = paperMode ? '📋 โหมดซ้าย–ขวา' : '📄 โหมดกระดาษ (บน–ล่าง)';
+    btnView.classList.toggle('btn-primary', paperMode);
+    btnView.classList.toggle('btn-outline', !paperMode);
+  }
+
+  const btnSidebar = document.getElementById('btnToggleInspectorSidebar');
+  if (btnSidebar) {
+    btnSidebar.textContent = sidebarShown ? '◀ ซ่อนรายชื่อบิล' : '📋 รายชื่อบิล';
+    btnSidebar.classList.toggle('btn-primary', sidebarShown);
+    btnSidebar.classList.toggle('btn-outline', !sidebarShown);
+  }
+
+  const btnFs = document.getElementById('btnInspectorFullscreen');
+  if (btnFs) {
+    btnFs.textContent = inspectorFullscreen ? '✖ ออกจากเต็มจอ' : '⛶ เต็มจอ';
+    btnFs.classList.toggle('btn-primary', inspectorFullscreen);
+    btnFs.classList.toggle('btn-outline', !inspectorFullscreen);
+  }
+
+  const btnWhite = document.getElementById('btnPaperWhiteTheme');
+  if (btnWhite) {
+    btnWhite.textContent = paperWhiteTheme ? '🌙 โทนมืด' : '📃 สีกระดาษขาว';
+    btnWhite.classList.toggle('btn-primary', paperWhiteTheme);
+    btnWhite.classList.toggle('btn-outline', !paperWhiteTheme);
+  }
+
+  const gridEl = document.getElementById('paperGridContainer');
+  if (gridEl) {
+    gridEl.classList.toggle('paper-sheet-mode', paperMode);
+    gridEl.classList.toggle('paper-sheet-white', paperMode && paperWhiteTheme);
+  }
+
+  const metaBar = document.getElementById('paperSheetMetaBar');
+  if (metaBar) {
+    if (paperMode && slip) {
+      metaBar.classList.remove('hidden');
+      metaBar.classList.toggle('paper-sheet-white', paperWhiteTheme);
+      metaBar.innerHTML = `
+        <span>📄 <strong>ผู้ส่ง:</strong> ${escapeHtml(slip.customerName || '-')} &nbsp;|&nbsp; <strong>แผ่นที่:</strong> ${escapeHtml(slip.sheetPage || String(slip.roundNumber || 1))} &nbsp;|&nbsp; <strong>วันที่:</strong> ${escapeHtml(slip.sheetDate || '-')}</span>
+        <span>📐 ตาราง <strong>${maxCol} คอลัมน์ × ${sheetRows} แถว</strong> &nbsp;|&nbsp; ยอดรวม <strong style="color:var(--gold);">${(slip.totalMoney || 0).toLocaleString()} ฿</strong></span>
+      `;
+    } else {
+      metaBar.classList.add('hidden');
+    }
+  }
+}
+
 function selectSlipForInspection(slipId, highlightCol = null, highlightRow = null) {
+  const slipChanged = currentInspectedSlipId !== slipId;
   currentInspectedSlipId = slipId;
+  if (slipChanged && isCalibratingTableBox) {
+    isCalibratingTableBox = false;
+    calibDraftBox = null;
+    const calibBar = document.getElementById('tableBoxCalibrationBar');
+    if (calibBar) calibBar.classList.add('hidden');
+  }
   const allInspectableSlips = [...(appState.slips || [])];
   const slip = allInspectableSlips.find(s => s.id === slipId);
   if (!slip) return;
+
+  const { maxCol, sheetRows, tableBox } = getSlipGridMetrics(slip);
+  populateQuickSlipSelect(slip.id);
+  applyInspectorLayoutUI(slip);
 
   currentInspectorRunner = slip.customerName;
   const learnInput = document.getElementById('learnCustomerInput');
@@ -2662,62 +2806,75 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     `;
   }
 
-  // วาดกรอบชี้ตำแหน่งที่มีปัญหาบนรูปกระดาษโพยต้นฉบับ (รองรับทั้งพิกัด box2d รายช่อง และ tableBox รายใบจาก Gemini 2.5 Pro)
+  // วาดกรอบชี้ตำแหน่งที่มีปัญหาบนรูปกระดาษโพยต้นฉบับ (ใช้จำนวนแถวจริง/tableBox/box2d ไม่บังลายมือ)
+  const [tbYmin, tbXmin, tbYmax, tbXmax] = tableBox;
+  const gridOverlayEl = document.getElementById('gridOverlay4x30');
+  if (gridOverlayEl) {
+    gridOverlayEl.style.top = `${(tbYmin / 10).toFixed(2)}%`;
+    gridOverlayEl.style.left = `${(tbXmin / 10).toFixed(2)}%`;
+    gridOverlayEl.style.bottom = `${(100 - tbYmax / 10).toFixed(2)}%`;
+    gridOverlayEl.style.right = `${(100 - tbXmax / 10).toFixed(2)}%`;
+    gridOverlayEl.style.gridTemplateColumns = `repeat(${maxCol}, 1fr)`;
+    gridOverlayEl.innerHTML = Array.from({ length: maxCol }, (_, idx) => `<div class="overlay-col"><span>คอลัมน์ ${idx + 1} (1-${sheetRows})</span></div>`).join('');
+  }
+
   const markersEl = document.getElementById('photoIssueMarkers');
   if (markersEl) {
-    // Apply per-image dynamic tableBox [ymin, xmin, ymax, xmax] (0-1000 scale) if available
-    if (Array.isArray(slip.tableBox) && slip.tableBox.length === 4) {
-      const [ymin, xmin, ymax, xmax] = slip.tableBox;
-      markersEl.style.top = `${(ymin / 10).toFixed(2)}%`;
-      markersEl.style.left = `${(xmin / 10).toFixed(2)}%`;
-      markersEl.style.bottom = `${(100 - ymax / 10).toFixed(2)}%`;
-      markersEl.style.right = `${(100 - xmax / 10).toFixed(2)}%`;
-    } else {
-      markersEl.style.top = '14.1%';
-      markersEl.style.left = '14.2%';
-      markersEl.style.bottom = '8.6%';
-      markersEl.style.right = '2.5%';
-    }
+    markersEl.style.top = `${(tbYmin / 10).toFixed(2)}%`;
+    markersEl.style.left = `${(tbXmin / 10).toFixed(2)}%`;
+    markersEl.style.bottom = `${(100 - tbYmax / 10).toFixed(2)}%`;
+    markersEl.style.right = `${(100 - tbXmax / 10).toFixed(2)}%`;
 
-    const itemCols = (slip.items || []).map(i => Number(i.col) || 1);
-    const totalCols = Math.max(slip.isGrid4x30 ? 4 : 1, ...itemCols, 1);
+    const tbH = Math.max(1, tbYmax - tbYmin);
+    const tbW = Math.max(1, tbXmax - tbXmin);
 
-    if (slip.isGrid4x30 || totalCols >= 2) {
+    if (slip.isGrid4x30 || maxCol >= 2) {
       const boxesHtml = warnItems.map(w => {
-        const leftPct = (((w.col || 1) - 1) / totalCols) * 100;
-        const widthPct = 100 / totalCols;
-        const topPct = (((w.row || 1) - 1) / 30) * 100;
-        const heightPct = 100 / 30;
+        let leftPct = (((w.col || 1) - 1) / maxCol) * 100;
+        let widthPct = 100 / maxCol;
+        let topPct = (((w.row || 1) - 1) / sheetRows) * 100;
+        let heightPct = 100 / sheetRows;
+        if (Array.isArray(w.box2d) && w.box2d.length === 4) {
+          const [bYmin, bXmin, bYmax, bXmax] = w.box2d;
+          topPct = Math.max(0, Math.min(100, ((bYmin - tbYmin) / tbH) * 100));
+          heightPct = Math.max(1.5, Math.min(100 - topPct, ((bYmax - bYmin) / tbH) * 100));
+          leftPct = Math.max(0, Math.min(100, ((bXmin - tbXmin) / tbW) * 100));
+          widthPct = Math.max(2, Math.min(100 - leftPct, ((bXmax - bXmin) / tbW) * 100));
+        }
         return `
           <div class="photo-issue-box"
-            style="left:${leftPct}%;width:${widthPct}%;top:${topPct}%;height:${heightPct}%;"
+            style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%;top:${topPct.toFixed(2)}%;height:${heightPct.toFixed(2)}%;"
             onclick="focusInspectorCell(${Number(w.col) || 1}, ${Number(w.row) || 1})"
-            title="คลิกเพื่อเลื่อนไปยัง คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1}">
-            <span class="photo-issue-label">⬅️ แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})</span>
+            title="คลิกเพื่อชี้ คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})">
+            <span class="photo-issue-label">คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})</span>
           </div>
         `;
       });
       markersEl.innerHTML = boxesHtml.join('') + `<div id="activeFocusPhotoBox"></div>`;
     } else {
-      markersEl.innerHTML = '';
+      markersEl.innerHTML = `<div id="activeFocusPhotoBox"></div>`;
     }
     applyPhotoMarkersVisibility();
   }
+  renderTableBoxCalibrator();
 
   const container = document.getElementById('paperGridContainer');
-  const itemColNums = (slip.items || []).map(i => Number(i.col) || 1);
-  const maxCol = Math.max(slip.isGrid4x30 ? 4 : 1, ...itemColNums, 1);
+  const paperMode = isEffectivePaperView(maxCol);
   const cols = Array.from({ length: maxCol }, (_, idx) => idx + 1);
   if (container) {
-    container.style.gridTemplateColumns =
-      maxCol > 4 ? 'repeat(auto-fit, minmax(175px, 1fr))' : '';
+    if (paperMode) {
+      container.style.gridTemplateColumns = `repeat(${maxCol}, minmax(126px, 1fr))`;
+    } else {
+      container.style.gridTemplateColumns =
+        maxCol > 4 ? 'repeat(auto-fit, minmax(175px, 1fr))' : '';
+    }
   }
 
   container.innerHTML = cols
     .map(colNum => {
       const colItems = (slip.items || []).filter(i => (i.col || 1) === colNum);
       const maxRowInCol = colItems.reduce((m, it) => Math.max(m, Number(it.row) || 1), 1);
-      const maxRows = slip.isGrid4x30 && maxCol === 4 ? Math.max(30, maxRowInCol) : Math.max(maxRowInCol, colItems.length, 1);
+      const maxRows = paperMode ? sheetRows : (slip.isGrid4x30 && maxCol === 4 ? Math.max(30, maxRowInCol) : Math.max(maxRowInCol, colItems.length, 1));
       const sampleColItem = colItems.find(i => i.colHeader || i.categoryHint) || {};
       const colHeaderLabel = sampleColItem.colHeader
         ? sampleColItem.colHeader
@@ -2766,16 +2923,18 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
             <input type="text" class="cell-input" data-col="${colNum}" data-row="${rIdx}" data-field="numText"
               data-col-header="${escapeHtml(item.colHeader || sampleColItem.colHeader || '')}"
               data-category-hint="${escapeHtml(item.categoryHint || sampleColItem.categoryHint || '3_top')}"
-              value="${item.numText || ''}" placeholder="เลข"
-              onfocus="highlightActivePhotoCell(${colNum}, ${rIdx}, '${item.numText || ''}', '${item.amtText || ''}')"
+              value="${escapeHtml(item.numText || '')}" placeholder="เลข"
+              onfocus="highlightActivePhotoCell(${colNum}, ${rIdx}, '${escapeJsArg(item.numText || '')}', '${escapeJsArg(item.amtText || '')}')"
+              onkeydown="onPaperCellKeydown(event, ${colNum}, ${rIdx}, 'numText')"
               onchange="onCellEdit(${colNum}, ${rIdx})" />
             <input type="text" class="cell-input" data-col="${colNum}" data-row="${rIdx}" data-field="amtText"
-              value="${item.amtText || ''}" placeholder="ยอดเงิน"
-              onfocus="highlightActivePhotoCell(${colNum}, ${rIdx}, '${item.numText || ''}', '${item.amtText || ''}')"
+              value="${escapeHtml(item.amtText || '')}" placeholder="ยอดเงิน"
+              onfocus="highlightActivePhotoCell(${colNum}, ${rIdx}, '${escapeJsArg(item.numText || '')}', '${escapeJsArg(item.amtText || '')}')"
+              onkeydown="onPaperCellKeydown(event, ${colNum}, ${rIdx}, 'amtText')"
               onchange="onCellEdit(${colNum}, ${rIdx})" />
             ${
               warnMessages.length > 0
-                ? `<div class="row-warn-note">⚠️ ${warnMessages.join(' | ')}</div>`
+                ? `<div class="row-warn-note">⚠️ ${escapeHtml(warnMessages.join(' | '))}</div>`
                 : ''
             }
           </div>
@@ -2785,14 +2944,14 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
       return `
         <div class="paper-col-box">
           <div class="paper-col-header">
-            <span>คอลัมน์ที่ ${colNum} (${escapeHtml(colHeaderLabel)})</span>
-            <span>แถว 1-${maxRows}</span>
+            <span>${paperMode ? `${colNum}. ${escapeHtml(colHeaderLabel)}` : `คอลัมน์ที่ ${colNum} (${escapeHtml(colHeaderLabel)})`}</span>
+            ${paperMode ? '' : `<span>แถว 1-${maxRows}</span>`}
           </div>
           <div class="paper-col-body">
             ${rowsHtml.join('') || '<div class="text-muted" style="padding:12px;text-align:center;">ไม่มีรายการในคอลัมน์นี้</div>'}
           </div>
           <div class="paper-col-footer">
-            <span>รวมคอลัมน์ ${colNum}:</span>
+            <span>${paperMode ? 'รวม' : `รวมคอลัมน์ ${colNum}:`}</span>
             <span>${colTotal.toLocaleString()} ฿</span>
           </div>
         </div>
@@ -2805,6 +2964,23 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
       const el = document.getElementById(`cell-${highlightCol}-${highlightRow}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 100);
+  }
+}
+
+function onPaperCellKeydown(event, col, row, field) {
+  let nextEl = null;
+  if (event.key === 'Enter' || event.key === 'ArrowDown') {
+    event.preventDefault();
+    nextEl =
+      document.querySelector(`.cell-input[data-col="${col}"][data-row="${row + 1}"][data-field="${field}"]`) ||
+      document.querySelector(`.cell-input[data-col="${col + 1}"][data-row="1"][data-field="numText"]`);
+  } else if (event.key === 'ArrowUp' && row > 1) {
+    event.preventDefault();
+    nextEl = document.querySelector(`.cell-input[data-col="${col}"][data-row="${row - 1}"][data-field="${field}"]`);
+  }
+  if (nextEl) {
+    nextEl.focus();
+    nextEl.select();
   }
 }
 
@@ -2821,24 +2997,39 @@ function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
   if (!focusContainer) return;
   const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
   const slip = allInspectableSlips.find(s => s.id === currentInspectedSlipId);
-  const totalCols = Math.max(4, ...((slip?.items || []).map(i => Number(i.col) || 1)));
-  const leftPct = ((col - 1) / totalCols) * 100;
-  const widthPct = 100 / totalCols;
-  const topPct = ((row - 1) / 30) * 100;
-  const heightPct = 100 / 30;
+  const { maxCol, sheetRows, tableBox } = getSlipGridMetrics(slip);
+  const [tbYmin, tbXmin, tbYmax, tbXmax] = tableBox;
+  const tbH = Math.max(1, tbYmax - tbYmin);
+  const tbW = Math.max(1, tbXmax - tbXmin);
+  const matchingItem = (slip?.items || []).find(i => Number(i.col) === Number(col) && Number(i.row) === Number(row));
+
+  let leftPct = ((col - 1) / maxCol) * 100;
+  let widthPct = 100 / maxCol;
+  let topPct = ((row - 1) / sheetRows) * 100;
+  let heightPct = 100 / sheetRows;
+  if (Array.isArray(matchingItem?.box2d) && matchingItem.box2d.length === 4) {
+    const [bYmin, bXmin, bYmax, bXmax] = matchingItem.box2d;
+    topPct = Math.max(0, Math.min(100, ((bYmin - tbYmin) / tbH) * 100));
+    heightPct = Math.max(1.5, Math.min(100 - topPct, ((bYmax - bYmin) / tbH) * 100));
+    leftPct = Math.max(0, Math.min(100, ((bXmin - tbXmin) / tbW) * 100));
+    widthPct = Math.max(2, Math.min(100 - leftPct, ((bXmax - bXmin) / tbW) * 100));
+  }
+
   focusContainer.innerHTML = `
-    <div class="photo-issue-box" id="currentActiveFocusMarker"
-      style="left:${leftPct}%;width:${widthPct}%;top:${topPct}%;height:${heightPct}%;border-color:#3b82f6;background:rgba(59,130,246,0.18);box-shadow:0 0 10px rgba(59,130,246,0.85);">
+    <div class="photo-issue-box is-focus-box" id="currentActiveFocusMarker"
+      style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%;top:${topPct.toFixed(2)}%;height:${heightPct.toFixed(2)}%;border-color:#3b82f6;background:rgba(59,130,246,0.10);box-shadow:0 0 8px rgba(59,130,246,0.65);">
       <span class="photo-issue-label" style="background:#2563eb;">📍 คอลัมน์ ${col} แถว ${row}</span>
     </div>
   `;
 
-  // Auto-pan the zoomed photo viewport so the active column & row is centered in view!
+  // Auto-pan the zoomed photo viewport using dynamic tableBox & sheetRows!
   const viewport = document.getElementById('photoViewport');
   const wrap = document.getElementById('photoCanvasWrap');
   if (viewport && wrap) {
-    const targetX = wrap.offsetWidth * (0.142 + ((col - 0.5) / totalCols) * 0.833);
-    const targetY = wrap.offsetHeight * (0.141 + ((row - 0.5) / 30) * 0.773);
+    const centerLeftFrac = (tbXmin + ((leftPct + widthPct / 2) / 100) * tbW) / 1000;
+    const centerTopFrac = (tbYmin + ((topPct + heightPct / 2) / 100) * tbH) / 1000;
+    const targetX = wrap.offsetWidth * centerLeftFrac;
+    const targetY = wrap.offsetHeight * centerTopFrac;
     viewport.scrollTo({
       left: Math.max(0, targetX - viewport.clientWidth / 2),
       top: Math.max(0, targetY - viewport.clientHeight / 2),
@@ -3085,6 +3276,196 @@ function togglePhotoMarkers() {
       ? '🎯 เปิดกรอบมาร์คจุดบนรูปโพยแล้ว'
       : '🙈 ซ่อนกรอบมาร์คบนรูปโพยแล้ว (ช่องกรอกในตารางยังไฮไลต์ตามปกติ)'
   );
+}
+
+function toggleInspectorViewMode() {
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  const { maxCol } = getSlipGridMetrics(slip);
+  const nextPaper = !isEffectivePaperView(maxCol);
+  inspectorViewMode = nextPaper ? 'paper' : 'side';
+  try {
+    localStorage.setItem('lotto_inspector_view_mode', inspectorViewMode);
+  } catch {}
+  if (slip) {
+    selectSlipForInspection(slip.id);
+  } else {
+    applyInspectorLayoutUI(null);
+  }
+  showToast(
+    nextPaper
+      ? '📄 สลับเป็นโหมดกระดาษ (รูปด้านบน • ตารางเรียงคอลัมน์ครบแนวนอนด้านล่าง)'
+      : '📋 สลับเป็นโหมดวางซ้าย–ขวาแล้ว'
+  );
+}
+
+function toggleInspectorSidebar() {
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  const { maxCol } = getSlipGridMetrics(slip);
+  const currentlyShown = inspectorSidebarOpen === null ? !isEffectivePaperView(maxCol) : inspectorSidebarOpen;
+  inspectorSidebarOpen = !currentlyShown;
+  applyInspectorLayoutUI(slip || null);
+}
+
+function toggleInspectorFullscreen() {
+  inspectorFullscreen = !inspectorFullscreen;
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  applyInspectorLayoutUI(slip || null);
+  showToast(inspectorFullscreen ? '⛶ ขยายหน้าตรวจบิลเต็มหน้าจอแล้ว' : 'ออกจากโหมดเต็มจอแล้ว');
+}
+
+function togglePaperWhiteTheme() {
+  paperWhiteTheme = !paperWhiteTheme;
+  try {
+    localStorage.setItem('lotto_paper_white_theme', paperWhiteTheme ? '1' : '0');
+  } catch {}
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  applyInspectorLayoutUI(slip || null);
+}
+
+function toggleTableBoxCalibration() {
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  if (!slip || !slip.imageUrl) {
+    showToast('⚠️ บิลนี้ไม่มีรูปกระดาษสำหรับปรับกรอบ');
+    return;
+  }
+  isCalibratingTableBox = !isCalibratingTableBox;
+  const bar = document.getElementById('tableBoxCalibrationBar');
+  const btn = document.getElementById('btnCalibrateTableBox');
+  if (isCalibratingTableBox) {
+    const { tableBox } = getSlipGridMetrics(slip);
+    calibDraftBox = [...tableBox];
+    if (bar) bar.classList.remove('hidden');
+    if (btn) {
+      btn.classList.add('btn-primary');
+      btn.classList.remove('btn-outline');
+    }
+    renderTableBoxCalibrator();
+  } else {
+    cancelTableBoxCalibration();
+  }
+}
+
+function cancelTableBoxCalibration() {
+  isCalibratingTableBox = false;
+  calibDraftBox = null;
+  const bar = document.getElementById('tableBoxCalibrationBar');
+  if (bar) bar.classList.add('hidden');
+  const btn = document.getElementById('btnCalibrateTableBox');
+  if (btn) {
+    btn.classList.remove('btn-primary');
+    btn.classList.add('btn-outline');
+  }
+  const existing = document.getElementById('tableCalibOverlay');
+  if (existing) existing.remove();
+}
+
+function renderTableBoxCalibrator() {
+  const existing = document.getElementById('tableCalibOverlay');
+  if (!isCalibratingTableBox || !calibDraftBox) {
+    if (existing) existing.remove();
+    return;
+  }
+  const wrap = document.getElementById('photoCanvasWrap');
+  if (!wrap) return;
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  const { maxCol } = getSlipGridMetrics(slip);
+
+  let boxEl = existing;
+  if (!boxEl) {
+    boxEl = document.createElement('div');
+    boxEl.id = 'tableCalibOverlay';
+    boxEl.className = 'table-calib-box';
+    wrap.appendChild(boxEl);
+  }
+  const [ymin, xmin, ymax, xmax] = calibDraftBox;
+  boxEl.style.top = `${(ymin / 10).toFixed(2)}%`;
+  boxEl.style.left = `${(xmin / 10).toFixed(2)}%`;
+  boxEl.style.height = `${((ymax - ymin) / 10).toFixed(2)}%`;
+  boxEl.style.width = `${((xmax - xmin) / 10).toFixed(2)}%`;
+
+  const colsHtml = Array.from({ length: maxCol }, () => '<div class="calib-grid-col"></div>').join('');
+  boxEl.innerHTML = `
+    <div class="calib-grid-preview" style="grid-template-columns:repeat(${maxCol}, 1fr);">${colsHtml}</div>
+    <div class="calib-handle nw" data-handle="nw" title="ลากมุมบนซ้าย"></div>
+    <div class="calib-handle ne" data-handle="ne" title="ลากมุมบนขวา"></div>
+    <div class="calib-handle sw" data-handle="sw" title="ลากมุมล่างซ้าย"></div>
+    <div class="calib-handle se" data-handle="se" title="ลากมุมล่างขวา"></div>
+  `;
+
+  const startDrag = ev => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const handle = ev.target?.getAttribute?.('data-handle') || 'move';
+    const rect = wrap.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const startX = ev.clientX;
+    const startY = ev.clientY;
+    const orig = [...calibDraftBox];
+
+    const onMove = mv => {
+      const dx = ((mv.clientX - startX) / rect.width) * 1000;
+      const dy = ((mv.clientY - startY) / rect.height) * 1000;
+      let [nymin, nxmin, nymax, nxmax] = orig;
+      if (handle === 'move') {
+        const w = orig[3] - orig[1];
+        const h = orig[2] - orig[0];
+        nxmin = Math.max(0, Math.min(1000 - w, Math.round(orig[1] + dx)));
+        nymin = Math.max(0, Math.min(1000 - h, Math.round(orig[0] + dy)));
+        nxmax = nxmin + w;
+        nymax = nymin + h;
+      } else {
+        if (handle.includes('n')) nymin = Math.max(0, Math.min(orig[2] - 80, Math.round(orig[0] + dy)));
+        if (handle.includes('s')) nymax = Math.min(1000, Math.max(orig[0] + 80, Math.round(orig[2] + dy)));
+        if (handle.includes('w')) nxmin = Math.max(0, Math.min(orig[3] - 80, Math.round(orig[1] + dx)));
+        if (handle.includes('e')) nxmax = Math.min(1000, Math.max(orig[1] + 80, Math.round(orig[3] + dx)));
+      }
+      calibDraftBox = [nymin, nxmin, nymax, nxmax];
+      boxEl.style.top = `${(nymin / 10).toFixed(2)}%`;
+      boxEl.style.left = `${(nxmin / 10).toFixed(2)}%`;
+      boxEl.style.height = `${((nymax - nymin) / 10).toFixed(2)}%`;
+      boxEl.style.width = `${((nxmax - nxmin) / 10).toFixed(2)}%`;
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  boxEl.onpointerdown = startDrag;
+}
+
+async function saveCalibratedTableBox() {
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  if (!slip || !calibDraftBox) return;
+  const { maxCol, sheetRows } = getSlipGridMetrics(slip);
+  const colHeaders = Array.from({ length: maxCol }, (_, idx) => {
+    const sample = (slip.items || []).find(i => Number(i.col) === idx + 1 && i.colHeader);
+    return sample ? sample.colHeader : '';
+  });
+
+  const res = await fetch('/api/runner-layouts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customerName: slip.customerName,
+      slipId: slip.id,
+      tableBox: calibDraftBox,
+      totalCols: maxCol,
+      rowsPerCol: sheetRows,
+      colHeaders,
+      preferredRotationDeg: currentInspectorRotation
+    })
+  });
+  if (!res.ok) {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถบันทึกกรอบตารางได้')}`);
+    return;
+  }
+  cancelTableBoxCalibration();
+  await fetchAppState();
+  showToast(`💾 จำกรอบตาราง ${maxCol}×${sheetRows} ไว้ให้ "${slip.customerName}" เรียบร้อย (รอบหน้าใช้ให้อัตโนมัติ!)`);
 }
 
 function adjustZoom(delta) {

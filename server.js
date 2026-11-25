@@ -1202,6 +1202,7 @@ const server = http.createServer(async (req, res) => {
         users: sanitizeUsers(db.users),
         auditLogs: (db.auditLogs || []).slice(0, 150),
         learnedRules: db.learnedRules || [],
+        runnerLayouts: db.runnerLayouts || {},
         slips: drawSlips,
         trainingSlips: db.slips.filter(s => s.isTrainingOnly),
         customersInDraw: Array.from(customerMap.values()),
@@ -1265,7 +1266,8 @@ const server = http.createServer(async (req, res) => {
         pendingCount: pendingSlips.length,
         pendingSlips,
         queue: pendingSlips,
-        learnedRules: db.learnedRules || []
+        learnedRules: db.learnedRules || [],
+        runnerLayouts: db.runnerLayouts || {}
       });
     }
 
@@ -1321,9 +1323,13 @@ const server = http.createServer(async (req, res) => {
       if (body.sheetPage) slip.sheetPage = String(body.sheetPage);
       if (body.rotationDeg !== undefined) {
         slip.rotationDeg = ((Number(body.rotationDeg) || 0) % 360 + 360) % 360;
+      } else if (slip.rotationDeg === undefined && db.runnerLayouts?.[slip.customerName]?.preferredRotationDeg !== undefined) {
+        slip.rotationDeg = ((Number(db.runnerLayouts[slip.customerName].preferredRotationDeg) || 0) % 360 + 360) % 360;
       }
       if (Array.isArray(body.tableBox) && body.tableBox.length === 4) {
         slip.tableBox = body.tableBox;
+      } else if (!slip.tableBox && Array.isArray(db.runnerLayouts?.[slip.customerName]?.tableBox)) {
+        slip.tableBox = db.runnerLayouts[slip.customerName].tableBox;
       }
 
       slip.items = validatedItems;
@@ -1383,6 +1389,51 @@ const server = http.createServer(async (req, res) => {
 
       saveDb(db);
       return sendJson(res, 200, { ok: true, learnedRules: db.learnedRules });
+    }
+
+    // API: Save Self-Learning Runner Paper Layout (จำกรอบตาราง 4 มุม & จำนวนคอลัมน์/แถวประจำตัวเด็กโพย)
+    if (req.method === 'POST' && pathname === '/api/runner-layouts') {
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      const customerName = String(body.customerName || '').trim();
+      const rawBox = Array.isArray(body.tableBox) ? body.tableBox.map(n => Math.max(0, Math.min(1000, Math.round(Number(n) || 0)))) : null;
+      if (!customerName || !rawBox || rawBox.length !== 4 || rawBox[0] >= rawBox[2] || rawBox[1] >= rawBox[3]) {
+        return sendJson(res, 400, { ok: false, error: 'ข้อมูลกรอบตาราง (customerName / tableBox) ไม่ถูกต้อง' });
+      }
+      db.runnerLayouts = db.runnerLayouts || {};
+      const preferredRotationDeg =
+        body.preferredRotationDeg !== undefined
+          ? ((Number(body.preferredRotationDeg) || 0) % 360 + 360) % 360
+          : db.runnerLayouts[customerName]?.preferredRotationDeg ?? 0;
+
+      const layout = {
+        tableBox: rawBox,
+        totalCols: Math.max(1, Number(body.totalCols) || 4),
+        rowsPerCol: Math.max(1, Number(body.rowsPerCol) || 30),
+        colHeaders: Array.isArray(body.colHeaders) ? body.colHeaders.slice(0, 20) : [],
+        preferredRotationDeg,
+        updatedAt: new Date().toISOString()
+      };
+      db.runnerLayouts[customerName] = layout;
+
+      if (body.slipId) {
+        const slip = (db.slips || []).find(s => s.id === String(body.slipId));
+        if (slip) {
+          slip.tableBox = rawBox;
+          if (body.preferredRotationDeg !== undefined) {
+            slip.rotationDeg = preferredRotationDeg;
+          }
+        }
+      }
+
+      appendAuditLog(
+        db,
+        getActorFromReq(req, body),
+        'บันทึกกรอบตารางประจำเด็กโพย',
+        `จำแบบฟอร์มกระดาษของ "${customerName}" (${layout.totalCols} คอลัมน์ × ${layout.rowsPerCol} แถว, หมุน ${preferredRotationDeg}°)`
+      );
+      saveDb(db);
+      return sendJson(res, 200, { ok: true, layout, runnerLayouts: db.runnerLayouts });
     }
 
     // API: Get Current Session User

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_57" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_58" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -553,10 +553,30 @@
     <!-- แท็บที่ 4: ตรวจบิล OCR เทียบรูปกระดาษ (รายการซ้ายมือ • รูปกลาง • ตารางขวา) -->
     <!-- ================================================================= -->
     <section id="tab-inspector" class="tab-panel no-print">
-      <div class="inspector-3col-layout">
+      <div class="inspector-compact-bar" id="inspectorCompactBar">
+        <div class="inspector-compact-left">
+          <button class="btn btn-sm btn-outline" id="btnToggleInspectorSidebar" onclick="toggleInspectorSidebar()" title="แสดง/ซ่อนแถบรายชื่อเด็กโพยทางซ้ายเพื่อเพิ่มพื้นที่ตาราง">
+            📋 รายชื่อบิล
+          </button>
+          <select id="inspectorQuickSlipSelect" class="inspector-quick-select" onchange="selectSlipForInspection(this.value)" title="สลับเลือกบิลในงวดนี้"></select>
+        </div>
+        <div class="inspector-compact-right">
+          <button class="btn btn-sm btn-outline" id="btnInspectorViewMode" onclick="toggleInspectorViewMode()" title="สลับระหว่างโหมดกระดาษเต็มความกว้าง (บน–ล่าง) กับโหมดวางข้างกัน (ซ้าย–ขวา)">
+            📄 โหมดกระดาษ (บน–ล่าง)
+          </button>
+          <button class="btn btn-sm btn-outline" id="btnPaperWhiteTheme" onclick="togglePaperWhiteTheme()" title="สลับสีตารางให้เหมือนกระดาษโพยสีขาวหรือโทนมืด">
+            📃 สีกระดาษขาว
+          </button>
+          <button class="btn btn-sm btn-outline" id="btnInspectorFullscreen" onclick="toggleInspectorFullscreen()" title="ซ่อนเมนูหลักซ้ายเพื่อขยายพื้นที่ตรวจโพยเต็มหน้าจอ">
+            ⛶ เต็มจอ
+          </button>
+        </div>
+      </div>
+
+      <div class="inspector-3col-layout" id="inspectorLayoutRoot">
 
         <!-- คอลัมน์ซ้ายมือ: รายชื่อเด็กโพย & รายการรอบบิลที่ส่ง (คลิกเลือกเช็คได้ทันที ไม่ต้องเลื่อนขึ้นลง) -->
-        <div class="card" style="padding:12px;">
+        <div class="card" id="inspectorSidebarCard" style="padding:12px;">
           <div class="card-header" style="margin-bottom:10px;padding-bottom:8px;">
             <div>
               <h3 style="font-size:14.5px;">📋 เด็กโพย & รอบบิลที่ส่ง</h3>
@@ -586,10 +606,20 @@
               <button class="btn btn-sm btn-outline" onclick="togglePhotoMarkers()" id="btnTogglePhotoMarkers" title="เปิด/ปิดกรอบมาร์คจุดบนรูปโพย (ช่องกรอกในตารางขวายังคงไฮไลต์เหมือนเดิม)">
                 🎯 มาร์คบนรูป: เปิด
               </button>
+              <button class="btn btn-sm btn-outline" onclick="toggleTableBoxCalibration()" id="btnCalibrateTableBox" title="ลากปรับกรอบ 4 มุมให้ตรงกับตารางบนรูป (ระบบจะจำไว้ให้เด็กโพยคนนี้ในรอบหน้า)">
+                📐 ปรับกรอบให้ตรง
+              </button>
               <button class="btn btn-sm btn-ghost" onclick="adjustZoom(-0.25)">➖</button>
               <span id="zoomLevelText">100%</span>
               <button class="btn btn-sm btn-ghost" onclick="adjustZoom(0.25)">➕</button>
               <button class="btn btn-sm btn-ghost" onclick="resetZoom()">100%</button>
+            </div>
+          </div>
+          <div id="tableBoxCalibrationBar" class="calib-bar hidden">
+            <span>📐 ลากมุมสีส้ม 4 มุมให้ตรงขอบตารางตัวเลขในรูป — ระบบจะจำแบบฟอร์มนี้ไว้ให้เด็กโพยคนนี้ในงวดถัดไป</span>
+            <div style="display:flex;gap:6px;flex-shrink:0;">
+              <button class="btn btn-sm btn-success" onclick="saveCalibratedTableBox()">💾 บันทึก & จำไว้ให้คนนี้</button>
+              <button class="btn btn-sm btn-ghost" onclick="cancelTableBoxCalibration()">ยกเลิก</button>
             </div>
           </div>
           <div class="photo-viewport" id="photoViewport">
@@ -629,6 +659,7 @@
           </div>
 
           <div id="validationSummaryBanner" class="validation-banner" style="margin-bottom:10px;"></div>
+          <div id="paperSheetMetaBar" class="paper-sheet-meta-bar hidden"></div>
           <div id="paperGridContainer" class="paper-grid-4col"></div>
         </div>
 
@@ -1215,6 +1246,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_57"></script>
+  <script src="/app.js?v=20261120_58"></script>
 </body>
 </html>
