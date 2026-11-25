@@ -222,6 +222,36 @@ function safeIsoDate(val) {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
+async function resolveLineDisplayName(ev, token) {
+  const userId = ev?.source?.userId || '';
+  const sourceType = ev?.source?.type || 'user';
+  const groupId = ev?.source?.groupId || '';
+  const roomId = ev?.source?.roomId || '';
+  const fallback = `เด็กโพย LINE (${(userId || 'USER').slice(-6)})`;
+  if (!token || !userId) return fallback;
+
+  let profileUrl = `https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`;
+  if (sourceType === 'group' && groupId) {
+    profileUrl = `https://api.line.me/v2/bot/group/${encodeURIComponent(groupId)}/member/${encodeURIComponent(userId)}`;
+  } else if (sourceType === 'room' && roomId) {
+    profileUrl = `https://api.line.me/v2/bot/room/${encodeURIComponent(roomId)}/member/${encodeURIComponent(userId)}`;
+  }
+
+  try {
+    const res = await fetch(profileUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(4000)
+    });
+    if (res.ok) {
+      const profile = await res.json();
+      if (profile && typeof profile.displayName === 'string' && profile.displayName.trim()) {
+        return profile.displayName.trim();
+      }
+    }
+  } catch {}
+  return fallback;
+}
+
 // Dual-Mode Hybrid OCR Priority State (Antigravity Agent Online Priority + Gemini API Key Offline Fallback)
 let antigravityLastSeenAt = 0;
 let antigravityPendingJobs = new Map();
@@ -2303,21 +2333,38 @@ const server = http.createServer(async (req, res) => {
       } catch {
         return sendJson(res, 400, { error: 'Invalid JSON payload' });
       }
+
+      const events = Array.isArray(body.events) ? body.events : [];
+      if (events.length === 0) {
+        return sendJson(res, 200, { status: 'ok' });
+      }
+
       const nowIso = new Date().toISOString();
       const resolved = resolveTargetDrawForSubmission(db, nowIso, db.currentDrawId, true);
       const currentDraw = resolved.draw;
-      const events = body.events || [];
-      const token = db.settings.lineChannelAccessToken || process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
+      const token = (db.settings.lineChannelAccessToken || process.env.LINE_CHANNEL_ACCESS_TOKEN || '').trim();
+      db.lineChats = db.lineChats || [];
 
       for (const ev of events) {
         if (ev.type === 'message' && ev.message) {
           const replyToken = ev.replyToken;
           const userId = ev.source?.userId || 'LINE_USER';
-          const customerName = `เด็กโพย LINE (${userId.slice(0, 6)})`;
+          const customerName = await resolveLineDisplayName(ev, token);
           const nextRound = getNextRoundForCustomer(db.slips, currentDraw.id, customerName);
           let replyText = '';
 
           if (resolved.rejectedClosed) {
+            if (ev.message.type === 'text' && ev.message.text) {
+              db.lineChats.push({
+                id: `MSG-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                drawId: currentDraw.id,
+                customerName,
+                sender: 'customer',
+                type: 'text',
+                text: ev.message.text,
+                timestamp: nowIso
+              });
+            }
             replyText = resolved.rejectMessage;
           } else if (ev.message.type === 'image' && token) {
             const imgRes = await fetch(`https://api-data.line.me/v2/bot/message/${ev.message.id}/content`, {
@@ -2328,6 +2375,18 @@ const server = http.createServer(async (req, res) => {
               const buf = Buffer.from(arrayBuf);
               const fileName = `line-webhook-${Date.now()}.jpg`;
               fs.writeFileSync(path.join(UPLOADS_DIR, fileName), buf);
+              const imageUrl = `/uploads/${fileName}`;
+
+              db.lineChats.push({
+                id: `MSG-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                drawId: currentDraw.id,
+                customerName,
+                sender: 'customer',
+                type: 'image',
+                imageUrl,
+                text: `ส่งรูปโพย รอบที่ ${nextRound}`,
+                timestamp: nowIso
+              });
 
               const ocrResult = await analyzeSlipImage({
                 base64Image: buf.toString('base64'),
@@ -2335,7 +2394,12 @@ const server = http.createServer(async (req, res) => {
                 learnedRules: db.learnedRules || [],
                 customerName
               });
-              const items = ocrResult.items || [];
+              const items = (ocrResult.items || []).map(it => ({
+                ...it,
+                ocrOriginalNumText: it.ocrOriginalNumText || it.numText || '',
+                ocrOriginalAmtText: it.ocrOriginalAmtText || it.amtText || '',
+                box2d: it.box2d || null
+              }));
               const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
               const reviewCount = items.filter(i => i.needsReview).length;
 
@@ -2349,7 +2413,7 @@ const server = http.createServer(async (req, res) => {
                 customerName,
                 customerLineId: userId,
                 source: 'LINE รูปโพยกระดาษ',
-                imageUrl: `/uploads/${fileName}`,
+                imageUrl,
                 isGrid4x30: items.length > 30,
                 status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
                 humanApproved: false,
@@ -2363,13 +2427,46 @@ const server = http.createServer(async (req, res) => {
                 items
               };
               db.slips.push(newSlip);
+              appendAuditLog(
+                db,
+                customerName,
+                'รับโพยรูปจาก LINE',
+                `รับโพยรูปของ "${customerName}" (รอบที่ ${nextRound}) จำนวน ${newSlip.totalItems} รายการ ยอด ${totalMoney.toLocaleString()} บาท`
+              );
+
+              const restrictedHits = [];
+              for (const it of items) {
+                if (it.isEmpty || !it.baseNumber) continue;
+                const rEval = evaluateNumberRestriction(it.baseNumber, nowIso, currentDraw.restrictedNumbers);
+                if (rEval.isRestrictedNumber && !rEval.isBeforeCutoff) {
+                  restrictedHits.push(`${it.baseNumber} (${rEval.payoutPercentForThisSlip}%)`);
+                }
+              }
+              const uniqueHits = Array.from(new Set(restrictedHits));
               const cumTotal = db.slips
                 .filter(s => s.drawId === currentDraw.id && s.customerName === customerName)
                 .reduce((sum, s) => sum + (s.totalMoney || 0), 0);
-              replyText = `✅ รับโพย ${customerName} รอบที่ ${nextRound} (${newSlip.totalItems} รายการ = ${totalMoney.toLocaleString()} บาท)\n📊 ยอดสะสมรวม ${nextRound} รอบ = ${cumTotal.toLocaleString()} บาท`;
+              replyText =
+                `✅ รับโพย ${customerName} — รอบที่ ${nextRound} (${currentDraw.title})\n` +
+                `📋 อ่านได้ทั้งหมด: ${newSlip.totalItems} รายการ | ยอดรอบนี้: ${totalMoney.toLocaleString()} บาท\n` +
+                (uniqueHits.length > 0
+                  ? `🔒 เลขอั้นในรอบนี้: ${uniqueHits.join(', ')}\n`
+                  : `🟢 เรทจ่ายรอบนี้: จ่ายเต็ม 100% ทุกรายการ\n`) +
+                `📊 ยอดสะสมรวม ${nextRound} รอบ = ${cumTotal.toLocaleString()} บาท`;
             }
           } else if (ev.message.type === 'text') {
-            const items = parseFreeTextMessage(ev.message.text, db.settings);
+            const rawText = String(ev.message.text || '');
+            db.lineChats.push({
+              id: `MSG-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+              drawId: currentDraw.id,
+              customerName,
+              sender: 'customer',
+              type: 'text',
+              text: rawText,
+              timestamp: nowIso
+            });
+
+            const items = parseFreeTextMessage(rawText, db.settings);
             if (items.length > 0) {
               const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
               const newSlip = {
@@ -2396,25 +2493,64 @@ const server = http.createServer(async (req, res) => {
                 items
               };
               db.slips.push(newSlip);
+              appendAuditLog(
+                db,
+                customerName,
+                'รับโพยข้อความจาก LINE',
+                `รับโพยข้อความของ "${customerName}" (รอบที่ ${nextRound}) จำนวน ${items.length} รายการ ยอด ${totalMoney.toLocaleString()} บาท`
+              );
+
+              const restrictedHits = [];
+              for (const it of items) {
+                if (it.isEmpty || !it.baseNumber) continue;
+                const rEval = evaluateNumberRestriction(it.baseNumber, nowIso, currentDraw.restrictedNumbers);
+                if (rEval.isRestrictedNumber && !rEval.isBeforeCutoff) {
+                  restrictedHits.push(`${it.baseNumber} (${rEval.payoutPercentForThisSlip}%)`);
+                }
+              }
+              const uniqueHits = Array.from(new Set(restrictedHits));
               const cumTotal = db.slips
                 .filter(s => s.drawId === currentDraw.id && s.customerName === customerName)
                 .reduce((sum, s) => sum + (s.totalMoney || 0), 0);
-              replyText = `✅ บันทึกรอบที่ ${nextRound} (${items.length} รายการ = ${totalMoney.toLocaleString()} บาท)\n📊 ยอดสะสมรวม ${nextRound} รอบ = ${cumTotal.toLocaleString()} บาท`;
+              replyText =
+                `✅ บันทึกรอบที่ ${nextRound} (${currentDraw.title})\n` +
+                `📋 ${items.length} รายการ = ${totalMoney.toLocaleString()} บาท\n` +
+                (uniqueHits.length > 0
+                  ? `🔒 เลขอั้นในรอบนี้: ${uniqueHits.join(', ')}\n`
+                  : `🟢 เรทจ่าย: จ่ายเต็ม 100%\n`) +
+                `📊 ยอดสะสมรวม ${nextRound} รอบ = ${cumTotal.toLocaleString()} บาท`;
             }
           }
 
-          if (replyText && replyToken && token) {
-            await fetch('https://api.line.me/v2/bot/message/reply', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                replyToken,
-                messages: [{ type: 'text', text: replyText }]
-              })
+          if (replyText) {
+            db.lineChats.push({
+              id: `MSG-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+              drawId: currentDraw.id,
+              customerName,
+              sender: 'bot',
+              type: 'text',
+              text: replyText,
+              timestamp: new Date().toISOString()
             });
+          }
+
+          if (replyText && replyToken && token) {
+            try {
+              await fetch('https://api.line.me/v2/bot/message/reply', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  replyToken,
+                  messages: [{ type: 'text', text: replyText }]
+                }),
+                signal: AbortSignal.timeout(5000)
+              });
+            } catch (replyErr) {
+              console.error('LINE reply error:', replyErr.message);
+            }
           }
         }
       }
