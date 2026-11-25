@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_52" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_53" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -331,13 +331,13 @@
           <div class="settings-form">
             <div class="form-group">
               <label>1. ระบุชุดตัวเลขที่เจ้ามือแจ้งอั้น (คั่นด้วยเว้นวรรค หรือลูกน้ำ เช่น 5 ชุด):</label>
-              <input type="text" id="restrictNumbersInput" class="input" placeholder="เช่น 21, 583, 154, 072, 860" value="21, 583, 154, 072, 860" />
+              <input type="text" id="restrictNumbersInput" class="input" placeholder="เช่น 21, 583, 154" value="" />
             </div>
 
             <div class="form-row-2">
               <div class="form-group">
                 <label>2. วัน-เวลาที่เจ้ามือเริ่มประกาศอั้น:</label>
-                <input type="datetime-local" id="restrictAnnouncedAtInput" class="input" value="2026-11-15T14:00" />
+                <input type="datetime-local" id="restrictAnnouncedAtInput" class="input" value="" />
                 <small class="text-muted">บิลที่ส่งก่อนเวลานี้จะได้ 100% / ส่งหลังเวลานี้จะได้ตามเรทอั้น</small>
               </div>
               <div class="form-group">
@@ -361,12 +361,11 @@
           </div>
 
           <div class="accuracy-architecture-box" style="margin-top:18px;">
-            <h4>💡 ตัวอย่างการทำงานจริงในระบบตอนนี้ (ดูที่เลข <code>21</code>):</h4>
+            <h4>💡 หลักการทำงานของระบบเลขอั้นประจำงวด:</h4>
             <ul>
-              <li><strong>เฮียพงษ์</strong> ส่งเลข <code>21 = 22 บาท</code> เมื่อวันที่ <strong>14 พ.ย.</strong> (ก่อนเจ้ามือประกาศอั้น) ➔ ระบบบันทึกเป็น 🟢 <strong>ได้เต็ม 100% (22 บาท)</strong></li>
-              <li><strong>เจ้ามือประกาศอั้น</strong> เลข <code>21, 583, 154, 072, 860</code> เมื่อวันที่ <strong>15 พ.ย. เวลา 14:00 น.</strong> (ก่อนหวยออก 1 วัน)</li>
-              <li><strong>ป้านิด</strong> ส่งเลข <code>21 = 20 บาท</code> เมื่อวันที่ <strong>15 พ.ย. เวลา 16:45 น.</strong> (หลังประกาศอั้น) ➔ ระบบบันทึกเป็น 🔒 <strong>จ่ายครึ่ง 50% (20 บาท)</strong></li>
-              <li>เมื่อดูในหน้าสรุปยอดรวม: เลข <code>21</code> มียอดรวม <strong>42 บาท</strong> โดยแยกชัดเจนว่า <strong>จ่าย 100% = 22 บาท</strong> และ <strong>จ่าย 50% = 20 บาท</strong>!</li>
+              <li><strong>แยกอิสระตามงวด:</strong> เลขอั้นที่ตั้งในแต่ละงวดจะถูกบันทึกแยกเฉพาะงวดนั้น เมื่อเปิดหรือสลับไปงวดใหม่รายการเลขอั้นจะรีเซ็ตเป็นค่าว่างอัตโนมัติ</li>
+              <li><strong>ตัดเวลาส่งบิลอัตโนมัติ:</strong> บิลที่ส่งเข้ามาก่อนวัน-เวลาที่ประกาศอั้น จะคำนวณเป็น 🟢 <strong>จ่ายเต็ม 100%</strong> • บิลที่ส่งมาหลังเวลาประกาศ จะคำนวณเป็น 🔒 <strong>จ่ายตามเรทอั้น (เช่น 50%)</strong></li>
+              <li><strong>แยกยอดชัดเจนในทุกหน้า:</strong> ตารางสรุปยอดรวมและหน้าตัดยอดส่งเจ้ามือจะแยกแสดงยอด 100% กับ 50% ของแต่ละเลขให้อัตโนมัติ</li>
             </ul>
           </div>
         </div>
@@ -1206,6 +1205,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_52"></script>
+  <script src="/app.js?v=20261120_53"></script>
 </body>
 </html>

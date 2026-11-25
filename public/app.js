@@ -339,6 +339,7 @@ async function onSwitchDraw(drawId) {
   customLayoffAmounts = {};
   currentInspectedSlipId = null;
   currentInspectorRunner = '';
+  lastRestrictedFormDrawId = '';
   await fetch('/api/draws', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -397,7 +398,13 @@ async function createDrawFromSchedule(title, drawDate) {
   if (res.ok) {
     closeNewDrawModal();
     selectedCustomerFilter = null;
+    selectedSlipRoundFilter = null;
     selectedAggNumberKey = null;
+    selectedLayoffKeys.clear();
+    customLayoffAmounts = {};
+    currentInspectedSlipId = null;
+    currentInspectorRunner = '';
+    lastRestrictedFormDrawId = '';
     await fetchAppState();
     showToast(`✅ เปิด "${title}" ตามปฏิทินกองสลากเรียบร้อยแล้ว!`);
   }
@@ -1156,7 +1163,25 @@ function renderSelectedNumberDetail() {
 // ============================================================================
 // แท็บที่ 2: จัดการเลขอั้นเจ้ามือ 50% ตามเวลาที่ประกาศ
 // ============================================================================
+let lastRestrictedFormDrawId = '';
+
+function getCurrentLocalDateTimeInputValue() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
 function renderRestrictedNumbersTab() {
+  if (appState.currentDrawId && appState.currentDrawId !== lastRestrictedFormDrawId) {
+    lastRestrictedFormDrawId = appState.currentDrawId;
+    const numsInput = document.getElementById('restrictNumbersInput');
+    const dtInput = document.getElementById('restrictAnnouncedAtInput');
+    const pctInput = document.getElementById('restrictPayoutPercentInput');
+    if (numsInput) numsInput.value = '';
+    if (dtInput) dtInput.value = getCurrentLocalDateTimeInputValue();
+    if (pctInput) pctInput.value = '50';
+  }
+
   const wrap = document.getElementById('restrictedNumbersTableWrap');
   if (!wrap) return;
 
@@ -1223,7 +1248,7 @@ async function addRestrictedNumbersBatch(useNow = false) {
     if (dtVal) announcedAt = new Date(dtVal).toISOString();
   }
 
-  await fetch('/api/draws/restrictions', {
+  const res = await fetch('/api/draws/restrictions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1234,7 +1259,13 @@ async function addRestrictedNumbersBatch(useNow = false) {
       announcedAt
     })
   });
+  if (!res.ok) {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถบันทึกเลขอั้นได้')}`);
+    return;
+  }
 
+  const numsInput = document.getElementById('restrictNumbersInput');
+  if (numsInput) numsInput.value = '';
   await fetchAppState();
   showToast('🔒 บันทึกชุดเลขอั้นและคำนวณแยกบิล 100% / 50% ตามเวลาที่ส่งเรียบร้อยแล้ว!');
 }
