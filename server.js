@@ -1759,7 +1759,7 @@ const server = http.createServer(async (req, res) => {
       const agOnline = isAntigravityOnline();
       const hasApiKey = Boolean((db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim());
 
-      if ((priorityMode === 'antigravity_only') || (priorityMode === 'auto_hybrid' && agOnline)) {
+      if ((priorityMode === 'antigravity_only') || (priorityMode === 'auto_hybrid' && agOnline) || (Boolean(base64Image) && !hasApiKey)) {
         const newSlip = {
           id: `${isTrainingOnly ? 'TRAIN' : 'SLIP'}-${Date.now().toString().slice(-6)}`,
           drawId: isTrainingOnly ? 'TRAINING_ARCHIVE' : currentDraw.id,
@@ -1772,12 +1772,15 @@ const server = http.createServer(async (req, res) => {
           customerLineId: body.customerLineId || `U_${Date.now().toString().slice(-5)}`,
           source: isTrainingOnly ? 'โหมดฝึกสอนจากโพยเก่า' : (body.source || 'อัปโหลดรูปโพย (Antigravity Priority)'),
           imageUrl: savedImageUrl,
+          rotationDeg: 0,
           isGrid4x30: true,
           status: 'pending_antigravity',
           humanApproved: false,
           approvedBy: null,
           approvedAt: null,
-          modelUsed: 'antigravity-agent (รอคิวอ่าน...)',
+          modelUsed: !hasApiKey && !agOnline
+            ? 'รอตั้งค่า Gemini API Key / รอ Antigravity อ่าน'
+            : 'antigravity-agent (รอคิวอ่าน...)',
           ocrMode: 'antigravity_queue',
           usage: { inputTokens: 0, outputTokens: 0, estimatedCostTHB: 0 },
           totalItems: 0,
@@ -1881,7 +1884,8 @@ const server = http.createServer(async (req, res) => {
         columnSlices,
         settings: db.settings,
         learnedRules: db.learnedRules || [],
-        customerName
+        customerName,
+        allowDemoFallback: !base64Image
       });
 
       const items = ocrResult.items || [];
@@ -1900,6 +1904,8 @@ const server = http.createServer(async (req, res) => {
         customerLineId: body.customerLineId || `U_${Date.now().toString().slice(-5)}`,
         source: isTrainingOnly ? 'โหมดฝึกสอนจากโพยเก่า' : (body.source || 'อัปโหลดรูปโพย (OCR)'),
         imageUrl: savedImageUrl,
+        rotationDeg: Number(ocrResult.rotationNeededDeg) || 0,
+        tableBox: ocrResult.tableBox || null,
         isGrid4x30: items.length > 30,
         status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
         humanApproved: false,
@@ -1931,6 +1937,84 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // API: Re-run AI OCR on an Existing Slip Image (supports upright rotated image from client)
+    if (req.method === 'POST' && /^\/api\/slips\/[^/]+\/reocr$/.test(pathname)) {
+      const slipId = decodeURIComponent(pathname.replace('/api/slips/', '').replace('/reocr', ''));
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      const slip = (db.slips || []).find(s => s.id === slipId);
+      if (!slip) return sendJson(res, 404, { ok: false, error: 'ไม่พบบิลนี้ในระบบ' });
+
+      const hasApiKey = Boolean((db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim());
+      if (!hasApiKey) {
+        return sendJson(res, 400, {
+          ok: false,
+          error: 'ยังไม่ได้ตั้งค่า Gemini API Key — กรุณาไปใส่คีย์ในแท็บ 7. ตั้งค่า ➔ 2. โมเดล AI ก่อนกดอ่านใหม่'
+        });
+      }
+
+      let imgBase64 = '';
+      let clientSentPreRotated = false;
+      if (typeof body.base64Image === 'string' && body.base64Image.startsWith('data:image/')) {
+        imgBase64 = body.base64Image;
+        clientSentPreRotated = true;
+      } else if (slip.imageUrl && slip.imageUrl.startsWith('/uploads/')) {
+        const relImg = slip.imageUrl.replace(/^\/+/, '');
+        const resolvedImg = path.resolve(PUBLIC_DIR, relImg);
+        if (resolvedImg.startsWith(UPLOADS_DIR + path.sep) && fs.existsSync(resolvedImg)) {
+          imgBase64 = fs.readFileSync(resolvedImg).toString('base64');
+        }
+      }
+
+      if (!imgBase64) {
+        return sendJson(res, 400, { ok: false, error: 'ไม่พบไฟล์รูปภาพของบิลนี้สำหรับการอ่านใหม่' });
+      }
+
+      const ocrResult = await analyzeSlipImage({
+        base64Image: imgBase64,
+        settings: db.settings,
+        learnedRules: db.learnedRules || [],
+        customerName: slip.customerName,
+        allowDemoFallback: false
+      });
+
+      const items = (ocrResult.items || []).map(it => ({
+        ...it,
+        ocrOriginalNumText: it.ocrOriginalNumText || it.numText || '',
+        ocrOriginalAmtText: it.ocrOriginalAmtText || it.amtText || '',
+        box2d: it.box2d || null
+      }));
+
+      slip.items = items;
+      slip.isGrid4x30 = items.length > 30;
+      slip.totalItems = items.filter(i => !i.isEmpty).length;
+      slip.totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
+      slip.reviewCount = items.filter(i => i.needsReview).length;
+      if (ocrResult.tableBox) slip.tableBox = ocrResult.tableBox;
+      if (ocrResult.sheetDate) slip.sheetDate = ocrResult.sheetDate;
+      if (body.rotationDeg !== undefined) {
+        slip.rotationDeg = ((Number(body.rotationDeg) || 0) % 360 + 360) % 360;
+      } else if (!clientSentPreRotated && ocrResult.rotationNeededDeg) {
+        slip.rotationDeg = ((Number(ocrResult.rotationNeededDeg) || 0) % 360 + 360) % 360;
+      }
+      slip.modelUsed = ocrResult.modelUsed;
+      slip.ocrMode = ocrResult.mode;
+      slip.usage = ocrResult.usage;
+      slip.humanApproved = false;
+      slip.approvedBy = null;
+      slip.approvedAt = null;
+      slip.status = slip.reviewCount > 0 ? 'needs_review' : 'ai_passed';
+
+      appendAuditLog(
+        db,
+        getActorFromReq(req, body),
+        'อ่านโพยด้วย AI ใหม่ (Re-OCR)',
+        `อ่านโพย "${slip.customerName}" (${slip.title}) ใหม่สำเร็จ (${slip.totalItems} รายการ รวม ${slip.totalMoney.toLocaleString()} บาท)`
+      );
+      saveDb(db);
+      return sendJson(res, 200, { ok: true, slip });
+    }
+
     // API: Update / Verify a Slip & Auto-Learn Handwriting Corrections!
     if (req.method === 'PUT' && pathname.startsWith('/api/slips/')) {
       const slipId = decodeURIComponent(pathname.replace('/api/slips/', ''));
@@ -1940,6 +2024,14 @@ const server = http.createServer(async (req, res) => {
 
       const slip = db.slips.find(s => s.id === slipId);
       if (!slip) return sendJson(res, 404, { error: 'ไม่พบบิลนี้ในระบบ' });
+
+      if (body.rotationDeg !== undefined) {
+        slip.rotationDeg = ((Number(body.rotationDeg) || 0) % 360 + 360) % 360;
+        if (!Array.isArray(body.items) && !body.markVerified && body.customerName === undefined && body.title === undefined) {
+          saveDb(db);
+          return sendJson(res, 200, { ok: true, slip });
+        }
+      }
 
       if (body.customerName !== undefined) slip.customerName = body.customerName;
       if (body.title !== undefined) slip.title = body.title;
@@ -2153,7 +2245,8 @@ const server = http.createServer(async (req, res) => {
           base64Image: base64Image || fs.readFileSync(path.join(UPLOADS_DIR, 'slip-16-11-page1.jpg')).toString('base64'),
           settings: db.settings,
           learnedRules: db.learnedRules || [],
-          customerName
+          customerName,
+          allowDemoFallback: Boolean(useSamplePhoto && !base64Image)
         });
 
         const items = ocrResult.items || [];
@@ -2388,71 +2481,127 @@ const server = http.createServer(async (req, res) => {
                 timestamp: nowIso
               });
 
-              const ocrResult = await analyzeSlipImage({
-                base64Image: buf.toString('base64'),
-                settings: db.settings,
-                learnedRules: db.learnedRules || [],
-                customerName
-              });
-              const items = (ocrResult.items || []).map(it => ({
-                ...it,
-                ocrOriginalNumText: it.ocrOriginalNumText || it.numText || '',
-                ocrOriginalAmtText: it.ocrOriginalAmtText || it.amtText || '',
-                box2d: it.box2d || null
-              }));
-              const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
-              const reviewCount = items.filter(i => i.needsReview).length;
-
-              const newSlip = {
-                id: `SLIP-${Date.now().toString().slice(-6)}`,
-                drawId: currentDraw.id,
-                roundNumber: nextRound,
-                title: `รอบที่ ${nextRound} — โพยรูป LINE`,
-                sheetDate: ocrResult.sheetDate || '16/11',
-                sheetPage: String(nextRound),
-                customerName,
-                customerLineId: userId,
-                source: 'LINE รูปโพยกระดาษ',
-                imageUrl,
-                isGrid4x30: items.length > 30,
-                status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
-                humanApproved: false,
-                approvedBy: null,
-                approvedAt: null,
-                modelUsed: ocrResult.modelUsed,
-                totalItems: items.filter(i => !i.isEmpty).length,
-                totalMoney,
-                reviewCount,
-                createdAt: nowIso,
-                items
-              };
-              db.slips.push(newSlip);
-              appendAuditLog(
-                db,
-                customerName,
-                'รับโพยรูปจาก LINE',
-                `รับโพยรูปของ "${customerName}" (รอบที่ ${nextRound}) จำนวน ${newSlip.totalItems} รายการ ยอด ${totalMoney.toLocaleString()} บาท`
-              );
-
-              const restrictedHits = [];
-              for (const it of items) {
-                if (it.isEmpty || !it.baseNumber) continue;
-                const rEval = evaluateNumberRestriction(it.baseNumber, nowIso, currentDraw.restrictedNumbers);
-                if (rEval.isRestrictedNumber && !rEval.isBeforeCutoff) {
-                  restrictedHits.push(`${it.baseNumber} (${rEval.payoutPercentForThisSlip}%)`);
+              const hasApiKey = Boolean((db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim());
+              let ocrResult = null;
+              let ocrErrorMsg = '';
+              if (hasApiKey) {
+                try {
+                  ocrResult = await analyzeSlipImage({
+                    base64Image: buf.toString('base64'),
+                    settings: db.settings,
+                    learnedRules: db.learnedRules || [],
+                    customerName,
+                    allowDemoFallback: false
+                  });
+                } catch (ocrErr) {
+                  ocrErrorMsg = ocrErr.message;
+                  console.error('LINE webhook OCR error:', ocrErr.message);
                 }
               }
-              const uniqueHits = Array.from(new Set(restrictedHits));
-              const cumTotal = db.slips
-                .filter(s => s.drawId === currentDraw.id && s.customerName === customerName)
-                .reduce((sum, s) => sum + (s.totalMoney || 0), 0);
-              replyText =
-                `✅ รับโพย ${customerName} — รอบที่ ${nextRound} (${currentDraw.title})\n` +
-                `📋 อ่านได้ทั้งหมด: ${newSlip.totalItems} รายการ | ยอดรอบนี้: ${totalMoney.toLocaleString()} บาท\n` +
-                (uniqueHits.length > 0
-                  ? `🔒 เลขอั้นในรอบนี้: ${uniqueHits.join(', ')}\n`
-                  : `🟢 เรทจ่ายรอบนี้: จ่ายเต็ม 100% ทุกรายการ\n`) +
-                `📊 ยอดสะสมรวม ${nextRound} รอบ = ${cumTotal.toLocaleString()} บาท`;
+
+              if (ocrResult && ocrResult.mode === 'live_gemini') {
+                const items = (ocrResult.items || []).map(it => ({
+                  ...it,
+                  ocrOriginalNumText: it.ocrOriginalNumText || it.numText || '',
+                  ocrOriginalAmtText: it.ocrOriginalAmtText || it.amtText || '',
+                  box2d: it.box2d || null
+                }));
+                const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
+                const reviewCount = items.filter(i => i.needsReview).length;
+
+                const newSlip = {
+                  id: `SLIP-${Date.now().toString().slice(-6)}`,
+                  drawId: currentDraw.id,
+                  roundNumber: nextRound,
+                  title: `รอบที่ ${nextRound} — โพยรูป LINE`,
+                  sheetDate: ocrResult.sheetDate || '16/11',
+                  sheetPage: String(nextRound),
+                  customerName,
+                  customerLineId: userId,
+                  source: 'LINE รูปโพยกระดาษ',
+                  imageUrl,
+                  rotationDeg: Number(ocrResult.rotationNeededDeg) || 0,
+                  tableBox: ocrResult.tableBox || null,
+                  isGrid4x30: items.length > 30,
+                  status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
+                  humanApproved: false,
+                  approvedBy: null,
+                  approvedAt: null,
+                  modelUsed: ocrResult.modelUsed,
+                  ocrMode: ocrResult.mode,
+                  usage: ocrResult.usage,
+                  totalItems: items.filter(i => !i.isEmpty).length,
+                  totalMoney,
+                  reviewCount,
+                  createdAt: nowIso,
+                  items
+                };
+                db.slips.push(newSlip);
+                appendAuditLog(
+                  db,
+                  customerName,
+                  'รับโพยรูปจาก LINE',
+                  `รับโพยรูปของ "${customerName}" (รอบที่ ${nextRound}) จำนวน ${newSlip.totalItems} รายการ ยอด ${totalMoney.toLocaleString()} บาท`
+                );
+
+                const restrictedHits = [];
+                for (const it of items) {
+                  if (it.isEmpty || !it.baseNumber) continue;
+                  const rEval = evaluateNumberRestriction(it.baseNumber, nowIso, currentDraw.restrictedNumbers);
+                  if (rEval.isRestrictedNumber && !rEval.isBeforeCutoff) {
+                    restrictedHits.push(`${it.baseNumber} (${rEval.payoutPercentForThisSlip}%)`);
+                  }
+                }
+                const uniqueHits = Array.from(new Set(restrictedHits));
+                const cumTotal = db.slips
+                  .filter(s => s.drawId === currentDraw.id && s.customerName === customerName)
+                  .reduce((sum, s) => sum + (s.totalMoney || 0), 0);
+                replyText =
+                  `✅ รับโพย ${customerName} — รอบที่ ${nextRound} (${currentDraw.title})\n` +
+                  `📋 อ่านได้ทั้งหมด: ${newSlip.totalItems} รายการ | ยอดรอบนี้: ${totalMoney.toLocaleString()} บาท\n` +
+                  (uniqueHits.length > 0
+                    ? `🔒 เลขอั้นในรอบนี้: ${uniqueHits.join(', ')}\n`
+                    : `🟢 เรทจ่ายรอบนี้: จ่ายเต็ม 100% ทุกรายการ\n`) +
+                  `📊 ยอดสะสมรวม ${nextRound} รอบ = ${cumTotal.toLocaleString()} บาท`;
+              } else {
+                const pendingSlip = {
+                  id: `SLIP-${Date.now().toString().slice(-6)}`,
+                  drawId: currentDraw.id,
+                  roundNumber: nextRound,
+                  title: `รอบที่ ${nextRound} — โพยรูป LINE`,
+                  sheetDate: '',
+                  sheetPage: String(nextRound),
+                  customerName,
+                  customerLineId: userId,
+                  source: 'LINE รูปโพยกระดาษ',
+                  imageUrl,
+                  rotationDeg: 0,
+                  isGrid4x30: true,
+                  status: 'pending_antigravity',
+                  humanApproved: false,
+                  approvedBy: null,
+                  approvedAt: null,
+                  modelUsed: hasApiKey
+                    ? `อ่านไม่สำเร็จชั่วคราว (${ocrErrorMsg || 'กรุณากดอ่านใหม่'})`
+                    : 'รอตั้งค่า Gemini API Key / รอ Antigravity อ่าน',
+                  ocrMode: 'pending_ocr',
+                  totalItems: 0,
+                  totalMoney: 0,
+                  reviewCount: 0,
+                  createdAt: nowIso,
+                  items: []
+                };
+                db.slips.push(pendingSlip);
+                appendAuditLog(
+                  db,
+                  customerName,
+                  'รับโพยรูปจาก LINE (รออ่านตัวเลข)',
+                  `ได้รับรูปโพยของ "${customerName}" (รอบที่ ${nextRound}) เก็บเข้าระบบรออ่านตัวเลขแล้ว`
+                );
+                replyText =
+                  `📥 ได้รับรูปโพยของ ${customerName} — รอบที่ ${nextRound} (${currentDraw.title}) แล้วครับ\n` +
+                  `⏳ กำลังรอระบบตรวจสอบและอ่านตัวเลข`;
+              }
             }
           } else if (ev.message.type === 'text') {
             const rawText = String(ev.message.text || '');

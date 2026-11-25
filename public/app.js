@@ -2262,10 +2262,21 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
 
   const imgEl = document.getElementById('inspectorImage');
   const emptyPhotoEl = document.getElementById('inspectorPhotoEmpty');
+  currentInspectorRotation = ((Number(slip.rotationDeg) || 0) % 360 + 360) % 360;
   if (slip.imageUrl) {
-    imgEl.src = slip.imageUrl;
+    imgEl.style.transform = '';
     imgEl.style.display = '';
+    imgEl.src = slip.imageUrl;
     if (emptyPhotoEl) emptyPhotoEl.classList.add('hidden');
+    if (currentInspectorRotation !== 0) {
+      const expectedSlipId = slip.id;
+      const degToApply = currentInspectorRotation;
+      rotateBase64Image90(slip.imageUrl, degToApply).then(rotatedUrl => {
+        if (currentInspectedSlipId === expectedSlipId && rotatedUrl && rotatedUrl.startsWith('data:image/')) {
+          imgEl.src = rotatedUrl;
+        }
+      });
+    }
   } else {
     imgEl.removeAttribute('src');
     imgEl.style.display = 'none';
@@ -2282,13 +2293,25 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     i => i.needsReview || (i.warnings && i.warnings.length > 0)
   );
   if (slip.status === 'pending_antigravity') {
-    banner.className = 'validation-banner ai';
-    banner.innerHTML = `
-      <div>
-        <strong>🤖 บิลนี้อยู่ในคิวรอ Antigravity Agent อ่านลายมือ... (หน้าเว็บจะอัปเดตตัวเลขอัตโนมัติทันทีที่อ่านเสร็จ)</strong>
-      </div>
-      <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">⏳ กำลังรอคิว Antigravity Priority #1</span>
-    `;
+    const agStatus = appState.antigravityStatus || {};
+    if (!agStatus.online && !agStatus.hasApiKey) {
+      banner.className = 'validation-banner warn';
+      banner.innerHTML = `
+        <div>
+          <strong>⚠️ ยังไม่ได้ตั้งค่า Gemini API Key (ระบบจึงยังไม่สามารถอ่านลายมือจากรูปจริงใบนี้ได้)</strong>
+          <div style="margin-top:3px;">ไปที่แท็บ <strong>7. ตั้งค่า & ประวัติ Log ➔ 2. โมเดล AI & รหัส API</strong> เพื่อใส่ Gemini API Key แล้วหมุนรูปให้ตั้งตรงจากนั้นกดปุ่ม <strong>"🤖 อ่านโพยนี้ใหม่"</strong> ด้านบนได้เลยครับ</div>
+        </div>
+        <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">🔑 รอใส่ Gemini API Key</span>
+      `;
+    } else {
+      banner.className = 'validation-banner ai';
+      banner.innerHTML = `
+        <div>
+          <strong>🤖 บิลนี้อยู่ในคิวรอระบบอ่านลายมือ... (หรือหมุนรูปให้ตั้งตรงแล้วกด "🤖 อ่านโพยนี้ใหม่" ด้านบนได้ทันที)</strong>
+        </div>
+        <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">⏳ รอการอ่านตัวเลข</span>
+      `;
+    }
   } else if (warnItems.length > 0) {
     banner.className = 'validation-banner warn';
     const warnDesc = warnItems
@@ -2948,17 +2971,71 @@ let currentInspectorRotation = 0;
 async function rotateInspectorImage(degrees) {
   const imgEl = document.getElementById('inspectorImage');
   if (!imgEl) return;
+  const targetSlipId = currentInspectedSlipId;
+  currentInspectorRotation = ((currentInspectorRotation + degrees) % 360 + 360) % 360;
+
   if (imgEl.src) {
     const rotated = await rotateBase64Image90(imgEl.src, degrees);
     if (rotated && rotated.startsWith('data:image/')) {
+      imgEl.style.transform = '';
       imgEl.src = rotated;
-      showToast(`🔄 หมุนรูปโพยต้นฉบับ ${degrees > 0 ? 'ขวา 90°' : 'ซ้าย 90°'} เรียบร้อย`);
+    } else {
+      imgEl.style.transform = `rotate(${currentInspectorRotation}deg)`;
+    }
+  } else {
+    imgEl.style.transform = `rotate(${currentInspectorRotation}deg)`;
+  }
+
+  if (targetSlipId) {
+    const slipObj = (appState.slips || []).find(s => s.id === targetSlipId);
+    if (slipObj) slipObj.rotationDeg = currentInspectorRotation;
+    fetch(`/api/slips/${encodeURIComponent(targetSlipId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rotationDeg: currentInspectorRotation })
+    }).catch(() => {});
+  }
+
+  showToast(`🔄 หมุนรูปโพยต้นฉบับ ${degrees > 0 ? 'ขวา 90°' : 'ซ้าย 90°'} และบันทึกมุมภาพเรียบร้อย`);
+}
+
+async function reOcrCurrentSlip() {
+  if (!currentInspectedSlipId) {
+    showToast('กรุณาเลือกบิลที่ต้องการอ่านใหม่ก่อนครับ');
+    return;
+  }
+  const btn = document.getElementById('btnReOcrSlip');
+  const imgEl = document.getElementById('inspectorImage');
+  const payload = { rotationDeg: currentInspectorRotation };
+  if (imgEl && imgEl.src && imgEl.src.startsWith('data:image/')) {
+    payload.base64Image = imgEl.src;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ กำลังอ่านลายมือ...';
+  }
+  try {
+    const res = await fetch(`/api/slips/${encodeURIComponent(currentInspectedSlipId)}/reocr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      showToast(`❌ ${data.error || 'ไม่สามารถอ่านโพยใหม่ได้'}`);
       return;
     }
+    await fetchAppState(appState.currentDrawId);
+    showToast(`✅ อ่านโพยใหม่สำเร็จ! พบ ${data.slip?.totalItems || 0} รายการ (ยอดรวม ${(data.slip?.totalMoney || 0).toLocaleString()} บาท)`);
+  } catch (err) {
+    showToast(`❌ เกิดข้อผิดพลาดในการอ่านโพยใหม่: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🤖 อ่านโพยนี้ใหม่';
+    }
   }
-  currentInspectorRotation = (currentInspectorRotation + degrees) % 360;
-  imgEl.style.transform = `rotate(${currentInspectorRotation}deg)`;
-  showToast(`🔄 หมุนรูปโพยต้นฉบับ ${degrees > 0 ? 'ขวา 90°' : 'ซ้าย 90°'} เรียบร้อย`);
 }
 
 async function previewUploadImage(inputEl) {

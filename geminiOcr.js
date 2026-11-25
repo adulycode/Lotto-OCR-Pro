@@ -10,7 +10,7 @@ const LOTTERY_OCR_SYSTEM_PROMPT = `คุณคือระบบ AI OCR ผู�
 กฎสำคัญในการอ่านลายมือโพยหวยนี้:
 1. รูปแบบกระดาษโพยหวยมีความหลากหลาย (ระบบต้องอ่านได้ทุกรูปแบบและทุกแนวการวางภาพ):
    - โพยตารางมาตรฐาน 4 คอลัมน์, 5 คอลัมน์, หรือ 8 คอลัมน์ (มีแถว 1 ถึง 25-30 แถว) หรือโพยสมุดเส้นเขียนอิสระ 2-3 คอลัมน์
-   - หากรูปภาพถูกถ่ายตะแคง 90 องศา หรือกลับหัว ให้หมุนแกนสายตาอ่านตามแนวตัวหนังสือจริงจากซ้ายไปขวา และบนลงล่างให้ครบทุกคอลัมน์ (col = 1 ถึง 8 หรือตามจำนวนคอลัมน์จริงในหน้ากระดาษ)
+   - หากรูปภาพถูกถ่ายตะแคง 90 องศา หรือกลับหัว ให้หมุนแกนสายตาอ่านตามแนวตัวหนังสือจริงจากซ้ายไปขวา และบนลงล่างให้ครบทุกคอลัมน์ (col = 1 ถึง 8 หรือตามจำนวนคอลัมน์จริงในหน้ากระดาษ) พร้อมระบุค่า rotationNeededDeg (0, 90, 180, หรือ 270 องศาตามเข็มนาฬิกา) เพื่อให้หน้าเว็บหมุนภาพกลับมาตั้งตรงได้ถูกต้อง (เช่น ภาพตะแคงซ้ายหัวตารางอยู่ฝั่งขวา ต้องหมุนทวนเข็ม = 270° ตามเข็ม; ภาพตะแคงขวาหัวตารางอยู่ฝั่งซ้าย ต้องหมุนขวา = 90° ตามเข็ม; ภาพกลับหัว = 180°)
 2. การอ่านหัวตาราง (colHeader) และการจำแนกประเภทหวย (categoryHint) ของแต่ละคอลัมน์:
    - "ห.ท." / "ห.ท.1" / "หัว-ท้าย" / "หัวท้ายที่ 1" / "ท้ายที่ 1" / "หัวที่ 1" / "บน" = เลข 3 ตัวบน (ตรง / ตรง×โต๊ด / ชุดกลับ ×6, ×3) -> ตั้งค่า categoryHint = "3_top"
    - "โต๊ด ห.ท.ที่ 1" / "โต๊ด หท1" / "โต๊ด" = เลข 3 ตัวโต๊ดล้วน -> ตั้งค่า categoryHint = "3_toad" (สำคัญมาก: หากเขียนเลข 3 ตัวในคอลัมน์ที่หัวตารางเขียนว่า "โต๊ด" และมียอดเงินตัวเดียว เช่น "213 = 132" หรือ "163 = 66" ยอดนั้นคือ 3 ตัวโต๊ด ไม่ใช่ 3 ตัวตรง!)
@@ -42,6 +42,7 @@ const RESPONSE_SCHEMA = {
     sheetPage: { type: 'STRING', description: 'แผ่นที่ เช่น 1 หรือ 2' },
     customerName: { type: 'STRING', description: 'ชื่อในหัวกระดาษ (ถ้ามี เช่น ลุงปั่น, ไก่)' },
     totalColumnsDetected: { type: 'INTEGER', description: 'จำนวนคอลัมน์ทั้งหมดที่มีข้อมูลในหน้ากระดาษนี้ เช่น 2, 4, 5 หรือ 8' },
+    rotationNeededDeg: { type: 'INTEGER', description: 'องศาที่ต้องหมุนภาพตามเข็มนาฬิกาเพื่อให้กระดาษตั้งตรง (0, 90, 180, หรือ 270)' },
     tableBox: {
       type: 'ARRAY',
       description: 'พิกัดกรอบตารางทั้งหมดในสเกล 0 ถึง 1000 รูปแบบ [ymin, xmin, ymax, xmax]',
@@ -201,7 +202,7 @@ async function callGeminiVisionAPI({ base64Image, mimeType = 'image/jpeg', apiKe
   return { parsed, usage };
 }
 
-async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true, mimeType = 'image/jpeg', settings = {}, learnedRules = [], customerName = '' }) {
+async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true, mimeType = 'image/jpeg', settings = {}, learnedRules = [], customerName = '', allowDemoFallback = false }) {
   const apiKey = (settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
   const model = settings.geminiModel || 'gemini-2.5-pro';
   const learnedMemoryPrompt = buildLearnedMemoryPrompt(learnedRules, customerName);
@@ -210,6 +211,7 @@ async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true
     let rawItems = [];
     let sheetDate = '16/11';
     let sheetPage = '1';
+    let rotationNeededDeg = 0;
     let parsedTableBox = [141, 142, 914, 975];
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -247,6 +249,10 @@ async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true
       });
       sheetDate = parsed.sheetDate || sheetDate;
       sheetPage = parsed.sheetPage || sheetPage;
+      const rawRot = Number(parsed.rotationNeededDeg);
+      if ([0, 90, 180, 270].includes(rawRot)) {
+        rotationNeededDeg = rawRot;
+      }
       if (Array.isArray(parsed.tableBox) && parsed.tableBox.length === 4) {
         parsedTableBox = parsed.tableBox;
       }
@@ -292,6 +298,7 @@ async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true
       learnedRulesApplied: learnedRules.length,
       sheetDate,
       sheetPage,
+      rotationNeededDeg,
       tableBox: parsedTableBox,
       items: validatedItems,
       usage: {
@@ -299,6 +306,19 @@ async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true
         outputTokens: totalOutputTokens,
         estimatedCostTHB
       }
+    };
+  }
+
+  if (!allowDemoFallback) {
+    return {
+      mode: 'missing_api_key',
+      modelUsed: 'รอตั้งค่า Gemini API Key',
+      learnedRulesApplied: learnedRules.length,
+      sheetDate: '',
+      sheetPage: '1',
+      rotationNeededDeg: 0,
+      items: [],
+      error: 'ยังไม่ได้ตั้งค่า Gemini API Key ในเมนู 7. ตั้งค่า ➔ 2. โมเดล AI & รหัส API'
     };
   }
 

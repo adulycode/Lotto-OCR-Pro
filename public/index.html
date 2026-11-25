@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_53" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_54" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -609,6 +609,9 @@
               <p class="text-muted">คลิกแก้ไขตัวเลขได้ทุกช่อง (บันทึกอัตโนมัติ) • ตรวจเสร็จแล้วกดปุ่มสีเขียวเพื่อยืนยันบิล</p>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <button class="btn btn-outline btn-sm" id="btnReOcrSlip" onclick="reOcrCurrentSlip()" title="ส่งรูปโพยที่หมุนตั้งตรงแล้วให้ AI อ่านลายมือใหม่">
+                🤖 อ่านโพยนี้ใหม่
+              </button>
               <button class="btn btn-outline btn-sm" onclick="filterInspectorWarningsOnly()" id="btnFilterWarnings">
                 ⚠️ เฉพาะจุดแจ้งเตือน
               </button>
@@ -1205,6 +1208,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_53"></script>
+  <script src="/app.js?v=20261120_54"></script>
 </body>
 </html>
