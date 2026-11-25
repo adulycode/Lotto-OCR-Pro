@@ -472,7 +472,10 @@ function renderHeaderAndKpis() {
   if (modelBadge) modelBadge.textContent = settings.geminiModel || 'gemini-2.5-pro';
   document.getElementById('kpiTotalCustomers').textContent = `${s.totalCustomers || 0} คน (${s.totalSlips || 0} บิล)`;
   document.getElementById('kpiTotalMoney').textContent = `${(s.totalGrandMoney || 0).toLocaleString()} บาท`;
-  document.getElementById('kpiUniqueNumbers').textContent = `รวมทั้งหมด ${s.totalUniqueNumbers || 0} เลขไม่ซ้ำกัน`;
+  const unapprovedCount = s.unapprovedSlipsCount || 0;
+  document.getElementById('kpiUniqueNumbers').textContent = unapprovedCount > 0
+    ? `เข้า Pool ${s.totalUniqueNumbers || 0} เลข (${s.approvedSlipsCount || 0}/${s.totalSlips || 0} บิล • รอยืนยัน ${unapprovedCount} บิล)`
+    : `รวมทั้งหมด ${s.totalUniqueNumbers || 0} เลขไม่ซ้ำกัน (ยืนยันครบ ${s.approvedSlipsCount || 0} บิล)`;
 
   document.getElementById('kpiFull100').textContent = `${(s.totalFull100Money || 0).toLocaleString()} ฿`;
   document.getElementById('kpiHalf50').textContent = `${(s.totalHalf50Money || 0).toLocaleString()} ฿`;
@@ -484,12 +487,32 @@ function renderHeaderAndKpis() {
   const badgeRest = document.getElementById('badgeRestrictedCount');
   if (badgeRest) badgeRest.textContent = restrictedNums.length;
 
-  const totalWarnRows = (appState.slips || []).reduce((acc, sl) => acc + (sl.reviewCount || 0), 0);
   const badgeRev = document.getElementById('badgeReviewCount');
   if (badgeRev) {
-    badgeRev.textContent = totalWarnRows;
-    badgeRev.style.display = totalWarnRows > 0 ? 'inline-block' : 'none';
+    badgeRev.textContent = unapprovedCount;
+    badgeRev.style.display = unapprovedCount > 0 ? 'inline-block' : 'none';
   }
+
+  const noticeHtml = unapprovedCount > 0
+    ? `
+      <div style="flex:1;min-width:220px;">
+        <strong>⏳ มีบิลรอยืนยันการตรวจ OCR จำนวน ${unapprovedCount} บิล (ยอด ${(s.unapprovedMoney || 0).toLocaleString()} ฿)</strong>
+        <div style="font-size:12px;margin-top:2px;">ตัวเลขจะยังไม่เข้า Pool รวมจนกว่าจะกดปุ่ม <strong>"✅ ยืนยัน &amp; นำเข้า Pool"</strong> ในแท็บ 2. ตรวจบิล OCR</div>
+      </div>
+      <button type="button" class="btn btn-primary btn-sm" onclick="switchTab('tab-inspector')" style="white-space:nowrap;">🔍 ไปตรวจ &amp; ยืนยันบิล</button>
+    `
+    : '';
+  ['unapprovedPoolNoticeDash', 'unapprovedPoolNoticeLayoff'].forEach(elId => {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (unapprovedCount > 0) {
+      el.classList.remove('hidden');
+      el.innerHTML = noticeHtml;
+    } else {
+      el.classList.add('hidden');
+      el.innerHTML = '';
+    }
+  });
 
   const isExpand = settings.permutationMode !== 'keep_raw';
   document.getElementById('btnModeExpand')?.classList.toggle('active', isExpand);
@@ -661,12 +684,12 @@ function renderCustomersInDraw() {
                   }
                   ${
                     sl.status === 'pending_antigravity'
-                      ? `<span class="badge-ai" title="อยู่ในคิวรอ Antigravity Agent อ่านลายมือ">⏳ รอ Antigravity อ่าน...</span>`
-                      : (sl.reviewCount || 0) > 0
-                        ? `<span class="badge-50" title="AI พบจุดที่ควรตรวจสอบเทียบกับรูปกระดาษ">⚠️ รอเช็ค ${sl.reviewCount} จุด</span>`
-                        : sl.humanApproved
-                          ? `<span class="badge-100" title="คนตรวจและกดยืนยันแล้วโดย ${escapeHtml(sl.approvedBy || 'แอดมิน')}">✅ คนยืนยันแล้ว</span>`
-                          : `<span class="badge-ai" title="AI อ่านและตรวจกฎคณิตศาสตร์ผ่านอัตโนมัติ (รอคนกดปุ่มยืนยัน)">🤖 AI อ่านผ่าน</span>`
+                      ? `<span class="badge-ai" title="อยู่ในคิวรอ Antigravity Agent อ่านลายมือ (ยังไม่เข้า Pool)">⏳ รออ่าน OCR (ยังไม่เข้า Pool)</span>`
+                      : sl.humanApproved
+                        ? `<span class="badge-100" title="ยืนยันแล้วโดย ${escapeHtml(sl.approvedBy || 'แอดมิน')}">✅ ยืนยันแล้ว (อยู่ใน Pool)</span>`
+                        : (sl.reviewCount || 0) > 0
+                          ? `<span class="badge-50" title="ยังไม่ได้ยืนยันเข้า Pool • พบจุดควรเช็ค ${sl.reviewCount} จุด">⏳ รอยืนยันเข้า Pool (เช็ค ${sl.reviewCount} จุด)</span>`
+                          : `<span class="badge-50" title="AI อ่านผ่านแล้ว แต่ต้องกดยืนยันในหน้า 2. ตรวจบิล OCR ก่อนเข้า Pool">⏳ รอยืนยันเข้า Pool</span>`
                   }
                 </div>
               </div>
@@ -1004,6 +1027,15 @@ function renderAggregatedTable() {
 
   if (!selectedAggNumberKey && list.length > 0) {
     selectedAggNumberKey = num21 ? num21.key : list[0].key;
+  }
+
+  if (list.length === 0) {
+    const s = appState.summary || {};
+    const pendingMsg = (s.unapprovedSlipsCount || 0) > 0 && allAgg.length === 0
+      ? `🔒 ยังไม่มีตัวเลขใน Pool — มี ${s.unapprovedSlipsCount} บิล (${(s.unapprovedMoney || 0).toLocaleString()} ฿) รอการยืนยันในแท็บ <strong>2. ตรวจบิล OCR</strong> ก่อน <button type="button" class="btn btn-primary btn-sm" style="margin-left:8px;" onclick="switchTab('tab-inspector')">🔍 ไปยืนยันบิล</button>`
+      : 'ไม่พบรายการตัวเลขในเงื่อนไขที่เลือก';
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:24px;color:var(--text-muted);">${pendingMsg}</td></tr>`;
+    return;
   }
 
   tbody.innerHTML = list
@@ -1506,10 +1538,15 @@ function renderLayoffBuilder(skipInputRebuild = false) {
     const tableList = getFilteredLayoffList();
 
     if (tableList.length === 0) {
+      const hasUnapprovedWait = (appState.aggregated || []).length === 0 && (s.unapprovedSlipsCount || 0) > 0;
       selectTbody.innerHTML = `
         <tr>
-          <td colspan="8" style="text-align:center;padding:28px;color:var(--success);font-weight:600;">
-            ✅ ไม่มีรายการคงเหลือในตัวกรองนี้ — สามารถสลับตัวกรองด้านบนเพื่อดูทั้งหมดได้ครับ
+          <td colspan="8" style="text-align:center;padding:28px;color:${hasUnapprovedWait ? 'var(--warning, #d97706)' : 'var(--success)'};font-weight:600;">
+            ${
+              hasUnapprovedWait
+                ? `🔒 ยังไม่มีเลขใน Pool — มี ${s.unapprovedSlipsCount} บิล (${(s.unapprovedMoney || 0).toLocaleString()} ฿) รอยืนยันตรวจ OCR ก่อน <button type="button" class="btn btn-primary btn-sm" style="margin-left:8px;" onclick="switchTab('tab-inspector')">🔍 ไปตรวจ & ยืนยันบิล</button>`
+                : '✅ ไม่มีรายการคงเหลือในตัวกรองนี้ — สามารถสลับตัวกรองด้านบนเพื่อดูทั้งหมดได้ครับ'
+            }
           </td>
         </tr>
       `;
@@ -2622,7 +2659,7 @@ function populateQuickSlipSelect(activeSlipId) {
   sel.innerHTML = slips
     .map(
       s =>
-        `<option value="${escapeHtml(s.id)}">${escapeHtml(s.customerName || 'ลูกค้า')} — รอบ ${s.roundNumber || 1} (${(s.totalMoney || 0).toLocaleString()}฿)</option>`
+        `<option value="${escapeHtml(s.id)}">${s.humanApproved ? '[✅ ใน Pool]' : '[⏳ รอยืนยัน]'} ${escapeHtml(s.customerName || 'ลูกค้า')} — รอบ ${s.roundNumber || 1} (${(s.totalMoney || 0).toLocaleString()}฿)</option>`
     )
     .join('');
   if (activeSlipId) sel.value = activeSlipId;
@@ -2741,6 +2778,27 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   }
   document.getElementById('inspectorMetaText').textContent =
     `👤 ${slip.customerName} | 📌 รอบที่ ${slip.roundNumber || 1} (${formatThaiDateTime(slip.createdAt)}) | ยอดบิล: ${slip.totalMoney.toLocaleString()}฿`;
+
+  const btnVerify = document.getElementById('btnVerifySlip');
+  const btnUnverify = document.getElementById('btnUnverifySlip');
+  if (btnVerify) {
+    if (slip.status === 'pending_antigravity') {
+      btnVerify.disabled = true;
+      btnVerify.textContent = '⏳ รออ่าน OCR ก่อนยืนยัน';
+      btnVerify.className = 'btn btn-outline btn-sm';
+    } else if (slip.humanApproved) {
+      btnVerify.disabled = false;
+      btnVerify.textContent = '✅ อยู่ใน Pool แล้ว (อัปเดตซ้ำ)';
+      btnVerify.className = 'btn btn-outline btn-sm';
+    } else {
+      btnVerify.disabled = false;
+      btnVerify.textContent = '✅ ยืนยัน & นำเข้า Pool';
+      btnVerify.className = 'btn btn-success btn-sm';
+    }
+  }
+  if (btnUnverify) {
+    btnUnverify.classList.toggle('hidden', !slip.humanApproved);
+  }
 
   const banner = document.getElementById('validationSummaryBanner');
   const warnItems = (slip.items || []).filter(
@@ -3115,9 +3173,27 @@ async function saveAndVerifyCurrentSlip(markVerified = false) {
     await fetchAppState();
     showToast(
       markVerified
-        ? '✅ ยืนยันความถูกต้องของบิลรอบนี้ 100% และอัปเดตยอดรวมทั้งหมดแล้ว!'
+        ? '✅ ยืนยันความถูกต้องและนำตัวเลขบิลนี้เข้า Pool เรียบร้อยแล้ว!'
         : '💾 บันทึกการแก้ไขและคำนวณยอดบิลใหม่เรียบร้อย'
     );
+  }
+}
+
+async function unverifyCurrentSlip() {
+  const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
+  const slip = allInspectableSlips.find(s => s.id === currentInspectedSlipId);
+  if (!slip) return;
+
+  const res = await fetch(`/api/slips/${encodeURIComponent(slip.id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unverify: true })
+  });
+  if (res.ok) {
+    await fetchAppState();
+    showToast('↩️ ยกเลิกการยืนยันและดึงตัวเลขบิลนี้ออกจาก Pool ชั่วคราวแล้ว');
+  } else {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถดึงบิลออกจาก Pool ได้')}`);
   }
 }
 

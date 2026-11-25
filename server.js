@@ -1130,9 +1130,15 @@ const server = http.createServer(async (req, res) => {
       });
 
       const drawLayoffs = (db.layoffs || []).filter(l => (l.drawId || currentDraw.id) === currentDraw.id);
-      const aggregated = aggregateSlips(drawSlips, db.settings, currentDraw.restrictedNumbers, drawLayoffs);
-      const winnerCheck = checkDrawWinners(drawSlips, currentDraw, db.settings, drawLayoffs);
-      const totalGrandMoney = drawSlips.reduce((sum, s) => sum + (s.totalMoney || 0), 0);
+      const approvedDrawSlips = drawSlips.filter(s => Boolean(s.humanApproved) && s.status !== 'pending_antigravity');
+      const unapprovedDrawSlips = drawSlips.filter(s => !s.humanApproved || s.status === 'pending_antigravity');
+      const unapprovedMoney = unapprovedDrawSlips.reduce((sum, s) => sum + (s.totalMoney || 0), 0);
+      const totalAllSlipsMoney = drawSlips.reduce((sum, s) => sum + (s.totalMoney || 0), 0);
+
+      // Condition: บิลต้องได้รับการยืนยันการตรวจ OCR (humanApproved) ก่อนจึงจะนำตัวเลขเข้า Pool
+      const aggregated = aggregateSlips(approvedDrawSlips, db.settings, currentDraw.restrictedNumbers, drawLayoffs);
+      const winnerCheck = checkDrawWinners(approvedDrawSlips, currentDraw, db.settings, drawLayoffs);
+      const totalGrandMoney = approvedDrawSlips.reduce((sum, s) => sum + (s.totalMoney || 0), 0);
       const totalFull100Money = aggregated.reduce((sum, a) => sum + (a.fullPayout100Amt || 0), 0);
       const totalHalf50Money = aggregated.reduce((sum, a) => sum + (a.halfPayout50Amt || 0), 0);
       const totalSentToDealerMoney = aggregated.reduce((sum, a) => sum + (a.alreadySentAmt || 0), 0);
@@ -1212,6 +1218,10 @@ const server = http.createServer(async (req, res) => {
         lineChats: (db.lineChats || []).filter(m => (m.drawId || currentDraw.id) === currentDraw.id),
         summary: {
           totalSlips: drawSlips.length,
+          approvedSlipsCount: approvedDrawSlips.length,
+          unapprovedSlipsCount: unapprovedDrawSlips.length,
+          unapprovedMoney,
+          totalAllSlipsMoney,
           totalCustomers: customerMap.size,
           totalGrandMoney,
           totalFull100Money,
@@ -2198,7 +2208,18 @@ const server = http.createServer(async (req, res) => {
           db,
           actorName,
           'ยืนยันความถูกต้องบิล',
-          `กดยืนยันยอดบิลของ "${slip.customerName}" (${slip.title}) ยอดรวม ${slip.totalMoney.toLocaleString()} บาท`
+          `กดยืนยันยอดบิลของ "${slip.customerName}" (${slip.title}) ยอดรวม ${slip.totalMoney.toLocaleString()} บาท (นำเข้า Pool แล้ว)`
+        );
+      } else if (body.unverify) {
+        slip.humanApproved = false;
+        slip.approvedBy = null;
+        slip.approvedAt = null;
+        slip.status = slip.reviewCount > 0 ? 'needs_review' : 'ai_passed';
+        appendAuditLog(
+          db,
+          actorName,
+          'ยกเลิกการยืนยันบิล',
+          `ยกเลิกการยืนยันและดึงบิลของ "${slip.customerName}" (${slip.title}) ออกจาก Pool ชั่วคราว`
         );
       } else {
         if (slip.reviewCount > 0) {

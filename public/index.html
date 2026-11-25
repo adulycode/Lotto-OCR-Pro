@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_59" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_60" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -256,6 +256,9 @@
             </button>
           </div>
 
+          <!-- แถบแจ้งเตือนบิลที่ยังไม่ยืนยันตรวจ OCR (ยังไม่เข้า Pool) -->
+          <div id="unapprovedPoolNoticeDash" class="validation-banner warn hidden" style="margin-bottom:10px;"></div>
+
           <!-- แถบสรุปสถานะจัดสรรของงวดนี้: เก็บไว้เอง vs ส่งเจ้ามือแล้ว vs ยอดใหม่รอตัด -->
           <div id="drawAllocationSummaryBar" class="draw-alloc-strip"></div>
 
@@ -412,6 +415,8 @@
           <div class="kpi-sub" id="layoffKpiNewPendingSub">ยอดที่ติ๊กเลือกเพื่อเตรียมส่งเจ้ามือในรอบนี้</div>
         </div>
       </div>
+
+      <div id="unapprovedPoolNoticeLayoff" class="validation-banner warn hidden" style="margin-bottom:12px;"></div>
 
       <div class="two-col-grid" style="grid-template-columns: 1.35fr 1fr;">
         <!-- ซ้าย: ตารางเลือกเลขที่จะตัดส่งเจ้ามือ -->
@@ -652,8 +657,11 @@
               <button class="btn btn-outline btn-sm" onclick="filterInspectorWarningsOnly()" id="btnFilterWarnings">
                 ⚠️ เฉพาะจุดแจ้งเตือน
               </button>
-              <button class="btn btn-success btn-sm" onclick="saveAndVerifyCurrentSlip(true)">
-                ✅ ยืนยันยอดบิลรอบนี้
+              <button class="btn btn-success btn-sm" id="btnVerifySlip" onclick="saveAndVerifyCurrentSlip(true)">
+                ✅ ยืนยัน & นำเข้า Pool
+              </button>
+              <button class="btn btn-outline btn-sm hidden" id="btnUnverifySlip" onclick="unverifyCurrentSlip()" title="ยกเลิกการยืนยันและดึงตัวเลขของบิลนี้ออกจาก Pool ชั่วคราว">
+                ↩️ ดึงออกจาก Pool
               </button>
             </div>
           </div>
@@ -1246,6 +1254,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_59"></script>
+  <script src="/app.js?v=20261120_60"></script>
 </body>
 </html>
