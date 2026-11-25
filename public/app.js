@@ -1269,9 +1269,76 @@ async function clearAllRestrictions() {
 // ============================================================================
 // แท็บที่ 3: ตัดยอดส่งเจ้ามือเป็นรอบๆ (หักลบยอดที่ส่งแล้ว/เก็บแล้วอัตโนมัติ ไม่ส่งซ้ำ)
 // ============================================================================
+function buildLayoffTypeSummary(item) {
+  const doorCount =
+    Array.isArray(item.permBreakdown) && item.permBreakdown.length > 0
+      ? item.permBreakdown.length
+      : item.permMult || (item.digitCount === 2 ? 2 : 6);
+
+  const parts = [];
+  const badges = [];
+
+  if (item.digitCount === 2) {
+    if ((item.twoTopAmt || 0) > 0) {
+      parts.push(`บน ${item.twoTopAmt.toLocaleString()}฿`);
+      badges.push(`<span class="badge-ai" style="font-size:11px;padding:2px 6px;">บน ${item.twoTopAmt.toLocaleString()}฿</span>`);
+    }
+    if ((item.twoBottomAmt || 0) > 0) {
+      parts.push(`ล่าง ${item.twoBottomAmt.toLocaleString()}฿`);
+      badges.push(`<span class="badge-50" style="font-size:11px;padding:2px 6px;">ล่าง ${item.twoBottomAmt.toLocaleString()}฿</span>`);
+    }
+    if ((item.threePermRawAmt || 0) > 0) {
+      parts.push(`ชุดกลับ(×${doorCount}) ${item.threePermRawAmt.toLocaleString()}฿`);
+      badges.push(`<span class="badge-100" style="font-size:11px;padding:2px 6px;">กลับ×${doorCount} ${item.threePermRawAmt.toLocaleString()}฿</span>`);
+    }
+    if (parts.length === 0) {
+      parts.push('2 ตัวบน');
+      badges.push(`<span class="badge-ai" style="font-size:11px;padding:2px 6px;">2 ตัวบน</span>`);
+    }
+  } else {
+    if ((item.threeStraightAmt || 0) > 0) {
+      parts.push(`เต็ง ${item.threeStraightAmt.toLocaleString()}฿`);
+      badges.push(`<span class="badge-100" style="font-size:11px;padding:2px 6px;">เต็ง ${item.threeStraightAmt.toLocaleString()}฿</span>`);
+    }
+    if ((item.threeToadAmt || 0) > 0) {
+      parts.push(`โต๊ด ${item.threeToadAmt.toLocaleString()}฿`);
+      badges.push(`<span class="badge-ai" style="font-size:11px;padding:2px 6px;">โต๊ด ${item.threeToadAmt.toLocaleString()}฿</span>`);
+    }
+    if ((item.threePermRawAmt || 0) > 0) {
+      parts.push(`ชุดกลับ(×${doorCount}) ${item.threePermRawAmt.toLocaleString()}฿`);
+      badges.push(`<span class="badge-50" style="font-size:11px;padding:2px 6px;">ชุดกลับ×${doorCount} ${item.threePermRawAmt.toLocaleString()}฿</span>`);
+    }
+    if (parts.length === 0) {
+      parts.push('3 ตัวเต็ง');
+      badges.push(`<span class="badge-100" style="font-size:11px;padding:2px 6px;">3 ตัวเต็ง</span>`);
+    }
+  }
+
+  return {
+    typeDesc: parts.join(' + '),
+    badgesHtml: `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">${badges.join('')}</div>`
+  };
+}
+
+function getFilteredLayoffList() {
+  const all = appState.aggregated || [];
+  if (layoffTableFilter === 'full_100') {
+    return all.filter(item => item.hasNewPending && !item.isRestricted);
+  }
+  if (layoffTableFilter === 'restricted_50') {
+    return all.filter(item => item.hasNewPending && item.isRestricted);
+  }
+  if (layoffTableFilter === 'all') {
+    return all;
+  }
+  return all.filter(item => item.hasNewPending);
+}
+
 function setLayoffTableFilter(filterMode) {
   layoffTableFilter = filterMode;
   document.getElementById('btnFilterLayoffPending')?.classList.toggle('active', filterMode === 'pending_only');
+  document.getElementById('btnFilterLayoffFull100')?.classList.toggle('active', filterMode === 'full_100');
+  document.getElementById('btnFilterLayoffRestricted50')?.classList.toggle('active', filterMode === 'restricted_50');
   document.getElementById('btnFilterLayoffAll')?.classList.toggle('active', filterMode === 'all');
   renderLayoffBuilder();
 }
@@ -1293,7 +1360,7 @@ function toggleLayoffItem(key, checked) {
 
 function toggleSelectAllAgg(checked) {
   if (checked) {
-    (appState.aggregated || []).forEach(a => {
+    getFilteredLayoffList().forEach(a => {
       if (a.hasNewPending) selectedLayoffKeys.add(a.key);
     });
   } else {
@@ -1306,7 +1373,7 @@ function toggleSelectAllAgg(checked) {
 function selectAllNewPendingForDealer() {
   selectedLayoffKeys.clear();
   customLayoffAmounts = {};
-  (appState.aggregated || []).forEach(a => {
+  getFilteredLayoffList().forEach(a => {
     if (a.hasNewPending) selectedLayoffKeys.add(a.key);
   });
   renderLayoffBuilder();
@@ -1366,16 +1433,13 @@ function renderLayoffBuilder(skipInputRebuild = false) {
 
   const selectTbody = document.getElementById('layoffSelectTableBody');
   if (selectTbody) {
-    let tableList = appState.aggregated || [];
-    if (layoffTableFilter === 'pending_only') {
-      tableList = tableList.filter(item => item.hasNewPending);
-    }
+    const tableList = getFilteredLayoffList();
 
     if (tableList.length === 0) {
       selectTbody.innerHTML = `
         <tr>
-          <td colspan="6" style="text-align:center;padding:28px;color:var(--success);font-weight:600;">
-            ✅ ส่งเจ้ามือครบ 100% ทุกเลขแล้วในงวดนี้ — เมื่อลูกค้าส่งโพยรอบใหม่เข้ามา ยอดคงเหลือจะแสดงที่นี่อัตโนมัติครับ
+          <td colspan="8" style="text-align:center;padding:28px;color:var(--success);font-weight:600;">
+            ✅ ไม่มีรายการคงเหลือในตัวกรองนี้ — สามารถสลับตัวกรองด้านบนเพื่อดูทั้งหมดได้ครับ
           </td>
         </tr>
       `;
@@ -1383,6 +1447,20 @@ function renderLayoffBuilder(skipInputRebuild = false) {
       selectTbody.innerHTML = tableList
         .map(item => {
           const isChecked = selectedLayoffKeys.has(item.key) && item.hasNewPending;
+          const payoutPct = item.restrictedRule?.payoutPercent || 50;
+          const { badgesHtml } = buildLayoffTypeSummary(item);
+
+          let rateCellHtml = '';
+          if (item.isRestricted) {
+            const splitSub =
+              item.fullPayout100Amt > 0 && item.halfPayout50Amt > 0
+                ? `<div class="text-muted" style="font-size:10.5px;margin-top:2px;">100%: ${item.fullPayout100Amt.toLocaleString()}฿ / 50%: ${item.halfPayout50Amt.toLocaleString()}฿</div>`
+                : '';
+            rateCellHtml = `<span class="badge-50">🔒 อั้น ${payoutPct}%</span>${splitSub}`;
+          } else {
+            rateCellHtml = `<span class="badge-100">🟢 จ่ายเต็ม 100%</span>`;
+          }
+
           let statusBadge = '';
           if (!item.hasNewPending) {
             statusBadge = `<span class="badge-ai">✅ ส่งเจ้ามือครบแล้ว</span>`;
@@ -1403,9 +1481,10 @@ function renderLayoffBuilder(skipInputRebuild = false) {
               <td>
                 <div class="num-cell-wrap">
                   <span class="number-pill">${item.number}</span>
-                  ${item.isRestricted ? `<span class="badge-50">อั้น 50%</span>` : ''}
                 </div>
               </td>
+              <td>${rateCellHtml}</td>
+              <td>${badgesHtml}</td>
               <td class="num-col">${item.totalAmt.toLocaleString()} ฿</td>
               <td class="num-col" style="color:var(--info);">
                 ${item.alreadySentAmt > 0 ? `${item.alreadySentAmt.toLocaleString()} ฿` : '-'}
@@ -1447,15 +1526,15 @@ function renderLayoffBuilder(skipInputRebuild = false) {
     totalSendThisRound += sendAmt;
     totalKeepThisRound += keepAmt;
 
-    let typeDesc = item.digitCount === 2 ? '2 ตัวบน' : '3 ตัวบน';
-    if (item.threeStraightAmt > 0 && item.threeToadAmt > 0) {
-      typeDesc = `3 ตัวบน+โต๊ด`;
-    }
+    const { typeDesc } = buildLayoffTypeSummary(item);
+    const payoutPercent = item.isRestricted ? (item.restrictedRule?.payoutPercent || 50) : 100;
 
     return {
       key: item.key,
       number: item.number,
       typeDesc,
+      isRestricted: Boolean(item.isRestricted),
+      payoutPercent,
       newPendingAmt: newAmt,
       alreadySentAmt: item.alreadySentAmt,
       alreadyKeptAmt: item.alreadyKeptAmt,
@@ -1481,6 +1560,10 @@ function renderLayoffBuilder(skipInputRebuild = false) {
         <div class="layoff-row-item" style="flex-wrap:wrap;gap:8px;">
           <div>
             <strong style="font-family:var(--font-mono);color:var(--text-main);font-size:15px;">${r.number}</strong>
+            <span class="${r.payoutPercent < 100 ? 'badge-50' : 'badge-100'}" style="font-size:10.5px;padding:1px 6px;margin-left:4px;">
+              ${r.payoutPercent < 100 ? `🔒 อั้น ${r.payoutPercent}%` : '🟢 จ่ายเต็ม 100%'}
+            </span>
+            <span class="text-muted" style="font-size:11px;margin-left:4px;">(${r.typeDesc})</span>
             <span style="font-size:12px;color:var(--success);margin-left:6px;font-weight:600;">
               คงเหลืออยู่ที่เรา: ${r.newPendingAmt.toLocaleString()}฿
             </span>
@@ -1520,7 +1603,9 @@ function renderLayoffBuilder(skipInputRebuild = false) {
     `📅 ${appState.currentDraw?.title || 'งวดวันที่ 16/11'}`,
     `-------------------------`,
     ...(linesToSend.length > 0
-      ? linesToSend.map(r => `${r.number} = ${r.sendTotal} บ. (${r.typeDesc})`)
+      ? linesToSend.map(
+          r => `${r.number} = ${r.sendTotal} บ. (${r.typeDesc} | ${r.payoutPercent < 100 ? `อั้น ${r.payoutPercent}%` : 'จ่ายเต็ม 100%'})`
+        )
       : ['(รอบนี้เลือกเก็บไว้ที่เราทั้งหมด ไม่มียอดส่งเจ้ามือ)']),
     `-------------------------`,
     `รวมส่งเจ้ามือรอบที่ ${nextRound}: ${linesToSend.length} เลข | ยอดส่งรวม ${totalSendThisRound.toLocaleString()} บาท`
@@ -1608,7 +1693,7 @@ async function copyAndSaveLayoff(downloadFormat = 'excel') {
         keepTotal,
         isRestricted: Boolean(item.isRestricted),
         payoutPercent: item.isRestricted ? (item.restrictedRule?.payoutPercent || 50) : 100,
-        typeDesc: item.digitCount === 2 ? '2 ตัวบน' : (item.threeStraightAmt > 0 && item.threeToadAmt > 0 ? '3 ตัวบน+โต๊ด' : '3 ตัวบน')
+        typeDesc: buildLayoffTypeSummary(item).typeDesc
       };
     })
     .filter(it => it.sendTotal > 0);
@@ -1695,10 +1780,7 @@ function buildCurrentRoundLayoffRows() {
         : defaultSend;
     const keepTotal = Math.max(0, newAmt - sendTotal);
 
-    let typeDesc = item.digitCount === 2 ? '2 ตัวบน' : '3 ตัวบน (ตรง)';
-    if (item.threeStraightAmt > 0 && item.threeToadAmt > 0) {
-      typeDesc = '3 ตัวบน+โต๊ด';
-    }
+    const { typeDesc } = buildLayoffTypeSummary(item);
 
     return {
       number: item.number,

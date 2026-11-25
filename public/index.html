@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_47" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_48" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -430,6 +430,12 @@
               <button class="chip active" id="btnFilterLayoffPending" onclick="setLayoffTableFilter('pending_only')">
                 🏠 เฉพาะเลขที่มียอดคงเหลืออยู่ที่เรา (ส่งเพิ่มได้)
               </button>
+              <button class="chip" id="btnFilterLayoffFull100" onclick="setLayoffTableFilter('full_100')">
+                🟢 เฉพาะจ่ายเต็ม 100%
+              </button>
+              <button class="chip" id="btnFilterLayoffRestricted50" onclick="setLayoffTableFilter('restricted_50')">
+                🔒 เฉพาะเลขอั้น 50%
+              </button>
               <button class="chip" id="btnFilterLayoffAll" onclick="setLayoffTableFilter('all')">
                 📋 ดูทุกเลข (รวมที่ส่งเจ้ามือครบ 100% แล้ว)
               </button>
@@ -452,6 +458,8 @@
                     <input type="checkbox" id="chkSelectAllAgg" onchange="toggleSelectAllAgg(this.checked)" />
                   </th>
                   <th>เลข</th>
+                  <th>เรทจ่าย</th>
+                  <th>ประเภท (เต็ง / โต๊ด / ชุดกลับ)</th>
                   <th class="num-col">ยอดรับสะสม</th>
                   <th class="num-col" style="color:var(--info);">📤 ส่งเจ้ามือไปแล้ว</th>
                   <th class="num-col" style="color:var(--success);">🏠 คงเหลืออยู่ที่เรา (ส่งได้)</th>
@@ -1198,6 +1206,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_47"></script>
+  <script src="/app.js?v=20261120_48"></script>
 </body>
 </html>
