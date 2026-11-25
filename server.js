@@ -257,7 +257,7 @@ let antigravityLastSeenAt = 0;
 let antigravityPendingJobs = new Map();
 
 function isAntigravityOnline() {
-  return Boolean(antigravityLastSeenAt && Date.now() - antigravityLastSeenAt < 180_000);
+  return Boolean(antigravityLastSeenAt && Date.now() - antigravityLastSeenAt < 420_000);
 }
 
 function appendAuditLog(db, actorName, actionType, detail) {
@@ -1319,6 +1319,9 @@ const server = http.createServer(async (req, res) => {
 
       if (body.sheetDate) slip.sheetDate = body.sheetDate;
       if (body.sheetPage) slip.sheetPage = String(body.sheetPage);
+      if (body.rotationDeg !== undefined) {
+        slip.rotationDeg = ((Number(body.rotationDeg) || 0) % 360 + 360) % 360;
+      }
       if (Array.isArray(body.tableBox) && body.tableBox.length === 4) {
         slip.tableBox = body.tableBox;
       }
@@ -1328,6 +1331,9 @@ const server = http.createServer(async (req, res) => {
       slip.totalItems = validatedItems.filter(i => !i.isEmpty).length;
       slip.totalMoney = validatedItems.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
       slip.reviewCount = validatedItems.filter(i => i.needsReview).length;
+      slip.humanApproved = false;
+      slip.approvedBy = null;
+      slip.approvedAt = null;
       slip.modelUsed = 'antigravity-agent (Priority)';
       slip.ocrMode = 'antigravity_direct';
       slip.status = slip.reviewCount > 0 ? 'needs_review' : 'ai_passed';
