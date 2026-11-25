@@ -1667,6 +1667,7 @@ function renderLayoffBuilder(skipInputRebuild = false) {
                 <span style="font-size:12px;color:var(--success);">🏠 เก็บเอง: ${(l.totalKeptMoney || 0).toLocaleString()}฿</span>
                 <strong style="color:var(--primary);font-family:var(--font-mono);">📤 ส่งเจ้ามือ: ${(l.totalLayoffMoney || 0).toLocaleString()}฿</strong>
                 <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="exportSavedLayoffRoundExcel('${escapeJsArg(l.id)}')">📊 โหลด Excel รอบนี้</button>
+                <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="exportSavedLayoffRoundPdf('${escapeJsArg(l.id)}')">📑 โหลด PDF รอบนี้</button>
                 <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;" onclick="exportSavedLayoffRoundCsv('${escapeJsArg(l.id)}')">📄 โหลด CSV รอบนี้</button>
                 <button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px;" onclick="undoLayoffRound('${escapeJsArg(l.id)}')">ยกเลิกรอบนี้</button>
               </div>
@@ -1761,6 +1762,14 @@ async function copyAndSaveLayoff(downloadFormat = 'excel') {
       createdAt: confirmedCreatedAt,
       rows: rowsForExport
     });
+  } else if (format === 'pdf') {
+    generateDealerLayoffPdfFile({
+      roundNumber: confirmedRoundNumber,
+      dealerName,
+      drawTitle,
+      createdAt: confirmedCreatedAt,
+      rows: rowsForExport
+    });
   } else if (format === 'csv') {
     generateDealerLayoffCsvFile({
       roundNumber: confirmedRoundNumber,
@@ -1775,6 +1784,8 @@ async function copyAndSaveLayoff(downloadFormat = 'excel') {
 
   if (format === 'excel') {
     showToast('✅ ยืนยันตัดยอดส่งเจ้ามือรอบนี้ + ล็อกยอด + ดาวน์โหลดไฟล์ Excel เรียบร้อย!');
+  } else if (format === 'pdf') {
+    showToast('✅ ยืนยันตัดยอดส่งเจ้ามือรอบนี้ + ล็อกยอด + เปิดหน้าบันทึก PDF เรียบร้อย!');
   } else if (format === 'csv') {
     showToast('✅ ยืนยันตัดยอดส่งเจ้ามือรอบนี้ + ล็อกยอด + ดาวน์โหลดไฟล์ CSV เรียบร้อย!');
   } else {
@@ -1873,6 +1884,300 @@ function exportSavedLayoffRoundExcel(layoffId) {
       keepTotal: Number(it.keepTotal) || 0
     }))
   });
+}
+
+function exportSavedLayoffRoundPdf(layoffId) {
+  const lf = (appState.layoffs || []).find(l => l.id === layoffId);
+  if (!lf) return;
+  const drawTitle = appState.currentDraw?.title || 'งวดวันที่ 16/11';
+
+  generateDealerLayoffPdfFile({
+    roundNumber: lf.roundNumber || 1,
+    dealerName: lf.dealerName || 'เจ้ามือสายใหญ่',
+    drawTitle,
+    createdAt: lf.createdAt,
+    rows: (lf.items || []).map(it => ({
+      number: it.number,
+      typeDesc: it.typeDesc || (String(it.number).length === 2 ? '2 ตัวบน' : '3 ตัวบน'),
+      payoutPercent: it.payoutPercent || 100,
+      sendTotal: Number(it.sendTotal) || 0,
+      keepTotal: Number(it.keepTotal) || 0
+    }))
+  });
+}
+
+function generateDealerLayoffPdfFile({ roundNumber, dealerName, drawTitle, createdAt, rows }) {
+  const validRows = (rows || []).filter(r => Number(r.sendTotal) > 0);
+  if (validRows.length === 0) {
+    showToast('⚠️ ไม่มีรายการส่งเจ้ามือในรอบนี้สำหรับสร้าง PDF');
+    return;
+  }
+  const totalSend = validRows.reduce((s, r) => s + (Number(r.sendTotal) || 0), 0);
+  const fullTotalSend = validRows.filter(r => (r.payoutPercent || 100) === 100).reduce((s, r) => s + (Number(r.sendTotal) || 0), 0);
+  const halfTotalSend = validRows.filter(r => (r.payoutPercent || 100) < 100).reduce((s, r) => s + (Number(r.sendTotal) || 0), 0);
+  const tsText = formatThaiDateTime(createdAt || new Date().toISOString());
+
+  const rowsHtml = validRows.map((r, idx) => {
+    const rate = r.payoutPercent || 100;
+    const rateLabel = rate < 100 ? `🔒 อั้น ${rate}%` : '🟢 จ่ายเต็ม 100%';
+    const rateClass = rate < 100 ? 'badge-half' : 'badge-full';
+    return `
+      <tr>
+        <td class="num-col">${idx + 1}</td>
+        <td class="lotto-num">${escapeHtml(String(r.number || ''))}</td>
+        <td>${escapeHtml(String(r.typeDesc || ''))}</td>
+        <td><span class="badge ${rateClass}">${escapeHtml(rateLabel)}</span></td>
+        <td class="money-col">${(Number(r.sendTotal) || 0).toLocaleString()} ฿</td>
+        <td class="money-col muted">${(Number(r.keepTotal) || 0).toLocaleString()} ฿</td>
+      </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>ใบส่งยอดเจ้ามือ รอบที่ ${roundNumber} - ${escapeHtml(dealerName || 'เจ้ามือสายใหญ่')}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Sarabun", "Noto Sans Thai", "Tahoma", sans-serif;
+      color: #111827;
+      margin: 0;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1.45;
+      background: #fff;
+    }
+    .doc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #1e293b;
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+    }
+    .doc-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #0f172a;
+      margin: 0 0 4px 0;
+    }
+    .doc-sub {
+      font-size: 13px;
+      color: #475569;
+      margin: 0;
+    }
+    .doc-meta {
+      text-align: right;
+      font-size: 12px;
+      color: #334155;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .sum-box {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #f8fafc;
+    }
+    .sum-label {
+      font-size: 11px;
+      color: #64748b;
+    }
+    .sum-val {
+      font-size: 16px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-top: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+    }
+    th, td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: middle;
+    }
+    th {
+      background: #e2e8f0;
+      color: #0f172a;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+    .num-col {
+      width: 44px;
+      text-align: center;
+      color: #64748b;
+    }
+    .lotto-num {
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .money-col {
+      text-align: right;
+      font-family: "Consolas", "Courier New", monospace;
+      font-weight: 600;
+    }
+    .muted {
+      color: #64748b;
+      font-weight: 400;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-full { background: #dcfce7; color: #166534; }
+    .badge-half { background: #fef3c7; color: #92400e; }
+    tfoot td {
+      background: #f1f5f9 !important;
+      font-weight: 700;
+      font-size: 14px;
+      border-top: 2px solid #1e293b;
+    }
+    .footer-note {
+      font-size: 11px;
+      color: #64748b;
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+    .no-print-bar {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      padding: 10px 12px;
+      background: #f1f5f9;
+      border-bottom: 1px solid #cbd5e1;
+      margin-bottom: 12px;
+    }
+    .no-print-bar button {
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      cursor: pointer;
+      background: #fff;
+    }
+    .no-print-bar .primary {
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+    }
+    @media print {
+      .no-print-bar { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print-bar">
+    <button class="primary" onclick="window.print()">🖨️ บันทึกเป็น PDF / พิมพ์</button>
+    <button onclick="window.close()">ปิดหน้านี้</button>
+  </div>
+  <div class="doc-header">
+    <div>
+      <h1 class="doc-title">ใบตัดยอดส่งเจ้ามือ (รอบที่ ${roundNumber})</h1>
+      <p class="doc-sub">เจ้ามือผู้รับ: <strong>${escapeHtml(dealerName || 'เจ้ามือสายใหญ่')}</strong> • ${escapeHtml(drawTitle || '')}</p>
+    </div>
+    <div class="doc-meta">
+      <div><strong>วันเวลาที่บันทึก:</strong> ${escapeHtml(tsText)}</div>
+      <div><strong>จำนวนรายการ:</strong> ${validRows.length} รายการ</div>
+    </div>
+  </div>
+  <div class="summary-grid">
+    <div class="sum-box">
+      <div class="sum-label">ยอดส่งเจ้ามือรวม</div>
+      <div class="sum-val">${totalSend.toLocaleString()} ฿</div>
+    </div>
+    <div class="sum-box">
+      <div class="sum-label">ส่งอัตราจ่ายเต็ม 100%</div>
+      <div class="sum-val">${fullTotalSend.toLocaleString()} ฿</div>
+    </div>
+    <div class="sum-box">
+      <div class="sum-label">ส่งเลขอั้น 50%</div>
+      <div class="sum-val">${halfTotalSend.toLocaleString()} ฿</div>
+    </div>
+    <div class="sum-box">
+      <div class="sum-label">จำนวนเลขที่ส่ง</div>
+      <div class="sum-val">${validRows.length} เลข</div>
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th class="num-col">#</th>
+        <th>เลข</th>
+        <th>ประเภท</th>
+        <th>อัตราจ่าย</th>
+        <th style="text-align:right;">ยอดส่งเจ้ามือ</th>
+        <th style="text-align:right;">ยอดเก็บไว้เอง</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="4" style="text-align:right;">รวมยอดส่งเจ้ามือทั้งหมด</td>
+        <td class="money-col">${totalSend.toLocaleString()} ฿</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+  <div class="footer-note">
+    <span>สร้างโดย LottoOCR Pro (mlots.net)</span>
+    <span>เลือกปลายทาง "บันทึกเป็น PDF / Save as PDF" เพื่อดาวน์โหลดไฟล์</span>
+  </div>
+  <script>
+    window.addEventListener('load', function () {
+      setTimeout(function () { try { window.print(); } catch (_) {} }, 250);
+    });
+  </script>
+</body>
+</html>`;
+
+  const printWin = window.open('', '_blank', 'width=900,height=720');
+  if (printWin) {
+    printWin.document.open();
+    printWin.document.write(html);
+    printWin.document.close();
+    return;
+  }
+
+  // Fallback for popup blockers: hidden iframe print
+  const oldFrame = document.getElementById('layoffPdfPrintFrame');
+  if (oldFrame) oldFrame.remove();
+  const iframe = document.createElement('iframe');
+  iframe.id = 'layoffPdfPrintFrame';
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentWindow?.document;
+  if (doc) {
+    doc.open();
+    doc.write(html);
+    doc.close();
+  }
 }
 
 function generateDealerLayoffExcelFile({ roundNumber, dealerName, drawTitle, createdAt, rows }) {

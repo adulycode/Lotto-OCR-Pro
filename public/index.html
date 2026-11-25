@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_54" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_55" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -526,6 +526,10 @@
               ✅ ยืนยันตัดยอดส่งเจ้ามือรอบนี้ (ล็อกยอด & ดาวน์โหลด Excel ทันที)
             </button>
             <div style="display:flex;gap:8px;">
+              <button class="btn btn-outline btn-lg" style="flex:1;font-size:13px;" onclick="copyAndSaveLayoff('pdf')"
+                title="บันทึกการส่งเจ้ามือรอบนี้ ล็อกยอดไม่ให้ส่งซ้ำ พร้อมเปิดหน้าบันทึกเป็นไฟล์ PDF">
+                📑 ยืนยัน & PDF
+              </button>
               <button class="btn btn-outline btn-lg" style="flex:1;font-size:13px;" onclick="copyAndSaveLayoff('csv')"
                 title="บันทึกการส่งเจ้ามือรอบนี้ ล็อกยอดไม่ให้ส่งซ้ำ พร้อมดาวน์โหลดไฟล์ CSV และคัดลอกข้อความ">
                 📄 ยืนยันตัดยอด & ดาวน์โหลด CSV
@@ -1208,6 +1212,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_54"></script>
+  <script src="/app.js?v=20261120_55"></script>
 </body>
 </html>
