@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_51" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_52" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -177,8 +177,7 @@
             <div id="currentUserDisplayName" style="font-size:11.5px;font-weight:700;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">เฮียเจ้าของระบบ</div>
           </div>
           <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
-            <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10.5px;flex-shrink:0;" onclick="openLoginModal()">สลับคน</button>
-            <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10.5px;flex-shrink:0;color:var(--danger);" onclick="logoutSession()" title="ออกจากระบบ">ออก</button>
+            <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10.5px;flex-shrink:0;color:var(--danger);" onclick="logoutSession()" title="ออกจากระบบ">ออกจากระบบ</button>
           </div>
         </div>
       </div>
@@ -1091,7 +1090,7 @@
                 <div class="card-header">
                   <div>
                     <h3>👥 จัดการบัญชีผู้ใช้งาน (User Accounts)</h3>
-                    <p class="text-muted">สร้างหรือสลับบัญชีผู้ใช้งานเพื่อระบุตัวตนผู้ทำรายการใน Audit Log</p>
+                    <p class="text-muted">สร้างหรือจัดการบัญชีผู้ใช้งานเพื่อระบุตัวตนผู้ทำรายการใน Audit Log</p>
                   </div>
                 </div>
 
@@ -1207,6 +1206,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_51"></script>
+  <script src="/app.js?v=20261120_52"></script>
 </body>
 </html>

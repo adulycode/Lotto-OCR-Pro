@@ -3396,12 +3396,7 @@ function renderUsersAndAuditLogs() {
             </div>
             <div style="display:flex;gap:6px;align-items:center;">
               ${
-                !isCurrent
-                  ? `<button type="button" class="btn btn-outline btn-sm" onclick="openLoginModal('${escapeJsArg(u.username)}')">สลับใช้คนนี้</button>`
-                  : ''
-              }
-              ${
-                u.username !== 'admin'
+                u.username !== 'admin' && !isCurrent
                   ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="removeUserAccount('${escapeJsArg(u.id)}')">ลบ</button>`
                   : ''
               }
