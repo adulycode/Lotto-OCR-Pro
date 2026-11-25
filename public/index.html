@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_58" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_59" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -561,8 +561,8 @@
           <select id="inspectorQuickSlipSelect" class="inspector-quick-select" onchange="selectSlipForInspection(this.value)" title="สลับเลือกบิลในงวดนี้"></select>
         </div>
         <div class="inspector-compact-right">
-          <button class="btn btn-sm btn-outline" id="btnInspectorViewMode" onclick="toggleInspectorViewMode()" title="สลับระหว่างโหมดกระดาษเต็มความกว้าง (บน–ล่าง) กับโหมดวางข้างกัน (ซ้าย–ขวา)">
-            📄 โหมดกระดาษ (บน–ล่าง)
+          <button class="btn btn-sm btn-outline" id="btnInspectorViewMode" onclick="toggleInspectorViewMode()" title="สลับระหว่างโหมดวางซ้าย–ขวา (รูปซ้าย • ตารางขวา) กับโหมดวางบน–ล่าง">
+            ⬆️⬇️ วางบน–ล่าง
           </button>
           <button class="btn btn-sm btn-outline" id="btnPaperWhiteTheme" onclick="togglePaperWhiteTheme()" title="สลับสีตารางให้เหมือนกระดาษโพยสีขาวหรือโทนมืด">
             📃 สีกระดาษขาว
@@ -1246,6 +1246,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_58"></script>
+  <script src="/app.js?v=20261120_59"></script>
 </body>
 </html>

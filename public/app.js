@@ -2607,10 +2607,8 @@ function getSlipGridMetrics(slip) {
   return { maxCol, sheetRows, tableBox, savedLayout };
 }
 
-function isEffectivePaperView(maxCol) {
-  if (inspectorViewMode === 'paper') return true;
-  if (inspectorViewMode === 'side') return false;
-  return maxCol >= 5;
+function isEffectivePaperView() {
+  return inspectorViewMode === 'paper';
 }
 
 function populateQuickSlipSelect(activeSlipId) {
@@ -2633,7 +2631,7 @@ function populateQuickSlipSelect(activeSlipId) {
 function applyInspectorLayoutUI(slip) {
   const { maxCol, sheetRows } = getSlipGridMetrics(slip);
   const paperMode = isEffectivePaperView(maxCol);
-  const sidebarShown = inspectorSidebarOpen === null ? !paperMode : inspectorSidebarOpen;
+  const sidebarShown = inspectorSidebarOpen === null ? false : inspectorSidebarOpen;
 
   const root = document.getElementById('inspectorLayoutRoot');
   if (root) {
@@ -2645,7 +2643,7 @@ function applyInspectorLayoutUI(slip) {
 
   const btnView = document.getElementById('btnInspectorViewMode');
   if (btnView) {
-    btnView.textContent = paperMode ? '📋 โหมดซ้าย–ขวา' : '📄 โหมดกระดาษ (บน–ล่าง)';
+    btnView.textContent = paperMode ? '◫ วางซ้าย–ขวา (แบบเดิม)' : '⬆️⬇️ วางบน–ล่าง';
     btnView.classList.toggle('btn-primary', paperMode);
     btnView.classList.toggle('btn-outline', !paperMode);
   }
@@ -2674,7 +2672,7 @@ function applyInspectorLayoutUI(slip) {
   const gridEl = document.getElementById('paperGridContainer');
   if (gridEl) {
     gridEl.classList.toggle('paper-sheet-mode', paperMode);
-    gridEl.classList.toggle('paper-sheet-white', paperMode && paperWhiteTheme);
+    gridEl.classList.toggle('paper-sheet-white', paperWhiteTheme);
   }
 
   const metaBar = document.getElementById('paperSheetMetaBar');
@@ -3293,15 +3291,14 @@ function toggleInspectorViewMode() {
   }
   showToast(
     nextPaper
-      ? '📄 สลับเป็นโหมดกระดาษ (รูปด้านบน • ตารางเรียงคอลัมน์ครบแนวนอนด้านล่าง)'
-      : '📋 สลับเป็นโหมดวางซ้าย–ขวาแล้ว'
+      ? '⬆️⬇️ สลับเป็นวางรูปบน – ตารางล่างแล้ว'
+      : '◫ สลับเป็นวางรูปซ้าย – ตารางขวา (แบบเดิม) แล้ว'
   );
 }
 
 function toggleInspectorSidebar() {
   const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
-  const { maxCol } = getSlipGridMetrics(slip);
-  const currentlyShown = inspectorSidebarOpen === null ? !isEffectivePaperView(maxCol) : inspectorSidebarOpen;
+  const currentlyShown = inspectorSidebarOpen === null ? false : inspectorSidebarOpen;
   inspectorSidebarOpen = !currentlyShown;
   applyInspectorLayoutUI(slip || null);
 }

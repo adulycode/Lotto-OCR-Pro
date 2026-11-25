@@ -1370,7 +1370,7 @@ body {
 }
 
 .inspector-3col-layout.sidebar-hidden {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.35fr);
 }
 
 .inspector-3col-layout.sidebar-hidden #inspectorSidebarCard {
@@ -1408,6 +1408,14 @@ body.inspector-fs .app-sidebar {
 
 body.inspector-fs .app-main {
   padding: 10px 14px !important;
+}
+
+body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .photo-viewport {
+  height: calc(100vh - 195px);
+}
+
+body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .paper-grid-4col {
+  max-height: calc(100vh - 195px);
 }
 
 .inspector-sidebar-list {
@@ -1850,6 +1858,13 @@ body.inspector-fs .app-main {
 .paper-grid-4col.paper-sheet-white {
   background: #fffdf7;
   border-color: #475569;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.paper-grid-4col.paper-sheet-mode.paper-sheet-white {
+  padding: 0;
+  border-radius: 0 0 8px 8px;
 }
 
 .paper-grid-4col.paper-sheet-white .paper-col-box {
