@@ -3492,18 +3492,26 @@ function buildPrintable4x30Template() {
   table.innerHTML = html;
 }
 
+const MASKED_SECRET_SENTINEL = '••••••••••••••••••••••••';
+
+function clearMaskedSecretOnFocus(el) {
+  if (el && el.value === MASKED_SECRET_SENTINEL) {
+    el.value = '';
+  }
+}
+
+function restoreMaskedSecretOnBlur(el) {
+  if (el && !el.value.trim() && el.dataset.hasSaved === '1') {
+    el.value = MASKED_SECRET_SENTINEL;
+  }
+}
+
 function populateSettingsForm() {
   const s = appState.settings || {};
   if (document.getElementById('settingOcrPriorityMode')) {
     document.getElementById('settingOcrPriorityMode').value = s.ocrPriorityMode || 'auto_hybrid';
   }
   document.getElementById('settingGeminiModel').value = s.geminiModel || 'gemini-2.5-pro';
-  const geminiKeyEl = document.getElementById('settingGeminiKey');
-  geminiKeyEl.value = '';
-  geminiKeyEl.placeholder = s.hasGeminiApiKey
-    ? `บันทึกคีย์ไว้แล้ว (${s.geminiApiKeyMasked}) — เว้นว่างไว้เพื่อใช้คีย์เดิม`
-    : 'วางรหัส AIzaSy... ที่นี่';
-
   document.getElementById('settingPermMode').value = s.permutationMode || 'expand';
   document.getElementById('settingCheck11').checked = s.checkMultiplesOf11 !== false;
   if (document.getElementById('settingDrawCutoffTime')) {
@@ -3512,17 +3520,52 @@ function populateSettingsForm() {
     document.getElementById('settingAfterCutoffAction').value = s.afterCutoffAction || 'reject_until_open';
   }
 
-  const lineTokenEl = document.getElementById('settingLineToken');
-  lineTokenEl.value = '';
-  lineTokenEl.placeholder = s.hasLineToken
-    ? 'บันทึก Channel Access Token ไว้แล้ว (เว้นว่างไว้เพื่อใช้ค่าเดิม)'
-    : 'วาง Channel Access Token ของ LINE OA';
+  const secretFields = [
+    {
+      inputId: 'settingGeminiKey',
+      badgeId: 'badgeGeminiKeyStatus',
+      isSaved: Boolean(s.hasGeminiApiKey),
+      savedPlaceholder: `บันทึกคีย์ไว้แล้ว (${s.geminiApiKeyMasked}) — พิมพ์ทับเพื่อเปลี่ยนคีย์ใหม่`,
+      emptyPlaceholder: 'วางรหัส AIzaSy... ที่นี่'
+    },
+    {
+      inputId: 'settingLineToken',
+      badgeId: 'badgeLineTokenStatus',
+      isSaved: Boolean(s.hasLineToken),
+      savedPlaceholder: 'บันทึก Channel Access Token ไว้แล้ว — พิมพ์ทับเพื่อเปลี่ยนใหม่',
+      emptyPlaceholder: 'วาง Channel Access Token ของ LINE OA'
+    },
+    {
+      inputId: 'settingLineSecret',
+      badgeId: 'badgeLineSecretStatus',
+      isSaved: Boolean(s.hasLineSecret),
+      savedPlaceholder: 'บันทึก Channel Secret ไว้แล้ว — พิมพ์ทับเพื่อเปลี่ยนใหม่',
+      emptyPlaceholder: 'วาง Channel Secret ของ LINE OA'
+    }
+  ];
 
-  const lineSecretEl = document.getElementById('settingLineSecret');
-  lineSecretEl.value = '';
-  lineSecretEl.placeholder = s.hasLineSecret
-    ? 'บันทึก Channel Secret ไว้แล้ว (เว้นว่างไว้เพื่อใช้ค่าเดิม)'
-    : 'วาง Channel Secret ของ LINE OA';
+  for (const cfg of secretFields) {
+    const el = document.getElementById(cfg.inputId);
+    const badge = document.getElementById(cfg.badgeId);
+    if (el) {
+      el.dataset.hasSaved = cfg.isSaved ? '1' : '0';
+      el.value = cfg.isSaved ? MASKED_SECRET_SENTINEL : '';
+      el.placeholder = cfg.isSaved ? cfg.savedPlaceholder : cfg.emptyPlaceholder;
+    }
+    if (badge) {
+      if (cfg.isSaved) {
+        badge.className = 'badge-100';
+        badge.textContent = '✅ บันทึกแล้ว';
+      } else {
+        badge.className = 'hidden';
+        badge.textContent = '';
+      }
+    }
+  }
+}
+
+function isSubmittedRealSecret(val) {
+  return Boolean(val && !val.includes('•') && !/^\*+$/.test(val));
 }
 
 async function saveSettingsFromForm() {
@@ -3537,13 +3580,13 @@ async function saveSettingsFromForm() {
   };
 
   const newGeminiKey = document.getElementById('settingGeminiKey').value.trim();
-  if (newGeminiKey) payload.geminiApiKey = newGeminiKey;
+  if (isSubmittedRealSecret(newGeminiKey)) payload.geminiApiKey = newGeminiKey;
 
   const newLineToken = document.getElementById('settingLineToken').value.trim();
-  if (newLineToken) payload.lineChannelAccessToken = newLineToken;
+  if (isSubmittedRealSecret(newLineToken)) payload.lineChannelAccessToken = newLineToken;
 
   const newLineSecret = document.getElementById('settingLineSecret').value.trim();
-  if (newLineSecret) payload.lineChannelSecret = newLineSecret;
+  if (isSubmittedRealSecret(newLineSecret)) payload.lineChannelSecret = newLineSecret;
 
   const res = await fetch('/api/settings', {
     method: 'POST',

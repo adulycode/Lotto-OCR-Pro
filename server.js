@@ -1705,15 +1705,15 @@ const server = http.createServer(async (req, res) => {
       // Only overwrite secret fields when a real non-masked non-empty string is explicitly submitted
       if (typeof body.geminiApiKey === 'string') {
         const k = body.geminiApiKey.trim();
-        if (k && !k.includes('••')) s.geminiApiKey = k;
+        if (k && !k.includes('••') && !/^\*+$/.test(k)) s.geminiApiKey = k;
       }
       if (typeof body.lineChannelAccessToken === 'string') {
         const t = body.lineChannelAccessToken.trim();
-        if (t && !t.includes('••')) s.lineChannelAccessToken = t;
+        if (t && !t.includes('••') && !/^\*+$/.test(t)) s.lineChannelAccessToken = t;
       }
       if (typeof body.lineChannelSecret === 'string') {
         const sec = body.lineChannelSecret.trim();
-        if (sec && !sec.includes('••')) s.lineChannelSecret = sec;
+        if (sec && !sec.includes('••') && !/^\*+$/.test(sec)) s.lineChannelSecret = sec;
       }
 
       db.settings = s;

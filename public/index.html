@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_50" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_51" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -1006,8 +1006,8 @@
               </div>
 
               <div class="form-group">
-                <label>รหัสเชื่อมต่อ Gemini API Key (จาก Google AI Studio สำหรับโหมด 24 ชม. ตอน Antigravity ออฟไลน์):</label>
-                <input type="password" id="settingGeminiKey" class="input" placeholder="วางรหัส AIzaSy... ที่นี่" />
+                <label>รหัสเชื่อมต่อ Gemini API Key (จาก Google AI Studio สำหรับโหมด 24 ชม. ตอน Antigravity ออฟไลน์): <span id="badgeGeminiKeyStatus" class="hidden" style="margin-left:6px;"></span></label>
+                <input type="password" id="settingGeminiKey" class="input" placeholder="วางรหัส AIzaSy... ที่นี่" onfocus="clearMaskedSecretOnFocus(this)" onblur="restoreMaskedSecretOnBlur(this)" />
                 <small class="text-muted">หากใช้งานไม่เกิน 100 ใบ/เดือน สามารถใช้โควต้าฟรีจาก aistudio.google.com หรือมีค่าใช้จ่ายเพียง ~15–25 บาท/เดือน</small>
               </div>
             </div>
@@ -1072,13 +1072,13 @@
               </div>
 
               <div class="form-group">
-                <label>LINE Channel Access Token (Long-lived):</label>
-                <input type="password" id="settingLineToken" class="input" placeholder="วาง Channel Access Token ของ LINE OA" />
+                <label>LINE Channel Access Token (Long-lived): <span id="badgeLineTokenStatus" class="hidden" style="margin-left:6px;"></span></label>
+                <input type="password" id="settingLineToken" class="input" placeholder="วาง Channel Access Token ของ LINE OA" onfocus="clearMaskedSecretOnFocus(this)" onblur="restoreMaskedSecretOnBlur(this)" />
               </div>
 
               <div class="form-group">
-                <label>LINE Channel Secret:</label>
-                <input type="password" id="settingLineSecret" class="input" placeholder="วาง Channel Secret ของ LINE OA" />
+                <label>LINE Channel Secret: <span id="badgeLineSecretStatus" class="hidden" style="margin-left:6px;"></span></label>
+                <input type="password" id="settingLineSecret" class="input" placeholder="วาง Channel Secret ของ LINE OA" onfocus="clearMaskedSecretOnFocus(this)" onblur="restoreMaskedSecretOnBlur(this)" />
               </div>
             </div>
           </div>
@@ -1207,6 +1207,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_50"></script>
+  <script src="/app.js?v=20261120_51"></script>
 </body>
 </html>
