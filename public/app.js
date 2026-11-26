@@ -100,6 +100,78 @@ function toggleThemeMode() {
   showToast(next === 'light' ? '☀️ สลับเป็นโหมดสว่าง (Light Mode)' : '🌙 สลับเป็นโหมดมืด (Dark Mode)');
 }
 
+const FONT_SCALE_STEPS = ['100', '112', '125', '138'];
+const FONT_SCALE_LABELS = {
+  '100': 'ปกติ (100%)',
+  '112': 'ใหญ่ (112%)',
+  '125': 'ใหญ่มาก (125%)',
+  '138': 'ใหญ่พิเศษ (138%)'
+};
+let currentFontScale = (() => {
+  try {
+    return localStorage.getItem('lotto_font_scale_v1') || '100';
+  } catch {
+    return '100';
+  }
+})();
+let currentFontFamily = (() => {
+  try {
+    return localStorage.getItem('lotto_font_family_v1') || 'sarabun';
+  } catch {
+    return 'sarabun';
+  }
+})();
+
+function applyFontScale(scale, showMsg = false) {
+  const valid = FONT_SCALE_STEPS.includes(String(scale)) ? String(scale) : '100';
+  currentFontScale = valid;
+  document.documentElement.setAttribute('data-font-scale', valid);
+  try {
+    localStorage.setItem('lotto_font_scale_v1', valid);
+  } catch {}
+  const resetBtn = document.getElementById('btnFontReset');
+  if (resetBtn) resetBtn.textContent = `${valid}%`;
+  const idx = FONT_SCALE_STEPS.indexOf(valid);
+  const decBtn = document.getElementById('btnFontDec');
+  const incBtn = document.getElementById('btnFontInc');
+  if (decBtn) decBtn.disabled = idx <= 0;
+  if (incBtn) incBtn.disabled = idx >= FONT_SCALE_STEPS.length - 1;
+  if (showMsg) {
+    showToast(`🔎 ขนาดฟอนต์: ${FONT_SCALE_LABELS[valid] || valid + '%'}`);
+  }
+}
+
+function stepFontScale(delta) {
+  const idx = FONT_SCALE_STEPS.indexOf(currentFontScale);
+  const curIdx = idx >= 0 ? idx : 0;
+  const nextIdx = Math.max(0, Math.min(FONT_SCALE_STEPS.length - 1, curIdx + delta));
+  applyFontScale(FONT_SCALE_STEPS[nextIdx], true);
+}
+
+function applyFontFamily(family, showMsg = false) {
+  const valid = family === 'noto' ? 'noto' : 'sarabun';
+  currentFontFamily = valid;
+  document.documentElement.setAttribute('data-font-family', valid);
+  try {
+    localStorage.setItem('lotto_font_family_v1', valid);
+  } catch {}
+  const btn = document.getElementById('btnFontFamilyToggle');
+  if (btn) {
+    btn.textContent = valid === 'sarabun' ? '🔤 มีหัว (Sarabun)' : '🔤 ไม่มีหัว (Noto)';
+  }
+  if (showMsg) {
+    showToast(
+      valid === 'sarabun'
+        ? '🔤 เปลี่ยนเป็นฟอนต์ไทยมีหัว (Sarabun — อ่านตัวเลขและสระชัดเจน)'
+        : '🔤 เปลี่ยนเป็นฟอนต์ทันสมัยไม่มีหัว (Noto Sans Thai)'
+    );
+  }
+}
+
+function toggleFontFamily() {
+  applyFontFamily(currentFontFamily === 'sarabun' ? 'noto' : 'sarabun', true);
+}
+
 function updateCurrentUserUi() {
   const el = document.getElementById('currentUserDisplayName');
   if (el) {
@@ -246,6 +318,8 @@ async function logCustomAuditEvent(actionType, detail) {
 
 document.addEventListener('DOMContentLoaded', async () => {
   applyTheme(currentTheme);
+  applyFontScale(currentFontScale, false);
+  applyFontFamily(currentFontFamily, false);
   buildPrintable4x30Template();
   initPhotoViewportDragPan();
   await checkAuthAndBoot();

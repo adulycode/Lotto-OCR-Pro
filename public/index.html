@@ -10,12 +10,16 @@
     try {
       var t = localStorage.getItem('lotto_theme_v2');
       if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+      var fs = localStorage.getItem('lotto_font_scale_v1');
+      if (fs === '100' || fs === '112' || fs === '125' || fs === '138') document.documentElement.setAttribute('data-font-scale', fs);
+      var ff = localStorage.getItem('lotto_font_family_v1');
+      if (ff === 'sarabun' || ff === 'noto') document.documentElement.setAttribute('data-font-family', ff);
     } catch (e) {}
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_70" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=20261120_71" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -177,6 +181,20 @@
           <span style="font-size:11px;color:var(--text-muted);">โหมดสีหน้าจอ:</span>
           <button type="button" class="btn btn-outline btn-sm" id="btnThemeToggle" onclick="toggleThemeMode()" style="padding:2px 8px;font-size:11px;">
             🌙 โหมดมืด
+          </button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;gap:4px;">
+          <span style="font-size:11px;color:var(--text-muted);">ขนาดฟอนต์:</span>
+          <div class="font-scale-controls" role="group" aria-label="ปรับขนาดตัวอักษร">
+            <button type="button" class="btn btn-outline btn-sm" id="btnFontDec" onclick="stepFontScale(-1)" title="ลดขนาดตัวอักษร">A-</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btnFontReset" onclick="applyFontScale('100', true)" title="รีเซ็ตขนาดฟอนต์เป็น 100%">100%</button>
+            <button type="button" class="btn btn-outline btn-sm" id="btnFontInc" onclick="stepFontScale(1)" title="ขยายขนาดตัวอักษร">A+</button>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:4px;">
+          <span style="font-size:11px;color:var(--text-muted);">แบบฟอนต์:</span>
+          <button type="button" class="btn btn-outline btn-sm" id="btnFontFamilyToggle" onclick="toggleFontFamily()" style="padding:2px 8px;font-size:11px;" title="สลับระหว่างฟอนต์มีหัว (Sarabun) และฟอนต์ไม่มีหัว (Noto Sans Thai)">
+            🔤 มีหัว (Sarabun)
           </button>
         </div>
         <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:7px;padding:5px 8px;display:flex;justify-content:space-between;align-items:center;gap:6px;">
@@ -1354,6 +1372,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_70"></script>
+  <script src="/app.js?v=20261120_71"></script>
 </body>
 </html>
