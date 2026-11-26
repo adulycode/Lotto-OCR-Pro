@@ -3057,57 +3057,7 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     `;
   }
 
-  const markersEl = document.getElementById('photoIssueMarkers');
-  if (markersEl) {
-    markersEl.style.top = '';
-    markersEl.style.left = '';
-    markersEl.style.bottom = '';
-    markersEl.style.right = '';
-
-    if (slip.isGrid4x30 || maxCol >= 2) {
-      const boxesSvg = warnItems
-        .map(w => {
-          const pts =
-            Array.isArray(w.box2d) && w.box2d.length === 4
-              ? [
-                  [w.box2d[1], w.box2d[0]],
-                  [w.box2d[3], w.box2d[0]],
-                  [w.box2d[3], w.box2d[2]],
-                  [w.box2d[1], w.box2d[2]]
-                ]
-              : cellCurvedPolygonPoints(tableQuad, tableMids, colSplits, w.col || 1, w.row || 1, sheetRows, 3);
-          const tipX = Math.min(...pts.map(p => p[0]));
-          const tipY = Math.min(...pts.map(p => p[1]));
-          const label = `คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})`;
-          return `
-            <polygon class="photo-issue-poly"
-              points="${svgPtsStr(pts)}"
-              data-tip="${label}"
-              data-tip-x="${tipX.toFixed(1)}"
-              data-tip-y="${tipY.toFixed(1)}"
-              onclick="focusInspectorCell(${Number(w.col) || 1}, ${Number(w.row) || 1})"
-              onmouseenter="showPhotoMarkerTooltip(this)"
-              onmouseleave="hidePhotoMarkerTooltip()" />
-          `;
-        })
-        .join('');
-      markersEl.innerHTML = `
-        <svg class="photo-markers-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-          ${boxesSvg}
-          <g id="activeFocusPhotoSvgGroup"></g>
-        </svg>
-        <div id="photoMarkerTooltip" class="photo-marker-tooltip hidden"></div>
-      `;
-    } else {
-      markersEl.innerHTML = `
-        <svg class="photo-markers-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-          <g id="activeFocusPhotoSvgGroup"></g>
-        </svg>
-        <div id="photoMarkerTooltip" class="photo-marker-tooltip hidden"></div>
-      `;
-    }
-    applyPhotoMarkersVisibility();
-  }
+  renderIssueMarkersWithMesh(slip, tableQuad, tableMids, colSplits);
   renderTableBoxCalibrator();
 
   const container = document.getElementById('paperGridContainer');
@@ -3234,6 +3184,61 @@ function onPaperCellKeydown(event, col, row, field) {
     nextEl.focus();
     nextEl.select();
   }
+}
+
+function renderIssueMarkersWithMesh(slip, tableQuad, tableMids, colSplits) {
+  const markersEl = document.getElementById('photoIssueMarkers');
+  if (!markersEl || !slip) return;
+  const { maxCol, sheetRows } = getSlipGridMetrics(slip);
+  const warnItems = (slip.items || []).filter(i => i.needsReview || (i.warnings && i.warnings.length > 0));
+  markersEl.style.top = '';
+  markersEl.style.left = '';
+  markersEl.style.bottom = '';
+  markersEl.style.right = '';
+
+  if (slip.isGrid4x30 || maxCol >= 2) {
+    const boxesSvg = warnItems
+      .map(w => {
+        const pts =
+          Array.isArray(w.box2d) && w.box2d.length === 4 && !isCalibratingTableBox
+            ? [
+                [w.box2d[1], w.box2d[0]],
+                [w.box2d[3], w.box2d[0]],
+                [w.box2d[3], w.box2d[2]],
+                [w.box2d[1], w.box2d[2]]
+              ]
+            : cellCurvedPolygonPoints(tableQuad, tableMids, colSplits, w.col || 1, w.row || 1, sheetRows, 3);
+        const tipX = Math.min(...pts.map(p => p[0]));
+        const tipY = Math.min(...pts.map(p => p[1]));
+        const label = `คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})`;
+        return `
+          <polygon class="photo-issue-poly"
+            points="${svgPtsStr(pts)}"
+            data-tip="${label}"
+            data-tip-x="${tipX.toFixed(1)}"
+            data-tip-y="${tipY.toFixed(1)}"
+            onclick="focusInspectorCell(${Number(w.col) || 1}, ${Number(w.row) || 1})"
+            onmouseenter="showPhotoMarkerTooltip(this)"
+            onmouseleave="hidePhotoMarkerTooltip()" />
+        `;
+      })
+      .join('');
+    markersEl.innerHTML = `
+      <svg class="photo-markers-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+        ${boxesSvg}
+        <g id="activeFocusPhotoSvgGroup"></g>
+      </svg>
+      <div id="photoMarkerTooltip" class="photo-marker-tooltip hidden"></div>
+    `;
+  } else {
+    markersEl.innerHTML = `
+      <svg class="photo-markers-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+        <g id="activeFocusPhotoSvgGroup"></g>
+      </svg>
+      <div id="photoMarkerTooltip" class="photo-marker-tooltip hidden"></div>
+    `;
+  }
+  applyPhotoMarkersVisibility();
 }
 
 function showPhotoMarkerTooltip(el, isFocus = false) {
@@ -3650,6 +3655,11 @@ function cancelTableBoxCalibration() {
   }
   const existing = document.getElementById('tableCalibOverlay');
   if (existing) existing.remove();
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  if (slip) {
+    const { tableQuad, tableMids, colSplits } = getSlipGridMetrics(slip);
+    renderIssueMarkersWithMesh(slip, tableQuad, tableMids, colSplits);
+  }
 }
 
 function resetCalibrationSplits() {
@@ -3702,8 +3712,22 @@ function renderTableBoxCalibrator() {
     (_, idx) => `<div class="calib-col-tag" data-col-tag="${idx}">${idx + 1}</div>`
   ).join('');
 
+  const rowTagsHtml = Array.from(
+    { length: sheetRows },
+    (_, idx) => `<div class="calib-row-tag" data-row-tag="${idx + 1}">${idx + 1}</div>`
+  ).join('');
+
+  const learnedBadge = document.getElementById('calibLearnedBadge');
+  if (learnedBadge) {
+    const savedLayout = appState.runnerLayouts?.[slip?.customerName];
+    learnedBadge.textContent = savedLayout?.tableQuad
+      ? `🧠 (จำแบบฟอร์มของ "${slip.customerName}" แล้ว ${savedLayout.learnedCount || 1} ครั้ง)`
+      : '(ยังไม่เคยจำแบบฟอร์มของคนนี้)';
+  }
+
   overlayEl.innerHTML = `
     <svg class="calib-svg" id="calibSvgCanvas" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+    ${rowTagsHtml}
     ${colTagsHtml}
     ${splitHandlesHtml.join('')}
     ${midHandlesHtml}
@@ -3763,6 +3787,17 @@ function renderTableBoxCalibrator() {
       el.style.left = `${(p[0] / 10).toFixed(2)}%`;
       el.style.top = `${(p[1] / 10).toFixed(2)}%`;
     });
+
+    overlayEl.querySelectorAll('.calib-row-tag').forEach(el => {
+      const rNum = Number(el.getAttribute('data-row-tag'));
+      const vMid = (rNum - 0.5) / sheetRows;
+      const p = coonsPoint(calibDraftQuad, calibDraftMids, 0, vMid);
+      el.style.left = `${(p[0] / 10).toFixed(2)}%`;
+      el.style.top = `${(p[1] / 10).toFixed(2)}%`;
+    });
+
+    // Update red warning markers LIVE while dragging so user sees alignment instantly!
+    renderIssueMarkersWithMesh(slip, calibDraftQuad, calibDraftMids, calibDraftSplits);
   };
 
   updateVisuals();
@@ -3885,12 +3920,12 @@ async function saveCalibratedTableBox() {
   showToast(`💾 จำกรอบโค้ง 8 จุด & ช่องคอลัมน์ ${maxCol}×${sheetRows} ไว้ให้ "${slip.customerName}" เรียบร้อย!`);
 }
 
-async function flattenSlipPhotoFromCalibration() {
+async function flattenSlipPhotoFromCalibration(autoReOcrAfter = false) {
   const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
   const imgEl = document.getElementById('inspectorImage');
   if (!slip || !imgEl || !imgEl.src || !calibDraftQuad || !calibDraftMids || !calibDraftSplits) {
     showToast('⚠️ กรุณากด "📐 ปรับกรอบให้ตรง" และรอรูปโหลดก่อนครับ');
-    return;
+    return false;
   }
 
   const btn = document.getElementById('btnFlattenSlipPhoto');
@@ -4066,13 +4101,82 @@ async function flattenSlipPhotoFromCalibration() {
     }
     cancelTableBoxCalibration();
     await fetchAppState();
-    showToast('📄 แปลงรูปโพยเป็นภาพเอกสารตรงเรียบร้อย! (กด "↩️ คืนรูปต้นฉบับ" ได้ตลอดเวลา)');
+    if (autoReOcrAfter && appState.antigravityStatus?.hasApiKey) {
+      showToast('📄 ปรับภาพตรงสำเร็จ — กำลังส่งภาพตรงให้ AI อ่านตัวเลขต่อทันที...');
+      await reOcrCurrentSlip();
+    } else {
+      showToast('📄 แปลงรูปโพยเป็นภาพเอกสารตรงเรียบร้อย! (กด "↩️ คืนรูปต้นฉบับ" ได้ตลอดเวลา)');
+    }
+    return true;
   } catch (err) {
     showToast(`❌ ${err.message || 'แปลงภาพไม่สำเร็จ'}`);
+    return false;
   } finally {
     if (btn) {
       btn.disabled = false;
       btn.textContent = '📄 แปลงเป็นภาพเอกสารตรง';
+    }
+  }
+}
+
+async function aiAutoScanAndFlattenSlip() {
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  const imgEl = document.getElementById('inspectorImage');
+  if (!slip || !slip.imageUrl) {
+    showToast('⚠️ บิลนี้ไม่มีรูปภาพกระดาษสำหรับสแกน');
+    return;
+  }
+
+  const btn = document.getElementById('btnAiAutoScanFlatten');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ กำลังสแกนขอบกระดาษ...';
+  }
+
+  try {
+    const payload = {};
+    if (imgEl && imgEl.src && imgEl.src.startsWith('data:image/')) {
+      payload.base64Image = imgEl.src;
+    }
+    const res = await fetch(`/api/slips/${encodeURIComponent(slip.id)}/auto-scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'ไม่สามารถสแกนขอบกระดาษได้');
+    }
+
+    if (data.needsManualOnce || !data.ok || !data.mesh) {
+      if (!isCalibratingTableBox) toggleTableBoxCalibration();
+      showToast(data.message || 'กรุณาปรับกรอบ 8 จุดครั้งแรกให้ตรง แล้วกดแปลงภาพตรงเพื่อจำไว้ใช้รอบหน้าครับ');
+      return;
+    }
+
+    const mesh = data.mesh;
+    if (data.source === 'runner_memory' && mesh.rotationNeededDeg && currentInspectorRotation === 0) {
+      await rotateInspectorImage(mesh.rotationNeededDeg);
+    }
+
+    const { maxCol } = getSlipGridMetrics(slip);
+    const targetCols = Math.max(maxCol, Number(mesh.totalCols) || 1);
+    calibDraftQuad = mesh.tableQuad.map(p => [...p]);
+    calibDraftMids = normalizeEdgeMids(mesh.tableMids, calibDraftQuad);
+    calibDraftSplits = normalizeColSplits(mesh.colSplits, targetCols);
+    calibDraftBox = quadToBox(calibDraftQuad);
+    isCalibratingTableBox = true;
+
+    const okFlat = await flattenSlipPhotoFromCalibration(data.source === 'gemini_vision');
+    if (okFlat && data.source === 'runner_memory') {
+      showToast(`🧠 ใช้แบบฟอร์มที่จำไว้ของ "${slip.customerName}" ปรับภาพตรงอัตโนมัติแล้ว!`);
+    }
+  } catch (err) {
+    showToast(`❌ ${err.message || 'สแกนปรับภาพตรงไม่สำเร็จ'}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '✨ AI สแกนภาพตรง';
     }
   }
 }

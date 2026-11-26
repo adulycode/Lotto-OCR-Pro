@@ -1718,6 +1718,22 @@ body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .paper-grid-4col 
   z-index: 16;
 }
 
+.calib-row-tag {
+  position: absolute;
+  transform: translate(-108%, -50%);
+  background: rgba(15, 23, 42, 0.88);
+  color: #f8fafc;
+  border: 1px solid rgba(249, 115, 22, 0.55);
+  font-size: 9.5px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 0 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 16;
+  line-height: 1.35;
+}
+
 .grid-overlay-4x30 {
   position: absolute;
   inset: 0;

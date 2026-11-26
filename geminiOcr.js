@@ -98,6 +98,135 @@ function buildLearnedMemoryPrompt(learnedRules = [], customerName = '') {
   return `\n\n🧠 ความรู้สะสมจากการแก้ไขของแอดมินในอดีต (Self-Learning Memory สำหรับ "${customerName || 'ทั่วไป'}"):\nกรุณาใช้กฎที่เรียนรู้แล้วด้านล่างนี้ในการอ่านลายมือโพยใบนี้ด้วย:\n${lines.join('\n')}`;
 }
 
+function buildRunnerLayoutPrompt(runnerLayout = null, customerName = '') {
+  if (!runnerLayout) return '';
+  const parts = [];
+  if (runnerLayout.totalCols) parts.push(`จำนวนคอลัมน์ประจำ: ${runnerLayout.totalCols} คอลัมน์`);
+  if (runnerLayout.rowsPerCol) parts.push(`จำนวนแถวข้อมูลต่อคอลัมน์: ${runnerLayout.rowsPerCol} แถว`);
+  if (Array.isArray(runnerLayout.colHeaders) && runnerLayout.colHeaders.filter(Boolean).length > 0) {
+    parts.push(`หัวตารางเรียงซ้ายไปขวา: ${runnerLayout.colHeaders.join(' | ')}`);
+  }
+  if (Array.isArray(runnerLayout.colSplits) && runnerLayout.colSplits.length >= 2) {
+    const widths = [];
+    for (let i = 1; i < runnerLayout.colSplits.length; i++) {
+      widths.push(`ค.${i}=${Math.round((runnerLayout.colSplits[i] - runnerLayout.colSplits[i - 1]) * 100)}%`);
+    }
+    parts.push(`สัดส่วนความกว้างแต่ละคอลัมน์: ${widths.join(', ')}`);
+  }
+  if (runnerLayout.preferredRotationDeg) {
+    parts.push(`มุมหมุนประจำตอนถ่าย: ${runnerLayout.preferredRotationDeg}°`);
+  }
+  if (parts.length === 0) return '';
+  return `\n\n📐 ความจำแบบฟอร์มกระดาษของ "${customerName || 'ลูกค้า'}" (เรียนรู้สะสมแล้ว ${runnerLayout.learnedCount || 1} ครั้ง):\n- ${parts.join('\n- ')}\nใช้โครงสร้างนี้ช่วยจับตำแหน่งและตรวจสอบไม่ให้ตกหล่นแม้แต่คอลัมน์เดียว`;
+}
+
+const MESH_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    rotationNeededDeg: { type: 'INTEGER', description: 'องศาตามเข็มนาฬิกาที่ต้องหมุนเพื่อตั้งตรง (0, 90, 180, 270)' },
+    totalCols: { type: 'INTEGER', description: 'จำนวนคอลัมน์ทั้งหมดของตารางตัวเลข เช่น 4 หรือ 8' },
+    rowsPerCol: { type: 'INTEGER', description: 'จำนวนแถวข้อมูลตัวเลข (นับเฉพาะแถวกรอกเลข ไม่รวมแถวหัวตารางและแถว รวม)' },
+    tableQuad: {
+      type: 'ARRAY',
+      description: '4 มุมของตารางตัวเลข [บนซ้าย, บนขวา, ล่างขวา, ล่างซ้าย] ในสเกล 0..1000 รูปแบบ [x, y] — สำคัญมาก: ขอบบนต้องอยู่ใต้แถวหัวคอลัมน์ (ตรงขอบบนของแถวเลขที่ 1) และขอบล่างต้องอยู่เหนือแถว รวม (ตรงขอบล่างของแถวสุดท้าย)',
+      items: { type: 'ARRAY', items: { type: 'NUMBER' } }
+    },
+    tableMids: {
+      type: 'ARRAY',
+      description: '4 จุดกึ่งกลางขอบ [กลางบน, กลางขวา, กลางล่าง, กลางซ้าย] ในสเกล 0..1000 [x, y] เพื่อดัดตามความโค้งของกระดาษจริง',
+      items: { type: 'ARRAY', items: { type: 'NUMBER' } }
+    },
+    colSplits: {
+      type: 'ARRAY',
+      description: 'จุดแบ่งคอลัมน์จากซ้ายไปขวาในสเกล 0.0 ถึง 1.0 เริ่มด้วย 0 และจบด้วย 1 จำนวน totalCols + 1 ค่า (สะท้อนความกว้างจริงของคอลัมน์เลข 3 ตัว vs 2 ตัว)',
+      items: { type: 'NUMBER' }
+    }
+  },
+  required: ['totalCols', 'rowsPerCol', 'tableQuad']
+};
+
+async function detectPaperMeshWithGemini({ base64Image, mimeType = 'image/jpeg', settings = {}, runnerLayout = null, customerName = '' }) {
+  const apiKey = (settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
+  const model = settings.geminiModel || 'gemini-2.5-pro';
+  if (!apiKey) {
+    throw new Error('ยังไม่ได้ตั้งค่า Gemini API Key');
+  }
+
+  const cleanBase64 = String(base64Image || '').replace(/^data:image\/\w+;base64,/, '');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const layoutHint = buildRunnerLayoutPrompt(runnerLayout, customerName);
+
+  const promptText = [
+    'ตรวจหาขอบตารางตัวเลขบนใบโพยหวยเพื่อปรับกระดาษให้ตรงเหมือนโปรแกรมสแกนเอกสาร:',
+    '1. หา 4 มุม (tableQuad = [บนซ้าย, บนขวา, ล่างขวา, ล่างซ้าย] พิกัด [x, y] 0..1000) โดยวางขอบบนชิด "ใต้เส้นหัวตาราง (ห.ท.1/โต๊ด/ล.บ)" คือขอบบนสุดของแถวตัวเลขที่ 1 และวางขอบล่างชิด "เหนือเส้นแถว รวม" คือขอบล่างสุดของแถวตัวเลขสุดท้าย (ห้ามรวมหัวตารางและแถวรวม)',
+    '2. หา 4 จุดกึ่งกลางขอบ (tableMids = [กลางบน, กลางขวา, กลางล่าง, กลางซ้าย]) ตามแนวโค้งจริงของเส้นกระดาษในภาพ',
+    '3. ระบุจำนวนคอลัมน์ (totalCols), จำนวนแถวตัวเลข (rowsPerCol), และสัดส่วนเส้นแบ่งคอลัมน์จริงจากซ้ายไปขวา (colSplits 0.0..1.0)',
+    layoutHint
+  ].filter(Boolean).join('\n');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: cleanBase64 } }, { text: promptText }] }],
+      generationConfig: {
+        temperature: 0.1,
+        responseMimeType: 'application/json',
+        responseSchema: MESH_RESPONSE_SCHEMA
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini Scan Error (${response.status}): ${errText}`);
+  }
+  const data = await response.json();
+  const textOutput = data?.candidates?.[0]?.content?.parts?.find(p => p.text)?.text;
+  if (!textOutput) throw new Error('Gemini ไม่ได้ส่งพิกัดขอบกระดาษกลับมา');
+  const parsed = JSON.parse(textOutput);
+
+  const clamp1000 = n => Math.max(0, Math.min(1000, Math.round(Number(n) || 0)));
+  const totalCols = Math.max(1, Number(parsed.totalCols) || runnerLayout?.totalCols || 4);
+  const rowsPerCol = Math.max(1, Number(parsed.rowsPerCol) || runnerLayout?.rowsPerCol || 21);
+  const quad =
+    Array.isArray(parsed.tableQuad) && parsed.tableQuad.length === 4
+      ? parsed.tableQuad.map(p => [clamp1000(p[0]), clamp1000(p[1])])
+      : runnerLayout?.tableQuad || [[80, 140], [920, 140], [920, 900], [80, 900]];
+
+  const defaultMids = [
+    [Math.round((quad[0][0] + quad[1][0]) / 2), Math.round((quad[0][1] + quad[1][1]) / 2)],
+    [Math.round((quad[1][0] + quad[2][0]) / 2), Math.round((quad[1][1] + quad[2][1]) / 2)],
+    [Math.round((quad[3][0] + quad[2][0]) / 2), Math.round((quad[3][1] + quad[2][1]) / 2)],
+    [Math.round((quad[0][0] + quad[3][0]) / 2), Math.round((quad[0][1] + quad[3][1]) / 2)]
+  ];
+  const mids =
+    Array.isArray(parsed.tableMids) && parsed.tableMids.length === 4
+      ? parsed.tableMids.map(p => [clamp1000(p[0]), clamp1000(p[1])])
+      : defaultMids;
+
+  let colSplits = Array.from({ length: totalCols + 1 }, (_, i) => Number((i / totalCols).toFixed(4)));
+  if (Array.isArray(parsed.colSplits) && parsed.colSplits.length === totalCols + 1) {
+    const nums = parsed.colSplits.map(v => Math.max(0, Math.min(1, Number(v) || 0)));
+    nums[0] = 0;
+    nums[totalCols] = 1;
+    if (nums.every((v, idx) => idx === 0 || v > nums[idx - 1] + 0.01)) {
+      colSplits = nums.map(v => Number(v.toFixed(4)));
+    }
+  } else if (Array.isArray(runnerLayout?.colSplits) && runnerLayout.colSplits.length === totalCols + 1) {
+    colSplits = runnerLayout.colSplits;
+  }
+
+  return {
+    rotationNeededDeg: [0, 90, 180, 270].includes(Number(parsed.rotationNeededDeg)) ? Number(parsed.rotationNeededDeg) : 0,
+    totalCols,
+    rowsPerCol,
+    tableQuad: quad,
+    tableMids: mids,
+    colSplits
+  };
+}
+
 /**
  * Applies deterministic post-OCR corrections based on previously learned rules.
  */
@@ -202,10 +331,10 @@ async function callGeminiVisionAPI({ base64Image, mimeType = 'image/jpeg', apiKe
   return { parsed, usage };
 }
 
-async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true, mimeType = 'image/jpeg', settings = {}, learnedRules = [], customerName = '', allowDemoFallback = false }) {
+async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true, mimeType = 'image/jpeg', settings = {}, learnedRules = [], customerName = '', runnerLayout = null, allowDemoFallback = false }) {
   const apiKey = (settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
   const model = settings.geminiModel || 'gemini-2.5-pro';
-  const learnedMemoryPrompt = buildLearnedMemoryPrompt(learnedRules, customerName);
+  const learnedMemoryPrompt = buildLearnedMemoryPrompt(learnedRules, customerName) + buildRunnerLayoutPrompt(runnerLayout, customerName);
 
   if (apiKey) {
     let rawItems = [];
@@ -369,7 +498,9 @@ async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true
 
 module.exports = {
   analyzeSlipImage,
+  detectPaperMeshWithGemini,
   buildLearnedMemoryPrompt,
+  buildRunnerLayoutPrompt,
   applyLearnedCorrectionsToRow,
   LOTTERY_OCR_SYSTEM_PROMPT
 };

@@ -15,7 +15,7 @@ const {
   checkDrawWinners,
   getUpcomingGloDraws
 } = require('./lotteryEngine');
-const { analyzeSlipImage, applyLearnedCorrectionsToRow } = require('./geminiOcr');
+const { analyzeSlipImage, detectPaperMeshWithGemini, applyLearnedCorrectionsToRow } = require('./geminiOcr');
 
 const PORT = process.env.PORT || 3088;
 const DATA_DIR = path.join(__dirname, 'data');
@@ -1357,6 +1357,22 @@ const server = http.createServer(async (req, res) => {
         slip.tableMids = db.runnerLayouts[slip.customerName].tableMids;
       }
 
+      if (typeof body.flattenedImageBase64 === 'string') {
+        const mFlat = body.flattenedImageBase64.match(/^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/i);
+        if (mFlat) {
+          const ext = mFlat[1].toLowerCase() === 'png' ? 'png' : 'jpg';
+          const fileName = `flattened-${Date.now()}.${ext}`;
+          fs.writeFileSync(path.join(UPLOADS_DIR, fileName), Buffer.from(mFlat[2], 'base64'));
+          if (!slip.isFlattened) {
+            slip.originalImageUrl = slip.originalImageUrl || slip.imageUrl;
+            slip.originalRotationDeg = slip.originalRotationDeg ?? (slip.rotationDeg || 0);
+          }
+          slip.imageUrl = `/uploads/${fileName}`;
+          slip.isFlattened = true;
+          slip.rotationDeg = 0;
+        }
+      }
+
       slip.items = validatedItems;
       slip.isGrid4x30 = validatedItems.length > 30;
       slip.totalItems = validatedItems.filter(i => !i.isEmpty).length;
@@ -1477,6 +1493,7 @@ const server = http.createServer(async (req, res) => {
         rowsPerCol: Math.max(1, Number(body.rowsPerCol) || 30),
         colHeaders: Array.isArray(body.colHeaders) ? body.colHeaders.slice(0, 20) : [],
         preferredRotationDeg,
+        learnedCount: (db.runnerLayouts[customerName]?.learnedCount || 0) + 1,
         updatedAt: new Date().toISOString()
       };
       db.runnerLayouts[customerName] = layout;
@@ -1973,7 +1990,8 @@ const server = http.createServer(async (req, res) => {
             columnSlices,
             settings: db.settings,
             learnedRules: db.learnedRules || [],
-            customerName
+            customerName,
+            runnerLayout: db.runnerLayouts?.[customerName] || null
           });
           const latestDb = loadDb();
           const targetSlip = (latestDb.slips || []).find(s => s.id === newSlip.id);
@@ -2010,6 +2028,7 @@ const server = http.createServer(async (req, res) => {
         settings: db.settings,
         learnedRules: db.learnedRules || [],
         customerName,
+        runnerLayout: db.runnerLayouts?.[customerName] || null,
         allowDemoFallback: !base64Image
       });
 
@@ -2148,6 +2167,7 @@ const server = http.createServer(async (req, res) => {
           totalCols: Number(body.totalCols) || db.runnerLayouts[slip.customerName]?.totalCols || 4,
           rowsPerCol: Number(body.rowsPerCol) || db.runnerLayouts[slip.customerName]?.rowsPerCol || 30,
           preferredRotationDeg: slip.originalRotationDeg ?? 0,
+          learnedCount: (db.runnerLayouts[slip.customerName]?.learnedCount || 0) + 1,
           updatedAt: new Date().toISOString()
         };
       }
@@ -2168,6 +2188,80 @@ const server = http.createServer(async (req, res) => {
       );
       saveDb(db);
       return sendJson(res, 200, { ok: true, slip });
+    }
+
+    // API: Stage 1 AI Auto-Scan Paper Edges & Mesh (or Recall Runner Layout Memory)
+    if (req.method === 'POST' && /^\/api\/slips\/[^/]+\/auto-scan$/.test(pathname)) {
+      const slipId = decodeURIComponent(pathname.replace('/api/slips/', '').replace('/auto-scan', ''));
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      const slip = (db.slips || []).find(s => s.id === slipId);
+      if (!slip) return sendJson(res, 404, { ok: false, error: 'ไม่พบบิลนี้ในระบบ' });
+
+      const savedLayout = db.runnerLayouts?.[slip.customerName] || null;
+      const hasApiKey = Boolean((db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim());
+
+      let imgBase64 = '';
+      if (typeof body.base64Image === 'string' && body.base64Image.startsWith('data:image/')) {
+        imgBase64 = body.base64Image;
+      } else if (slip.imageUrl && slip.imageUrl.startsWith('/uploads/')) {
+        const resolvedImg = path.resolve(PUBLIC_DIR, slip.imageUrl.replace(/^\/+/, ''));
+        if (resolvedImg.startsWith(UPLOADS_DIR + path.sep) && fs.existsSync(resolvedImg)) {
+          imgBase64 = fs.readFileSync(resolvedImg).toString('base64');
+        }
+      }
+
+      if (hasApiKey && imgBase64) {
+        try {
+          const mesh = await detectPaperMeshWithGemini({
+            base64Image: imgBase64,
+            settings: db.settings,
+            runnerLayout: savedLayout,
+            customerName: slip.customerName
+          });
+          return sendJson(res, 200, { ok: true, source: 'gemini_vision', mesh });
+        } catch (scanErr) {
+          if (savedLayout && Array.isArray(savedLayout.tableQuad)) {
+            return sendJson(res, 200, {
+              ok: true,
+              source: 'runner_memory',
+              warning: scanErr.message,
+              mesh: {
+                rotationNeededDeg: savedLayout.preferredRotationDeg || 0,
+                totalCols: savedLayout.totalCols || 4,
+                rowsPerCol: savedLayout.rowsPerCol || 21,
+                tableQuad: savedLayout.tableQuad,
+                tableMids: savedLayout.tableMids || null,
+                colSplits: savedLayout.colSplits || null,
+                learnedCount: savedLayout.learnedCount || 1
+              }
+            });
+          }
+          return sendJson(res, 502, { ok: false, error: scanErr.message });
+        }
+      }
+
+      if (savedLayout && Array.isArray(savedLayout.tableQuad)) {
+        return sendJson(res, 200, {
+          ok: true,
+          source: 'runner_memory',
+          mesh: {
+            rotationNeededDeg: savedLayout.preferredRotationDeg || 0,
+            totalCols: savedLayout.totalCols || 4,
+            rowsPerCol: savedLayout.rowsPerCol || 21,
+            tableQuad: savedLayout.tableQuad,
+            tableMids: savedLayout.tableMids || null,
+            colSplits: savedLayout.colSplits || null,
+            learnedCount: savedLayout.learnedCount || 1
+          }
+        });
+      }
+
+      return sendJson(res, 200, {
+        ok: false,
+        needsManualOnce: true,
+        message: 'ยังไม่พบ Gemini API Key และยังไม่เคยจำแบบฟอร์มของเด็กโพยคนนี้ — ปรับกรอบ 8 จุดครั้งแรกให้แถว 1 อยู่ใต้หัวตารางถึงแถวสุดท้ายเหนือรวม แล้วกด "📄 แปลงเป็นภาพเอกสารตรง" เพื่อให้ระบบจำไว้ใช้รอบหน้าอัตโนมัติครับ'
+      });
     }
 
     // API: Re-run AI OCR on an Existing Slip Image (supports upright rotated image from client)
@@ -2208,6 +2302,7 @@ const server = http.createServer(async (req, res) => {
         settings: db.settings,
         learnedRules: db.learnedRules || [],
         customerName: slip.customerName,
+        runnerLayout: db.runnerLayouts?.[slip.customerName] || null,
         allowDemoFallback: false
       });
 
@@ -2223,7 +2318,7 @@ const server = http.createServer(async (req, res) => {
       slip.totalItems = items.filter(i => !i.isEmpty).length;
       slip.totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
       slip.reviewCount = items.filter(i => i.needsReview).length;
-      if (ocrResult.tableBox) slip.tableBox = ocrResult.tableBox;
+      if (ocrResult.tableBox && !slip.isFlattened) slip.tableBox = ocrResult.tableBox;
       if (ocrResult.sheetDate) slip.sheetDate = ocrResult.sheetDate;
       if (body.rotationDeg !== undefined) {
         slip.rotationDeg = ((Number(body.rotationDeg) || 0) % 360 + 360) % 360;
@@ -2490,6 +2585,7 @@ const server = http.createServer(async (req, res) => {
           settings: db.settings,
           learnedRules: db.learnedRules || [],
           customerName,
+          runnerLayout: db.runnerLayouts?.[customerName] || null,
           allowDemoFallback: Boolean(useSamplePhoto && !base64Image)
         });
 
@@ -2735,6 +2831,7 @@ const server = http.createServer(async (req, res) => {
                     settings: db.settings,
                     learnedRules: db.learnedRules || [],
                     customerName,
+                    runnerLayout: db.runnerLayouts?.[customerName] || null,
                     allowDemoFallback: false
                   });
                 } catch (ocrErr) {
