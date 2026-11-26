@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_67" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_68" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -136,6 +136,7 @@
             </svg>
           </span>
           <span class="nav-text">5. เพิ่มโพยกระดาษ / LINE</span>
+          <span class="tab-badge warn" id="badgeLineUnread" style="display:none;background:#16a34a;color:#fff;">0</span>
         </button>
         <button class="nav-tab" data-tab="tab-winners" onclick="switchTab('tab-winners')"
           title="6. ตรวจผลกองสลาก — ดึงผลสลากกินแบ่งรัฐบาล เพื่อตรวจเช็คคนถูกรางวัลและคำนวณยอดจ่ายแยกเรท 100% / 50%">
@@ -692,16 +693,16 @@
     </section>
 
     <!-- ================================================================= -->
-    <!-- แท็บที่ 5: ส่งโพยเข้าระบบ / จำลองแชท LINE OA                        -->
+    <!-- แท็บที่ 5: อัปโหลดโพยกระดาษ / กล่องข้อความ LINE OA จริง            -->
     <!-- ================================================================= -->
     <section id="tab-line" class="tab-panel no-print">
-      <div class="two-col-grid">
+      <div class="two-col-grid tab-line-grid">
         <!-- ซ้าย: อัปโหลดรูปโพยกระดาษโดยแอดมิน -->
         <div class="card">
           <div class="card-header">
             <div>
               <h3>📸 อัปโหลดรูปโพยกระดาษเข้าสู่งวดนี้โดยตรง</h3>
-              <p class="text-muted">ส่งภาพความละเอียดสูงให้ Gemini 2.5 Pro อ่านได้ทุกฟอร์แมต (โพย 2, 4, 5, 8 คอลัมน์ • สมุดเส้น • ปีกการ่วม } • หัวตาราง ห.ท./โต๊ด/ล.บ)</p>
+              <p class="text-muted">ส่งภาพความละเอียดสูงให้ AI อ่านได้ทุกฟอร์แมต (โพย 2, 4, 5, 8 คอลัมน์ • สมุดเส้น • ปีกการ่วม } • หัวตาราง ห.ท./โต๊ด/ล.บ)</p>
             </div>
           </div>
 
@@ -709,17 +710,14 @@
             <div class="form-row-2">
               <div>
                 <label>ชื่อคนส่ง / เจ้าของโพย:</label>
-                <input type="text" id="uploadCustomerName" class="input" value="เจ๊หมวย (สาย A)" placeholder="เช่น ลุงปั่น, ไก่, เจ๊หมวย หรือ ทุกสาย (Global)" />
-                <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">
+                <input type="text" id="uploadCustomerName" class="input" value="" placeholder="พิมพ์ชื่อคนส่ง หรือคลิกเลือกด้านล่าง" />
+                <div id="uploadQuickCustomerChips" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;">
                   <button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='ทุกสาย (Global)'">🌐 ทุกสาย (Global)</button>
-                  <button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='เจ๊หมวย (สาย A)'">👤 เจ๊หมวย</button>
-                  <button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='ลุงปั่น'">👤 ลุงปั่น</button>
-                  <button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='ไก่'">👤 ไก่</button>
                 </div>
               </div>
               <div>
                 <label>ชื่อบิล / แผ่นที่:</label>
-                <input type="text" id="uploadSlipTitle" class="input" value="โพยกระดาษ แผ่นที่ 2" />
+                <input type="text" id="uploadSlipTitle" class="input" value="" placeholder="เช่น โพยกระดาษ แผ่นที่ 1 (เว้นว่างให้ตั้งอัตโนมัติ)" />
               </div>
             </div>
 
@@ -762,66 +760,61 @@
           </div>
         </div>
 
-        <!-- ขวา: จำลองลูกค้าส่งหวยผ่าน LINE OA -->
+        <!-- ขวา: กล่องข้อความ LINE OA จริง (แยกรายคน + สถานะยังไม่อ่าน/อ่านแล้ว) -->
         <div class="card line-chat-card">
           <div class="card-header line-header">
             <div class="line-title-row">
               <span class="line-icon">LINE</span>
               <div>
-                <h3>จำลองลูกค้าส่งหวยผ่าน LINE (เช็คเวลาส่งก่อนอั้น 100% vs หลังอั้น 50%)</h3>
-                <p>เลือกชื่อลูกค้าและเวลาที่ส่ง เพื่อทดสอบการคำนวณเรทจ่าย 100% และ 50% อัตโนมัติ</p>
+                <h3>กล่องข้อความ LINE OA จริง</h3>
+                <p id="lineInboxSummarySub">ดึงรายชื่อและแชทจริงจาก LINE OA — คลิกชื่อด้านซ้ายเพื่อเปิดอ่านและตรวจบิล</p>
               </div>
             </div>
-          </div>
-
-          <div class="line-customer-selector">
-            <div style="flex:1;">
-              <label class="small-label">จำลองส่งในนามลูกค้า:</label>
-              <select id="simCustomerSelect" class="input" onchange="onSimCustomerChange(this.value)">
-                <option value="เฮียพงษ์ (ลูกค้า LINE)">👤 เฮียพงษ์ (ลูกค้า LINE)</option>
-                <option value="ป้านิด (ลูกค้า LINE)">👤 ป้านิด (ลูกค้า LINE)</option>
-                <option value="เจ๊หมวย (สาย A)">👤 เจ๊หมวย (สาย A)</option>
-                <option value="เสี่ยชัย (สาย B)">👤 เสี่ยชัย (สาย B)</option>
-              </select>
-            </div>
-            <div style="flex:1;">
-              <label class="small-label">หรือพิมพ์ชื่อลูกค้าใหม่:</label>
-              <input type="text" id="simCustomCustomerInput" class="input" placeholder="เช่น น้าพร..." />
-            </div>
-            <div style="flex:1;">
-              <label class="small-label">ช่วงเวลาที่ลูกค้าส่งบิลนี้:</label>
-              <select id="simTimingSelect" class="input">
-                <option value="after_cutoff">🕒 ส่งตอนนี้ (หลังประกาศเลขอั้น ➔ เลขอั้นได้ 50%)</option>
-                <option value="before_cutoff">⏪ จำลองว่าส่งก่อนประกาศอั้น (วันที่ 14 พ.ย. ➔ ได้เต็ม 100%)</option>
-              </select>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <button type="button" class="btn btn-outline btn-sm" id="btnMarkAllLineRead" onclick="markAllLineChatsRead()">✓ อ่านทั้งหมด</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="fetchAppState()">🔄 รีเฟรช</button>
             </div>
           </div>
 
-          <div id="lineChatStream" class="line-chat-stream"></div>
+          <div class="line-inbox-shell">
+            <div class="line-inbox-sidebar">
+              <input type="text" id="lineInboxSearchInput" class="input" style="padding:6px 9px;font-size:12.5px;" placeholder="🔍 ค้นหาชื่อคนส่ง..." oninput="renderLineSimulator()" />
+              <div class="line-inbox-filters">
+                <button type="button" class="chip active" id="btnLineFilterAll" onclick="setLineInboxFilter('all')">ทั้งหมด</button>
+                <button type="button" class="chip" id="btnLineFilterUnread" onclick="setLineInboxFilter('unread')">ยังไม่อ่าน <span id="lineFilterUnreadCount"></span></button>
+              </div>
+              <div id="lineInboxCustomerList" class="line-sender-list"></div>
+            </div>
 
-          <div class="line-quick-presets">
-            <span class="small-label">ปุ่มกดทดสอบด่วน:</span>
-            <button class="chip-btn" onclick="fillLinePreset('21 = 22\n583 = 55x55\n072x6 = 66')">
-              ตัวอย่าง: 21 = 22 + 583
-            </button>
-            <button class="chip-btn" onclick="fillLinePreset('21 = 20\n860 = 22x22\n426 = 22x22')">
-              ตัวอย่าง: 21 = 20 + 860
-            </button>
-            <button class="chip-btn highlight" onclick="simulateLineSamplePhoto()">
-              📸 จำลองส่ง "รูปโพยกระดาษ 16/11 (120 แถว)" เข้าแชท LINE
-            </button>
-          </div>
+            <div class="line-inbox-thread">
+              <div id="lineActiveThreadHeader" class="line-thread-header"></div>
+              <div id="lineChatStream" class="line-chat-stream"></div>
 
-          <div class="line-input-area">
-            <textarea id="lineMessageInput" rows="3" class="input" placeholder="พิมพ์โพยส่งใน LINE เช่น:&#10;21 = 22&#10;072x6 = 66&#10;583 = 110x110"></textarea>
-            <div class="line-send-actions">
-              <label class="btn btn-outline btn-upload-label">
-                📷 เลือกรูปโพยส่งใน LINE
-                <input type="file" id="linePhotoInput" accept="image/*" hidden onchange="sendLineCustomPhoto(this)" />
-              </label>
-              <button class="btn btn-line" onclick="sendLineTextMessage()">
-                ส่งบิลเข้า LINE ➤
-              </button>
+              <div class="line-input-area" style="margin-top:8px;">
+                <div class="line-customer-selector" style="margin-bottom:0;">
+                  <div style="flex:1.1;min-width:160px;">
+                    <label class="small-label">บันทึก/ส่งเข้าชื่อลูกค้า:</label>
+                    <input type="text" id="lineComposerCustomerInput" class="input" placeholder="คลิกเลือกชื่อด้านซ้าย หรือพิมพ์ชื่อใหม่..." />
+                  </div>
+                  <div style="flex:1;min-width:160px;">
+                    <label class="small-label">ช่วงเวลาที่ส่งบิลนี้:</label>
+                    <select id="simTimingSelect" class="input">
+                      <option value="after_cutoff">🕒 ส่งตอนนี้ (เช็คเวลาปิดรับ / อั้น 50%)</option>
+                      <option value="before_cutoff">⏪ ส่งก่อนเวลาประกาศอั้น (จ่ายเต็ม 100%)</option>
+                    </select>
+                  </div>
+                </div>
+                <textarea id="lineMessageInput" rows="2" class="input" placeholder="คีย์โพยตัวเลขเพิ่มให้ลูกค้าคนนี้ เช่น 21 = 22 หรือ 583 = 55x55"></textarea>
+                <div class="line-send-actions">
+                  <label class="btn btn-outline btn-upload-label">
+                    📷 แนบรูปโพย
+                    <input type="file" id="linePhotoInput" accept="image/*" hidden onchange="sendLineCustomPhoto(this)" />
+                  </label>
+                  <button type="button" class="btn btn-line" onclick="sendLineTextMessage()">
+                    บันทึกโพยเข้าแชท ➤
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1359,6 +1352,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_67"></script>
+  <script src="/app.js?v=20261120_68"></script>
 </body>
 </html>

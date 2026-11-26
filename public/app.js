@@ -10,8 +10,12 @@ let appState = {
   aggregated: [],
   layoffs: [],
   lineChats: [],
+  lineReadAt: {},
   summary: {}
 };
+
+let selectedLineInboxCustomer = '__ALL__';
+let lineInboxFilterMode = 'all';
 
 let currentAggFilter = 'all';
 let aggSortCol = 'total';
@@ -510,6 +514,8 @@ function renderHeaderAndKpis() {
     badgeRev.textContent = unapprovedCount;
     badgeRev.style.display = unapprovedCount > 0 ? 'inline-block' : 'none';
   }
+
+  updateLineUnreadSidebarBadge();
 
   const noticeHtml = unapprovedCount > 0
     ? `
@@ -4342,47 +4348,398 @@ function resetZoom() {
 }
 
 // ============================================================================
-// แท็บที่ 5: ส่งโพยเข้าระบบ / จำลองแชท LINE OA
+// แท็บที่ 5: อัปโหลดโพยกระดาษ / กล่องข้อความ LINE OA จริง + สถานะอ่าน/ยังไม่อ่าน
 // ============================================================================
-function onSimCustomerChange() {
-  document.getElementById('simCustomCustomerInput').value = '';
+function getUnreadLineSendersCountFromClient() {
+  const chats = appState.lineChats || [];
+  const readMap = appState.lineReadAt || {};
+  const unreadSet = new Set();
+  for (const m of chats) {
+    if (m.sender !== 'customer') continue;
+    const cname = String(m.customerName || '').trim();
+    if (!cname) continue;
+    const readTs = readMap[cname] ? new Date(readMap[cname]).getTime() : 0;
+    const msgTs = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+    if (msgTs > readTs) unreadSet.add(cname);
+  }
+  return unreadSet.size;
+}
+
+function updateLineUnreadSidebarBadge() {
+  const badgeLine = document.getElementById('badgeLineUnread');
+  if (!badgeLine) return;
+  const unreadSenders = getUnreadLineSendersCountFromClient();
+  badgeLine.textContent = unreadSenders;
+  badgeLine.style.display = unreadSenders > 0 ? 'inline-block' : 'none';
+  badgeLine.title = unreadSenders > 0 ? `มีแชท LINE ยังไม่อ่าน ${unreadSenders} คน` : '';
 }
 
 function getSimCustomerName() {
-  const custom = document.getElementById('simCustomCustomerInput').value.trim();
-  return custom || document.getElementById('simCustomerSelect').value;
+  const composerEl = document.getElementById('lineComposerCustomerInput');
+  const typed = (composerEl?.value || '').trim();
+  if (typed) return typed;
+  if (selectedLineInboxCustomer && selectedLineInboxCustomer !== '__ALL__') {
+    return selectedLineInboxCustomer;
+  }
+  return '';
 }
 
 function getSimSubmittedAt(selectId) {
   const mode = document.getElementById(selectId)?.value || 'after_cutoff';
   if (mode === 'before_cutoff') {
-    return '2026-11-14T11:00:00.000Z'; // ส่งวันที่ 14 พ.ย. (ก่อนเวลาเจ้ามือประกาศอั้น 15 พ.ย.)
+    return '2026-11-14T11:00:00.000Z';
   }
   return new Date().toISOString();
 }
 
-function fillLinePreset(text) {
-  document.getElementById('lineMessageInput').value = text;
+function setLineInboxFilter(mode) {
+  lineInboxFilterMode = mode === 'unread' ? 'unread' : 'all';
+  renderLineSimulator();
+}
+
+function buildLineInboxThreads() {
+  const chats = appState.lineChats || [];
+  const slips = appState.slips || [];
+  const readMap = appState.lineReadAt || {};
+  const byName = new Map();
+
+  const ensureThread = name => {
+    if (!byName.has(name)) {
+      byName.set(name, {
+        customerName: name,
+        messages: [],
+        unreadCount: 0,
+        lastMsg: null,
+        lastTimeMs: 0,
+        slipCount: 0,
+        latestSlipId: null,
+        unapprovedCount: 0
+      });
+    }
+    return byName.get(name);
+  };
+
+  for (const m of chats) {
+    const cname = String(m.customerName || '').trim();
+    if (!cname) continue;
+    const t = ensureThread(cname);
+    t.messages.push(m);
+    const tsMs = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+    if (tsMs >= t.lastTimeMs) {
+      t.lastTimeMs = tsMs;
+      t.lastMsg = m;
+    }
+    if (m.sender === 'customer') {
+      const readTs = readMap[cname] ? new Date(readMap[cname]).getTime() : 0;
+      if (tsMs > readTs) {
+        t.unreadCount += 1;
+      }
+    }
+  }
+
+  for (const s of slips) {
+    const cname = String(s.customerName || '').trim();
+    if (!cname) continue;
+    const t = ensureThread(cname);
+    t.slipCount += 1;
+    t.latestSlipId = s.id;
+    if (!s.humanApproved) t.unapprovedCount += 1;
+    const tsMs = s.createdAt ? new Date(s.createdAt).getTime() : 0;
+    if (!t.lastTimeMs && tsMs > 0) t.lastTimeMs = tsMs;
+  }
+
+  return Array.from(byName.values()).sort((a, b) => {
+    const aUnread = a.unreadCount > 0 ? 1 : 0;
+    const bUnread = b.unreadCount > 0 ? 1 : 0;
+    if (bUnread !== aUnread) return bUnread - aUnread;
+    return b.lastTimeMs - a.lastTimeMs;
+  });
+}
+
+function renderUploadQuickCustomerChips(threads) {
+  const wrap = document.getElementById('uploadQuickCustomerChips');
+  if (!wrap) return;
+  const names = [];
+  for (const t of threads) {
+    if (t.customerName && !names.includes(t.customerName)) names.push(t.customerName);
+    if (names.length >= 8) break;
+  }
+  const chipsHtml = [
+    `<button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='ทุกสาย (Global)'">🌐 ทุกสาย (Global)</button>`,
+    ...names.map(
+      name =>
+        `<button type="button" class="chip" style="padding:2px 7px;font-size:10.5px;" onclick="document.getElementById('uploadCustomerName').value='${escapeJsArg(name)}'">👤 ${escapeHtml(name)}</button>`
+    )
+  ];
+  wrap.innerHTML = chipsHtml.join('');
+}
+
+async function selectLineInboxCustomer(customerName) {
+  selectedLineInboxCustomer = customerName || '__ALL__';
+  const composerEl = document.getElementById('lineComposerCustomerInput');
+  if (composerEl && selectedLineInboxCustomer !== '__ALL__') {
+    composerEl.value = selectedLineInboxCustomer;
+  }
+
+  if (selectedLineInboxCustomer !== '__ALL__') {
+    appState.lineReadAt = {
+      ...(appState.lineReadAt || {}),
+      [selectedLineInboxCustomer]: new Date().toISOString()
+    };
+    updateLineUnreadSidebarBadge();
+    renderLineSimulator();
+
+    try {
+      const res = await fetch('/api/line/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerName: selectedLineInboxCustomer })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.lineReadAt) {
+          appState.lineReadAt = data.lineReadAt;
+          updateLineUnreadSidebarBadge();
+        }
+      }
+    } catch {}
+  } else {
+    renderLineSimulator();
+  }
+}
+
+async function markLineCustomerUnread(customerName) {
+  if (!customerName || customerName === '__ALL__') return;
+  const nextRead = { ...(appState.lineReadAt || {}) };
+  delete nextRead[customerName];
+  appState.lineReadAt = nextRead;
+  if (selectedLineInboxCustomer === customerName) {
+    selectedLineInboxCustomer = '__ALL__';
+  }
+  updateLineUnreadSidebarBadge();
+  renderLineSimulator();
+
+  try {
+    const res = await fetch('/api/line/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerName, unread: true })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.lineReadAt) appState.lineReadAt = data.lineReadAt;
+    }
+  } catch {}
+  updateLineUnreadSidebarBadge();
+  renderLineSimulator();
+  showToast(`📩 ทำเครื่องหมาย "${customerName}" เป็นยังไม่อ่านแล้ว`);
+}
+
+async function markAllLineChatsRead() {
+  const nowIso = new Date().toISOString();
+  const nextRead = { ...(appState.lineReadAt || {}) };
+  for (const m of appState.lineChats || []) {
+    if (m.customerName) nextRead[m.customerName] = nowIso;
+  }
+  appState.lineReadAt = nextRead;
+  updateLineUnreadSidebarBadge();
+  renderLineSimulator();
+
+  try {
+    const res = await fetch('/api/line/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markAll: true, drawId: appState.currentDrawId })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.lineReadAt) appState.lineReadAt = data.lineReadAt;
+    }
+  } catch {}
+  updateLineUnreadSidebarBadge();
+  renderLineSimulator();
+  showToast('✅ ทำเครื่องหมายอ่านแชท LINE ครบทุกคนแล้ว');
+}
+
+function openSlipFromLineChat(imageUrl, customerName) {
+  if (!imageUrl) return;
+  const match = (appState.slips || []).find(
+    s => s.imageUrl === imageUrl || (customerName && s.customerName === customerName && s.originalImageUrl === imageUrl)
+  );
+  if (match) {
+    currentInspectedSlipId = match.id;
+    switchTab('tab-inspector');
+    return;
+  }
+  window.open(imageUrl, '_blank', 'noopener');
 }
 
 function renderLineSimulator() {
-  const stream = document.getElementById('lineChatStream');
-  if (!stream) return;
-  const chats = appState.lineChats || [];
+  const threads = buildLineInboxThreads();
+  renderUploadQuickCustomerChips(threads);
+  updateLineUnreadSidebarBadge();
 
-  stream.innerHTML = chats
-    .map(msg => {
-      const isCustomer = msg.sender === 'customer';
-      return `
-        <div class="chat-bubble-wrap ${isCustomer ? 'customer' : 'bot'}">
-          <div class="chat-sender-name">${isCustomer ? `👤 ${msg.customerName} (${formatThaiDateTime(msg.timestamp)})` : '🤖 ระบบตอบรับโพยอัตโนมัติ'}</div>
-          <div class="chat-bubble">${escapeHtml(msg.text || '')}${
-        msg.imageUrl ? `<br/><img src="${msg.imageUrl}" class="chat-thumb" alt="รูปโพย" />` : ''
-      }</div>
+  const chats = appState.lineChats || [];
+  const totalUnreadSenders = threads.filter(t => t.unreadCount > 0).length;
+
+  const summarySub = document.getElementById('lineInboxSummarySub');
+  if (summarySub) {
+    summarySub.textContent =
+      totalUnreadSenders > 0
+        ? `มีคนส่งข้อความใหม่ที่ยังไม่อ่าน ${totalUnreadSenders} คน — คลิกชื่อด้านซ้ายเพื่อเปิดอ่าน`
+        : `รายชื่อลูกค้าจริง ${threads.length} คนในงวดนี้ (อ่านครบทุกคนแล้ว)`;
+  }
+
+  const filterUnreadCountEl = document.getElementById('lineFilterUnreadCount');
+  if (filterUnreadCountEl) {
+    filterUnreadCountEl.textContent = totalUnreadSenders > 0 ? `(${totalUnreadSenders})` : '';
+  }
+  document.getElementById('btnLineFilterAll')?.classList.toggle('active', lineInboxFilterMode === 'all');
+  document.getElementById('btnLineFilterUnread')?.classList.toggle('active', lineInboxFilterMode === 'unread');
+  const markAllBtn = document.getElementById('btnMarkAllLineRead');
+  if (markAllBtn) {
+    markAllBtn.disabled = totalUnreadSenders === 0;
+  }
+
+  if (selectedLineInboxCustomer !== '__ALL__' && !threads.some(t => t.customerName === selectedLineInboxCustomer)) {
+    selectedLineInboxCustomer = '__ALL__';
+  }
+
+  const searchQuery = (document.getElementById('lineInboxSearchInput')?.value || '').trim().toLowerCase();
+  const visibleThreads = threads.filter(t => {
+    if (lineInboxFilterMode === 'unread' && t.unreadCount === 0) return false;
+    if (searchQuery && !t.customerName.toLowerCase().includes(searchQuery)) return false;
+    return true;
+  });
+
+  const listEl = document.getElementById('lineInboxCustomerList');
+  if (listEl) {
+    const allBtnHtml = `
+      <div class="line-sender-item ${selectedLineInboxCustomer === '__ALL__' ? 'active' : ''}" onclick="selectLineInboxCustomer('__ALL__')">
+        <div class="line-sender-avatar">💬</div>
+        <div style="min-width:0;flex:1;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
+            <strong style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">แชทรวมทุกคน</strong>
+            <span class="badge-100" style="font-size:10px;">${chats.length}</span>
+          </div>
+          <div class="text-muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">ดูข้อความเข้าล่าสุดทั้งหมด</div>
+        </div>
+      </div>
+    `;
+
+    const rowsHtml =
+      visibleThreads.length === 0
+        ? `<div class="text-muted" style="font-size:12px;text-align:center;padding:18px 8px;">${
+            lineInboxFilterMode === 'unread' ? '🎉 ไม่มีข้อความที่ยังไม่อ่าน' : 'ไม่พบรายชื่อที่ค้นหา'
+          }</div>`
+        : visibleThreads
+            .map(t => {
+              const isSelected = selectedLineInboxCustomer === t.customerName;
+              const isUnread = t.unreadCount > 0;
+              const initial = escapeHtml(Array.from(t.customerName.trim())[0] || '👤');
+              const previewText = t.lastMsg
+                ? t.lastMsg.text || (t.lastMsg.imageUrl ? '📷 ส่งรูปโพย' : '')
+                : t.slipCount > 0
+                  ? `ส่งโพยแล้ว ${t.slipCount} บิล`
+                  : 'ยังไม่มีข้อความ';
+              const timeStr = t.lastTimeMs ? formatThaiDateTime(new Date(t.lastTimeMs).toISOString()) : '';
+              return `
+                <div class="line-sender-item ${isUnread ? 'is-unread' : ''} ${isSelected ? 'active' : ''}"
+                     onclick="selectLineInboxCustomer('${escapeJsArg(t.customerName)}')">
+                  <div class="line-sender-avatar">
+                    ${initial}
+                    ${isUnread ? '<span class="line-sender-dot" title="ยังไม่อ่าน"></span>' : ''}
+                  </div>
+                  <div style="min-width:0;flex:1;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
+                      <span style="font-size:12.5px;font-weight:${isUnread ? '800' : '600'};color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        ${escapeHtml(t.customerName)}
+                      </span>
+                      ${
+                        isUnread
+                          ? `<span class="line-unread-badge" title="ยังไม่อ่าน ${t.unreadCount} ข้อความ">${t.unreadCount}</span>`
+                          : t.slipCount > 0
+                            ? `<span class="badge-100" style="font-size:10px;flex-shrink:0;">${t.slipCount} บิล</span>`
+                            : ''
+                      }
+                    </div>
+                    <div class="text-muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;">
+                      ${escapeHtml(previewText)}
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;margin-top:2px;font-size:10px;color:var(--text-muted);">
+                      <span>${escapeHtml(timeStr)}</span>
+                      <span>${isUnread ? '🟢 ยังไม่อ่าน' : t.messages.length > 0 ? '✓ อ่านแล้ว' : ''}</span>
+                    </div>
+                  </div>
+                </div>
+              `;
+            })
+            .join('');
+
+    listEl.innerHTML = allBtnHtml + rowsHtml;
+  }
+
+  const activeThread =
+    selectedLineInboxCustomer === '__ALL__'
+      ? null
+      : threads.find(t => t.customerName === selectedLineInboxCustomer) || null;
+  const filteredChats =
+    selectedLineInboxCustomer === '__ALL__'
+      ? chats
+      : chats.filter(m => String(m.customerName || '').trim() === selectedLineInboxCustomer);
+
+  const threadHeaderEl = document.getElementById('lineActiveThreadHeader');
+  if (threadHeaderEl) {
+    if (!activeThread) {
+      threadHeaderEl.innerHTML = `
+        <div>
+          <strong style="font-size:13.5px;">💬 ข้อความ LINE OA ทั้งหมดในงวดนี้ (${filteredChats.length} ข้อความ)</strong>
+          <div class="text-muted" style="font-size:11.5px;">คลิกชื่อผู้ส่งทางด้านซ้าย เพื่อเปิดดูเฉพาะคนนั้นและทำเครื่องหมายว่าอ่านแล้ว</div>
         </div>
       `;
-    })
-    .join('');
+    } else {
+      threadHeaderEl.innerHTML = `
+        <div style="min-width:0;">
+          <strong style="font-size:13.5px;">👤 ${escapeHtml(activeThread.customerName)}</strong>
+          <div class="text-muted" style="font-size:11.5px;">
+            ${activeThread.messages.length} ข้อความ • ${activeThread.slipCount} บิลในงวดนี้
+            ${activeThread.unapprovedCount > 0 ? `• <span style="color:#f59e0b;font-weight:700;">รอตรวจ ${activeThread.unapprovedCount} บิล</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          ${
+            activeThread.latestSlipId
+              ? `<button type="button" class="btn btn-primary btn-sm" onclick="currentInspectedSlipId='${escapeJsArg(activeThread.latestSlipId)}'; switchTab('tab-inspector');">🔍 เปิดตรวจบิล</button>`
+              : ''
+          }
+          <button type="button" class="btn btn-outline btn-sm" onclick="markLineCustomerUnread('${escapeJsArg(activeThread.customerName)}')">📩 ทำเป็นยังไม่อ่าน</button>
+        </div>
+      `;
+    }
+  }
+
+  const stream = document.getElementById('lineChatStream');
+  if (!stream) return;
+
+  if (filteredChats.length === 0) {
+    stream.innerHTML = `<div class="text-muted" style="margin:auto;text-align:center;font-size:13px;padding:24px;">ยังไม่มีข้อความแชทในห้องนี้</div>`;
+  } else {
+    stream.innerHTML = filteredChats
+      .map(msg => {
+        const isCustomer = msg.sender === 'customer';
+        return `
+          <div class="chat-bubble-wrap ${isCustomer ? 'customer' : 'bot'}">
+            <div class="chat-sender-name">${isCustomer ? `👤 ${escapeHtml(msg.customerName)} (${formatThaiDateTime(msg.timestamp)})` : `🤖 ระบบตอบรับอัตโนมัติ (${formatThaiDateTime(msg.timestamp)})`}</div>
+            <div class="chat-bubble">${escapeHtml(msg.text || '')}${
+          msg.imageUrl
+            ? `<br/><img src="${escapeHtml(msg.imageUrl)}" class="chat-thumb" alt="รูปโพย" onclick="openSlipFromLineChat('${escapeJsArg(msg.imageUrl)}', '${escapeJsArg(msg.customerName || '')}')" title="คลิกเพื่อเปิดตรวจบิลนี้" />`
+            : ''
+        }</div>
+          </div>
+        `;
+      })
+      .join('');
+  }
 
   stream.scrollTop = stream.scrollHeight;
 }
@@ -4391,11 +4748,16 @@ async function sendLineTextMessage() {
   const textEl = document.getElementById('lineMessageInput');
   const text = textEl.value.trim();
   if (!text) {
-    showToast('กรุณาพิมพ์ตัวเลขหวยก่อนกดส่งครับ');
+    showToast('กรุณาพิมพ์ตัวเลขหวยก่อนกดบันทึกครับ');
     return;
   }
 
   const customerName = getSimCustomerName();
+  if (!customerName) {
+    showToast('กรุณาคลิกเลือกชื่อลูกค้าด้านซ้าย หรือพิมพ์ชื่อลูกค้าก่อนครับ');
+    return;
+  }
+
   const submittedAt = getSimSubmittedAt('simTimingSelect');
   textEl.value = '';
 
@@ -4410,39 +4772,24 @@ async function sendLineTextMessage() {
     })
   });
 
+  selectedLineInboxCustomer = customerName;
   await fetchAppState();
   showToast(`💬 บันทึกบิลของ "${customerName}" เข้าสู่ ${appState.currentDraw?.title || 'งวดนี้'} เรียบร้อย!`);
-}
-
-async function simulateLineSamplePhoto() {
-  const customerName = getSimCustomerName();
-  const submittedAt = getSimSubmittedAt('simTimingSelect');
-  showToast(`📸 กำลังส่งรูปโพย 16/11 (120 แถว) เข้า LINE ในนาม "${customerName}"...`);
-
-  await fetch('/api/line/simulate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      drawId: appState.currentDrawId,
-      customerName,
-      useSamplePhoto: true,
-      submittedAt,
-      text: 'ส่งรูปโพยกระดาษ 16/11 (120 รายการ)'
-    })
-  });
-
-  await fetchAppState();
-  showToast(`✅ อ่านรูปโพยของ "${customerName}" และรวมยอดเข้าตารางเรียบร้อย!`);
 }
 
 async function sendLineCustomPhoto(inputEl) {
   const file = inputEl.files?.[0];
   if (!file) return;
   const customerName = getSimCustomerName();
+  if (!customerName) {
+    inputEl.value = '';
+    showToast('กรุณาคลิกเลือกชื่อลูกค้าด้านซ้าย หรือพิมพ์ชื่อลูกค้าก่อนแนบรูปครับ');
+    return;
+  }
   const submittedAt = getSimSubmittedAt('simTimingSelect');
   const base64Image = await fileToBase64(file);
 
-  showToast(`📸 กำลังอ่านรูปโพยจาก LINE ของ "${customerName}"...`);
+  showToast(`📸 กำลังส่งรูปโพยของ "${customerName}" เข้าระบบ...`);
   await fetch('/api/line/simulate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -4456,8 +4803,9 @@ async function sendLineCustomPhoto(inputEl) {
   });
 
   inputEl.value = '';
+  selectedLineInboxCustomer = customerName;
   await fetchAppState();
-  showToast(`✅ อ่านรูปโพยจาก LINE สำเร็จ!`);
+  showToast(`✅ บันทึกรูปโพยของ "${customerName}" สำเร็จ!`);
 }
 
 function fileToBase64(file) {

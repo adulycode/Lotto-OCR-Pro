@@ -1283,6 +1283,22 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      const drawLineChats = (db.lineChats || []).filter(m => (m.drawId || currentDraw.id) === currentDraw.id);
+      const lineReadAt = db.lineReadAt || {};
+      const unreadSendersSet = new Set();
+      let unreadLineMessagesCount = 0;
+      for (const m of drawLineChats) {
+        if (m.sender !== 'customer') continue;
+        const cname = String(m.customerName || '').trim();
+        if (!cname) continue;
+        const readTs = lineReadAt[cname] ? new Date(lineReadAt[cname]).getTime() : 0;
+        const msgTs = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+        if (msgTs > readTs) {
+          unreadLineMessagesCount += 1;
+          unreadSendersSet.add(cname);
+        }
+      }
+
       return sendJson(res, 200, {
         currentDrawId: currentDraw.id,
         currentDraw,
@@ -1307,7 +1323,8 @@ const server = http.createServer(async (req, res) => {
         aggregated,
         winnerCheck,
         layoffs: drawLayoffs,
-        lineChats: (db.lineChats || []).filter(m => (m.drawId || currentDraw.id) === currentDraw.id),
+        lineChats: drawLineChats,
+        lineReadAt,
         summary: {
           totalSlips: drawSlips.length,
           approvedSlipsCount: approvedDrawSlips.length,
@@ -1330,7 +1347,9 @@ const server = http.createServer(async (req, res) => {
           pendingReviewSlips: drawSlips.filter(s => (s.reviewCount || 0) > 0 && !s.humanApproved).length,
           aiPassedSlips: drawSlips.filter(s => (s.reviewCount || 0) === 0 && !s.humanApproved && s.status !== 'pending_antigravity').length,
           humanVerifiedSlips: drawSlips.filter(s => (s.reviewCount || 0) === 0 && s.humanApproved).length,
-          pendingAntigravitySlips: drawSlips.filter(s => s.status === 'pending_antigravity').length
+          pendingAntigravitySlips: drawSlips.filter(s => s.status === 'pending_antigravity').length,
+          unreadLineMessagesCount,
+          unreadLineSendersCount: unreadSendersSet.size
         }
       });
     }
@@ -2813,7 +2832,40 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
-    // API: LINE Simulator (Automatically increments Round Number for the runner & reports cumulative total!)
+    // API: Mark LINE Chats Read / Unread
+    if (req.method === 'POST' && pathname === '/api/line/mark-read') {
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      db.lineReadAt = db.lineReadAt || {};
+      const nowIso = new Date().toISOString();
+
+      if (body.markAll) {
+        const targetDrawId = body.drawId || db.currentDrawId;
+        const names = new Set(
+          (db.lineChats || [])
+            .filter(m => !targetDrawId || (m.drawId || db.currentDrawId) === targetDrawId)
+            .map(m => String(m.customerName || '').trim())
+            .filter(Boolean)
+        );
+        for (const name of names) {
+          db.lineReadAt[name] = nowIso;
+        }
+      } else if (body.customerName) {
+        const cname = String(body.customerName || '').trim();
+        if (cname) {
+          if (body.unread === true) {
+            delete db.lineReadAt[cname];
+          } else {
+            db.lineReadAt[cname] = nowIso;
+          }
+        }
+      }
+
+      saveDb(db);
+      return sendJson(res, 200, { ok: true, lineReadAt: db.lineReadAt });
+    }
+
+    // API: LINE Simulator / Key-in Thread (Automatically increments Round Number for the runner & reports cumulative total!)
     if (req.method === 'POST' && pathname === '/api/line/simulate') {
       const body = await parseJsonBody(req);
       const db = loadDb();
