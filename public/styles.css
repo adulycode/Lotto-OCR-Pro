@@ -1508,10 +1508,7 @@ body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .paper-grid-4col 
 
 .photo-issue-markers {
   position: absolute;
-  top: 14.1%;
-  left: 14.2%;
-  right: 2.5%;
-  bottom: 8.6%;
+  inset: 0;
   pointer-events: none;
 }
 
@@ -1519,40 +1516,58 @@ body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .paper-grid-4col 
   display: none !important;
 }
 
-.photo-issue-box {
+.photo-markers-svg {
   position: absolute;
-  border: 2px solid rgba(239, 68, 68, 0.85);
-  background: rgba(239, 68, 68, 0.06);
-  border-radius: 3px;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.45);
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.photo-issue-poly {
+  fill: rgba(239, 68, 68, 0.08);
+  stroke: rgba(239, 68, 68, 0.92);
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
   pointer-events: auto;
   cursor: pointer;
+  transition: fill 0.12s ease, stroke-width 0.12s ease;
 }
 
-.photo-issue-label {
+.photo-issue-poly:hover {
+  fill: rgba(239, 68, 68, 0.22);
+  stroke-width: 3;
+}
+
+.photo-focus-poly {
+  fill: rgba(59, 130, 246, 0.13);
+  stroke: #3b82f6;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: auto;
+}
+
+.photo-marker-tooltip {
   position: absolute;
-  top: -22px;
-  left: 0;
+  transform: translateY(calc(-100% - 4px));
   background: #dc2626;
   color: #fff;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 4px;
+  padding: 3px 8px;
+  border-radius: 5px;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.55);
-  z-index: 8;
-  opacity: 0;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+  z-index: 20;
   pointer-events: none;
-  transition: opacity 0.14s ease;
 }
 
-.photo-issue-box:hover .photo-issue-label,
-.photo-issue-box.is-focus-box:hover .photo-issue-label {
-  opacity: 1;
+.photo-marker-tooltip.focus-tip {
+  background: #2563eb;
 }
 
-/* Table Box Calibration Overlay */
+/* Free-Form 4-Corner & Column-Split Calibration Overlay */
 .calib-bar {
   display: flex;
   justify-content: space-between;
@@ -1569,56 +1584,104 @@ body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .paper-grid-4col 
   font-weight: 600;
 }
 
-.table-calib-box {
+.table-calib-overlay {
   position: absolute;
-  border: 2.5px dashed #f97316;
-  background: rgba(249, 115, 22, 0.08);
-  cursor: move;
+  inset: 0;
   z-index: 15;
   touch-action: none;
 }
 
-.calib-grid-preview {
+.calib-svg {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  display: grid;
+  overflow: visible;
   pointer-events: none;
 }
 
-.calib-grid-col {
-  border-right: 1px dashed rgba(249, 115, 22, 0.7);
-  height: 100%;
+.calib-body-poly {
+  fill: rgba(249, 115, 22, 0.05);
+  stroke: #f97316;
+  stroke-width: 2.2;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: auto;
+  cursor: move;
 }
 
-.calib-grid-col:last-child {
-  border-right: none;
+.calib-row-line {
+  stroke: rgba(249, 115, 22, 0.32);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
 
-.calib-handle {
+.calib-col-line {
+  stroke: rgba(249, 115, 22, 0.88);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.calib-corner-handle {
   position: absolute;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
   background: #f97316;
-  border: 2px solid #fff;
+  border: 2.5px solid #fff;
   border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  cursor: grab;
+  z-index: 18;
+  touch-action: none;
+}
+
+.calib-corner-handle:active {
+  cursor: grabbing;
+  transform: translate(-50%, -50%) scale(1.15);
+}
+
+.calib-split-handle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: #0f172a;
+  color: #fb923c;
+  border: 1.5px solid #f97316;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 2px 5px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  cursor: ew-resize;
+  z-index: 17;
+  user-select: none;
+  touch-action: none;
+}
+
+.calib-split-handle:hover {
+  background: #f97316;
+  color: #fff;
+}
+
+.calib-col-tag {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: rgba(15, 23, 42, 0.85);
+  color: #fdba74;
+  border: 1px solid rgba(249, 115, 22, 0.6);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  pointer-events: none;
   z-index: 16;
 }
 
-.calib-handle.nw { top: -8px; left: -8px; cursor: nwse-resize; }
-.calib-handle.ne { top: -8px; right: -8px; cursor: nesw-resize; }
-.calib-handle.sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
-.calib-handle.se { bottom: -8px; right: -8px; cursor: nwse-resize; }
-
 .grid-overlay-4x30 {
   position: absolute;
-  top: 13%;
-  left: 7%;
-  right: 3.5%;
-  bottom: 4.5%;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  border: 2px solid rgba(249, 115, 22, 0.85);
+  inset: 0;
   pointer-events: none;
 }
 

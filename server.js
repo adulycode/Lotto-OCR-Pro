@@ -1341,6 +1341,16 @@ const server = http.createServer(async (req, res) => {
       } else if (!slip.tableBox && Array.isArray(db.runnerLayouts?.[slip.customerName]?.tableBox)) {
         slip.tableBox = db.runnerLayouts[slip.customerName].tableBox;
       }
+      if (Array.isArray(body.tableQuad) && body.tableQuad.length === 4) {
+        slip.tableQuad = body.tableQuad;
+      } else if (!slip.tableQuad && Array.isArray(db.runnerLayouts?.[slip.customerName]?.tableQuad)) {
+        slip.tableQuad = db.runnerLayouts[slip.customerName].tableQuad;
+      }
+      if (Array.isArray(body.colSplits) && body.colSplits.length >= 2) {
+        slip.colSplits = body.colSplits;
+      } else if (!slip.colSplits && Array.isArray(db.runnerLayouts?.[slip.customerName]?.colSplits)) {
+        slip.colSplits = db.runnerLayouts[slip.customerName].colSplits;
+      }
 
       slip.items = validatedItems;
       slip.isGrid4x30 = validatedItems.length > 30;
@@ -1401,15 +1411,43 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, learnedRules: db.learnedRules });
     }
 
-    // API: Save Self-Learning Runner Paper Layout (จำกรอบตาราง 4 มุม & จำนวนคอลัมน์/แถวประจำตัวเด็กโพย)
+    // API: Save Self-Learning Runner Paper Layout (จำกรอบตารางอิสระ 4 มุม & เส้นแบ่งคอลัมน์ประจำตัวเด็กโพย)
     if (req.method === 'POST' && pathname === '/api/runner-layouts') {
       const body = await parseJsonBody(req);
       const db = loadDb();
       const customerName = String(body.customerName || '').trim();
-      const rawBox = Array.isArray(body.tableBox) ? body.tableBox.map(n => Math.max(0, Math.min(1000, Math.round(Number(n) || 0)))) : null;
-      if (!customerName || !rawBox || rawBox.length !== 4 || rawBox[0] >= rawBox[2] || rawBox[1] >= rawBox[3]) {
-        return sendJson(res, 400, { ok: false, error: 'ข้อมูลกรอบตาราง (customerName / tableBox) ไม่ถูกต้อง' });
+      const rawQuad =
+        Array.isArray(body.tableQuad) &&
+        body.tableQuad.length === 4 &&
+        body.tableQuad.every(p => Array.isArray(p) && p.length === 2)
+          ? body.tableQuad.map(p => [
+              Math.max(0, Math.min(1000, Math.round(Number(p[0]) || 0))),
+              Math.max(0, Math.min(1000, Math.round(Number(p[1]) || 0)))
+            ])
+          : null;
+      let rawBox = Array.isArray(body.tableBox)
+        ? body.tableBox.map(n => Math.max(0, Math.min(1000, Math.round(Number(n) || 0))))
+        : null;
+      if ((!rawBox || rawBox.length !== 4) && rawQuad) {
+        const xs = rawQuad.map(p => p[0]);
+        const ys = rawQuad.map(p => p[1]);
+        rawBox = [Math.min(...ys), Math.min(...xs), Math.max(...ys), Math.max(...xs)];
       }
+      if (!customerName || !rawBox || rawBox.length !== 4 || rawBox[0] >= rawBox[2] || rawBox[1] >= rawBox[3]) {
+        return sendJson(res, 400, { ok: false, error: 'ข้อมูลกรอบตาราง (customerName / tableBox / tableQuad) ไม่ถูกต้อง' });
+      }
+
+      const rawSplits = Array.isArray(body.colSplits) && body.colSplits.length >= 2
+        ? body.colSplits.map(v => Math.max(0, Math.min(1, Number(v) || 0)))
+        : null;
+      const validSplits =
+        rawSplits &&
+        rawSplits[0] === 0 &&
+        rawSplits[rawSplits.length - 1] === 1 &&
+        rawSplits.every((v, idx) => idx === 0 || v > rawSplits[idx - 1])
+          ? rawSplits.map(v => Number(v.toFixed(4)))
+          : null;
+
       db.runnerLayouts = db.runnerLayouts || {};
       const preferredRotationDeg =
         body.preferredRotationDeg !== undefined
@@ -1418,6 +1456,8 @@ const server = http.createServer(async (req, res) => {
 
       const layout = {
         tableBox: rawBox,
+        tableQuad: rawQuad || db.runnerLayouts[customerName]?.tableQuad || null,
+        colSplits: validSplits || db.runnerLayouts[customerName]?.colSplits || null,
         totalCols: Math.max(1, Number(body.totalCols) || 4),
         rowsPerCol: Math.max(1, Number(body.rowsPerCol) || 30),
         colHeaders: Array.isArray(body.colHeaders) ? body.colHeaders.slice(0, 20) : [],
@@ -1430,6 +1470,8 @@ const server = http.createServer(async (req, res) => {
         const slip = (db.slips || []).find(s => s.id === String(body.slipId));
         if (slip) {
           slip.tableBox = rawBox;
+          if (layout.tableQuad) slip.tableQuad = layout.tableQuad;
+          if (layout.colSplits) slip.colSplits = layout.colSplits;
           if (body.preferredRotationDeg !== undefined) {
             slip.rotationDeg = preferredRotationDeg;
           }

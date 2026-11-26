@@ -53,6 +53,8 @@ let paperWhiteTheme = (() => {
 })();
 let isCalibratingTableBox = false;
 let calibDraftBox = null;
+let calibDraftQuad = null;
+let calibDraftSplits = null;
 let currentZoom = 1.0;
 let uploadedBase64Image = '';
 let uploadedColumnSlices = null;
@@ -244,8 +246,8 @@ function initPhotoViewportDragPan() {
   let scrollTop = 0;
 
   viewport.addEventListener('mousedown', e => {
-    // Allow clicking issue boxes
-    if (e.target.closest('.photo-issue-box')) return;
+    // Allow clicking issue boxes / SVG polygons and dragging calibration handles
+    if (isCalibratingTableBox || e.target.closest('.photo-issue-box, .photo-issue-poly, .photo-focus-poly, #tableCalibOverlay')) return;
     isDown = true;
     viewport.classList.add('is-dragging');
     startX = e.pageX - viewport.offsetLeft;
@@ -2624,6 +2626,76 @@ function renderSidebarListForInspector() {
     .join('');
 }
 
+function boxToQuad(box) {
+  const [ymin, xmin, ymax, xmax] = box || [125, 55, 925, 965];
+  return [
+    [xmin, ymin],
+    [xmax, ymin],
+    [xmax, ymax],
+    [xmin, ymax]
+  ];
+}
+
+function quadToBox(quad) {
+  const xs = (quad || []).map(p => Number(p[0]) || 0);
+  const ys = (quad || []).map(p => Number(p[1]) || 0);
+  if (xs.length !== 4 || ys.length !== 4) return [125, 55, 925, 965];
+  return [
+    Math.round(Math.min(...ys)),
+    Math.round(Math.min(...xs)),
+    Math.round(Math.max(...ys)),
+    Math.round(Math.max(...xs))
+  ];
+}
+
+function makeEqualSplits(colCount) {
+  const n = Math.max(1, Number(colCount) || 1);
+  return Array.from({ length: n + 1 }, (_, i) => Number((i / n).toFixed(4)));
+}
+
+function normalizeColSplits(splits, maxCol) {
+  const n = Math.max(1, Number(maxCol) || 1);
+  if (!Array.isArray(splits) || splits.length !== n + 1) {
+    return makeEqualSplits(n);
+  }
+  const nums = splits.map(v => Math.max(0, Math.min(1, Number(v) || 0)));
+  nums[0] = 0;
+  nums[n] = 1;
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] <= nums[i - 1] + 0.005) return makeEqualSplits(n);
+  }
+  return nums;
+}
+
+function quadPoint(quad, u, v) {
+  const [p0, p1, p2, p3] = quad;
+  const topX = p0[0] + (p1[0] - p0[0]) * u;
+  const topY = p0[1] + (p1[1] - p0[1]) * u;
+  const botX = p3[0] + (p2[0] - p3[0]) * u;
+  const botY = p3[1] + (p2[1] - p3[1]) * u;
+  return [topX + (botX - topX) * v, topY + (botY - topY) * v];
+}
+
+function cellQuadPoints(quad, colSplits, col, row, sheetRows) {
+  const maxC = Math.max(1, colSplits.length - 1);
+  const c = Math.max(1, Math.min(maxC, Number(col) || 1));
+  const r = Math.max(1, Math.min(sheetRows, Number(row) || 1));
+  const u0 = colSplits[c - 1];
+  const u1 = colSplits[c];
+  const v0 = (r - 1) / sheetRows;
+  const v1 = r / sheetRows;
+  return [
+    quadPoint(quad, u0, v0),
+    quadPoint(quad, u1, v0),
+    quadPoint(quad, u1, v1),
+    quadPoint(quad, u0, v1)
+  ];
+}
+
+function svgPtsStr(pts) {
+  return pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+}
+
 function getSlipGridMetrics(slip) {
   const items = slip?.items || [];
   const itemCols = items.map(i => Number(i.col) || 1);
@@ -2635,13 +2707,23 @@ function getSlipGridMetrics(slip) {
       ? Math.max(30, maxRowInSlip)
       : Math.max(maxRowInSlip, Number(savedLayout?.rowsPerCol) || 1, 1);
   const defaultBox = maxCol >= 6 ? [125, 55, 925, 965] : [141, 142, 914, 975];
+  const tableQuad =
+    Array.isArray(slip?.tableQuad) && slip.tableQuad.length === 4
+      ? slip.tableQuad.map(p => [Number(p[0]) || 0, Number(p[1]) || 0])
+      : Array.isArray(savedLayout?.tableQuad) && savedLayout.tableQuad.length === 4
+        ? savedLayout.tableQuad.map(p => [Number(p[0]) || 0, Number(p[1]) || 0])
+        : null;
   const tableBox =
     Array.isArray(slip?.tableBox) && slip.tableBox.length === 4
       ? slip.tableBox
-      : Array.isArray(savedLayout?.tableBox) && savedLayout.tableBox.length === 4
-        ? savedLayout.tableBox
-        : defaultBox;
-  return { maxCol, sheetRows, tableBox, savedLayout };
+      : tableQuad
+        ? quadToBox(tableQuad)
+        : Array.isArray(savedLayout?.tableBox) && savedLayout.tableBox.length === 4
+          ? savedLayout.tableBox
+          : defaultBox;
+  const resolvedQuad = tableQuad || boxToQuad(tableBox);
+  const colSplits = normalizeColSplits(slip?.colSplits || savedLayout?.colSplits, maxCol);
+  return { maxCol, sheetRows, tableBox, tableQuad: resolvedQuad, colSplits, savedLayout };
 }
 
 function isEffectivePaperView() {
@@ -2740,7 +2822,7 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   const slip = allInspectableSlips.find(s => s.id === slipId);
   if (!slip) return;
 
-  const { maxCol, sheetRows, tableBox } = getSlipGridMetrics(slip);
+  const { maxCol, sheetRows, tableQuad, colSplits } = getSlipGridMetrics(slip);
   populateQuickSlipSelect(slip.id);
   applyInspectorLayoutUI(slip);
 
@@ -2862,53 +2944,79 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     `;
   }
 
-  // วาดกรอบชี้ตำแหน่งที่มีปัญหาบนรูปกระดาษโพยต้นฉบับ (ใช้จำนวนแถวจริง/tableBox/box2d ไม่บังลายมือ)
-  const [tbYmin, tbXmin, tbYmax, tbXmax] = tableBox;
+  // วาดกรอบชี้ตำแหน่งที่มีปัญหาบนรูปกระดาษโพยต้นฉบับ (SVG Polygon อิสระตามกรอบ 4 มุมเอียง & เส้นแบ่งคอลัมน์จริง)
   const gridOverlayEl = document.getElementById('gridOverlay4x30');
   if (gridOverlayEl) {
-    gridOverlayEl.style.top = `${(tbYmin / 10).toFixed(2)}%`;
-    gridOverlayEl.style.left = `${(tbXmin / 10).toFixed(2)}%`;
-    gridOverlayEl.style.bottom = `${(100 - tbYmax / 10).toFixed(2)}%`;
-    gridOverlayEl.style.right = `${(100 - tbXmax / 10).toFixed(2)}%`;
-    gridOverlayEl.style.gridTemplateColumns = `repeat(${maxCol}, 1fr)`;
-    gridOverlayEl.innerHTML = Array.from({ length: maxCol }, (_, idx) => `<div class="overlay-col"><span>คอลัมน์ ${idx + 1} (1-${sheetRows})</span></div>`).join('');
+    const colLinesSvg = colSplits
+      .slice(1, -1)
+      .map(u => {
+        const top = quadPoint(tableQuad, u, 0);
+        const bot = quadPoint(tableQuad, u, 1);
+        return `<line x1="${top[0].toFixed(1)}" y1="${top[1].toFixed(1)}" x2="${bot[0].toFixed(1)}" y2="${bot[1].toFixed(1)}" stroke="rgba(245,158,11,0.88)" stroke-width="2" stroke-dasharray="6 4" vector-effect="non-scaling-stroke" />`;
+      })
+      .join('');
+    const colLabelsHtml = Array.from({ length: maxCol }, (_, idx) => {
+      const uMid = (colSplits[idx] + colSplits[idx + 1]) / 2;
+      const pt = quadPoint(tableQuad, uMid, 0);
+      return `<div class="calib-col-tag" style="left:${(pt[0] / 10).toFixed(2)}%;top:${(pt[1] / 10).toFixed(2)}%;">ค.${idx + 1}</div>`;
+    }).join('');
+    gridOverlayEl.innerHTML = `
+      <svg class="photo-markers-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+        <polygon points="${svgPtsStr(tableQuad)}" fill="none" stroke="rgba(249,115,22,0.9)" stroke-width="2.2" vector-effect="non-scaling-stroke" />
+        ${colLinesSvg}
+      </svg>
+      ${colLabelsHtml}
+    `;
   }
 
   const markersEl = document.getElementById('photoIssueMarkers');
   if (markersEl) {
-    markersEl.style.top = `${(tbYmin / 10).toFixed(2)}%`;
-    markersEl.style.left = `${(tbXmin / 10).toFixed(2)}%`;
-    markersEl.style.bottom = `${(100 - tbYmax / 10).toFixed(2)}%`;
-    markersEl.style.right = `${(100 - tbXmax / 10).toFixed(2)}%`;
-
-    const tbH = Math.max(1, tbYmax - tbYmin);
-    const tbW = Math.max(1, tbXmax - tbXmin);
+    markersEl.style.top = '';
+    markersEl.style.left = '';
+    markersEl.style.bottom = '';
+    markersEl.style.right = '';
 
     if (slip.isGrid4x30 || maxCol >= 2) {
-      const boxesHtml = warnItems.map(w => {
-        let leftPct = (((w.col || 1) - 1) / maxCol) * 100;
-        let widthPct = 100 / maxCol;
-        let topPct = (((w.row || 1) - 1) / sheetRows) * 100;
-        let heightPct = 100 / sheetRows;
-        if (Array.isArray(w.box2d) && w.box2d.length === 4) {
-          const [bYmin, bXmin, bYmax, bXmax] = w.box2d;
-          topPct = Math.max(0, Math.min(100, ((bYmin - tbYmin) / tbH) * 100));
-          heightPct = Math.max(1.5, Math.min(100 - topPct, ((bYmax - bYmin) / tbH) * 100));
-          leftPct = Math.max(0, Math.min(100, ((bXmin - tbXmin) / tbW) * 100));
-          widthPct = Math.max(2, Math.min(100 - leftPct, ((bXmax - bXmin) / tbW) * 100));
-        }
-        return `
-          <div class="photo-issue-box"
-            style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%;top:${topPct.toFixed(2)}%;height:${heightPct.toFixed(2)}%;"
-            onclick="focusInspectorCell(${Number(w.col) || 1}, ${Number(w.row) || 1})"
-            title="คลิกเพื่อชี้ คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})">
-            <span class="photo-issue-label">คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})</span>
-          </div>
-        `;
-      });
-      markersEl.innerHTML = boxesHtml.join('') + `<div id="activeFocusPhotoBox"></div>`;
+      const boxesSvg = warnItems
+        .map(w => {
+          const pts =
+            Array.isArray(w.box2d) && w.box2d.length === 4
+              ? [
+                  [w.box2d[1], w.box2d[0]],
+                  [w.box2d[3], w.box2d[0]],
+                  [w.box2d[3], w.box2d[2]],
+                  [w.box2d[1], w.box2d[2]]
+                ]
+              : cellQuadPoints(tableQuad, colSplits, w.col || 1, w.row || 1, sheetRows);
+          const tipX = Math.min(...pts.map(p => p[0]));
+          const tipY = Math.min(...pts.map(p => p[1]));
+          const label = `คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})`;
+          return `
+            <polygon class="photo-issue-poly"
+              points="${svgPtsStr(pts)}"
+              data-tip="${label}"
+              data-tip-x="${tipX.toFixed(1)}"
+              data-tip-y="${tipY.toFixed(1)}"
+              onclick="focusInspectorCell(${Number(w.col) || 1}, ${Number(w.row) || 1})"
+              onmouseenter="showPhotoMarkerTooltip(this)"
+              onmouseleave="hidePhotoMarkerTooltip()" />
+          `;
+        })
+        .join('');
+      markersEl.innerHTML = `
+        <svg class="photo-markers-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+          ${boxesSvg}
+          <g id="activeFocusPhotoSvgGroup"></g>
+        </svg>
+        <div id="photoMarkerTooltip" class="photo-marker-tooltip hidden"></div>
+      `;
     } else {
-      markersEl.innerHTML = `<div id="activeFocusPhotoBox"></div>`;
+      markersEl.innerHTML = `
+        <svg class="photo-markers-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+          <g id="activeFocusPhotoSvgGroup"></g>
+        </svg>
+        <div id="photoMarkerTooltip" class="photo-marker-tooltip hidden"></div>
+      `;
     }
     applyPhotoMarkersVisibility();
   }
@@ -3040,52 +3148,70 @@ function onPaperCellKeydown(event, col, row, field) {
   }
 }
 
+function showPhotoMarkerTooltip(el, isFocus = false) {
+  const tip = document.getElementById('photoMarkerTooltip');
+  if (!tip || !el) return;
+  const text = el.getAttribute('data-tip') || '';
+  const x = Number(el.getAttribute('data-tip-x')) || 0;
+  const y = Number(el.getAttribute('data-tip-y')) || 0;
+  tip.textContent = text;
+  tip.style.left = `${(x / 10).toFixed(2)}%`;
+  tip.style.top = `${(y / 10).toFixed(2)}%`;
+  tip.classList.toggle('focus-tip', isFocus);
+  tip.classList.remove('hidden');
+}
+
+function hidePhotoMarkerTooltip() {
+  const tip = document.getElementById('photoMarkerTooltip');
+  if (tip) tip.classList.add('hidden');
+}
+
 function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
   document.querySelectorAll('.paper-row-item.row-active').forEach(el => el.classList.remove('row-active'));
   const activeCellRow = document.getElementById(`cell-${col}-${row}`);
   if (activeCellRow) activeCellRow.classList.add('row-active');
 
-  const focusContainer = document.getElementById('activeFocusPhotoBox');
+  const focusGroup = document.getElementById('activeFocusPhotoSvgGroup');
   if (!showPhotoMarkers) {
-    if (focusContainer) focusContainer.innerHTML = '';
+    if (focusGroup) focusGroup.innerHTML = '';
     return;
   }
-  if (!focusContainer) return;
+  if (!focusGroup) return;
   const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
   const slip = allInspectableSlips.find(s => s.id === currentInspectedSlipId);
-  const { maxCol, sheetRows, tableBox } = getSlipGridMetrics(slip);
-  const [tbYmin, tbXmin, tbYmax, tbXmax] = tableBox;
-  const tbH = Math.max(1, tbYmax - tbYmin);
-  const tbW = Math.max(1, tbXmax - tbXmin);
+  const { sheetRows, tableQuad, colSplits } = getSlipGridMetrics(slip);
   const matchingItem = (slip?.items || []).find(i => Number(i.col) === Number(col) && Number(i.row) === Number(row));
 
-  let leftPct = ((col - 1) / maxCol) * 100;
-  let widthPct = 100 / maxCol;
-  let topPct = ((row - 1) / sheetRows) * 100;
-  let heightPct = 100 / sheetRows;
-  if (Array.isArray(matchingItem?.box2d) && matchingItem.box2d.length === 4) {
-    const [bYmin, bXmin, bYmax, bXmax] = matchingItem.box2d;
-    topPct = Math.max(0, Math.min(100, ((bYmin - tbYmin) / tbH) * 100));
-    heightPct = Math.max(1.5, Math.min(100 - topPct, ((bYmax - bYmin) / tbH) * 100));
-    leftPct = Math.max(0, Math.min(100, ((bXmin - tbXmin) / tbW) * 100));
-    widthPct = Math.max(2, Math.min(100 - leftPct, ((bXmax - bXmin) / tbW) * 100));
-  }
+  const pts =
+    Array.isArray(matchingItem?.box2d) && matchingItem.box2d.length === 4
+      ? [
+          [matchingItem.box2d[1], matchingItem.box2d[0]],
+          [matchingItem.box2d[3], matchingItem.box2d[0]],
+          [matchingItem.box2d[3], matchingItem.box2d[2]],
+          [matchingItem.box2d[1], matchingItem.box2d[2]]
+        ]
+      : cellQuadPoints(tableQuad, colSplits, col, row, sheetRows);
 
-  focusContainer.innerHTML = `
-    <div class="photo-issue-box is-focus-box" id="currentActiveFocusMarker"
-      style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%;top:${topPct.toFixed(2)}%;height:${heightPct.toFixed(2)}%;border-color:#3b82f6;background:rgba(59,130,246,0.10);box-shadow:0 0 8px rgba(59,130,246,0.65);">
-      <span class="photo-issue-label" style="background:#2563eb;">📍 คอลัมน์ ${col} แถว ${row}</span>
-    </div>
+  const tipX = Math.min(...pts.map(p => p[0]));
+  const tipY = Math.min(...pts.map(p => p[1]));
+  focusGroup.innerHTML = `
+    <polygon class="photo-focus-poly"
+      points="${svgPtsStr(pts)}"
+      data-tip="📍 คอลัมน์ ${col} แถว ${row}"
+      data-tip-x="${tipX.toFixed(1)}"
+      data-tip-y="${tipY.toFixed(1)}"
+      onmouseenter="showPhotoMarkerTooltip(this, true)"
+      onmouseleave="hidePhotoMarkerTooltip()" />
   `;
 
-  // Auto-pan the zoomed photo viewport using dynamic tableBox & sheetRows!
+  // Auto-pan the zoomed photo viewport to the exact polygon centroid!
   const viewport = document.getElementById('photoViewport');
   const wrap = document.getElementById('photoCanvasWrap');
   if (viewport && wrap) {
-    const centerLeftFrac = (tbXmin + ((leftPct + widthPct / 2) / 100) * tbW) / 1000;
-    const centerTopFrac = (tbYmin + ((topPct + heightPct / 2) / 100) * tbH) / 1000;
-    const targetX = wrap.offsetWidth * centerLeftFrac;
-    const targetY = wrap.offsetHeight * centerTopFrac;
+    const cx = pts.reduce((s, p) => s + p[0], 0) / 4000;
+    const cy = pts.reduce((s, p) => s + p[1], 0) / 4000;
+    const targetX = wrap.offsetWidth * cx;
+    const targetY = wrap.offsetHeight * cy;
     viewport.scrollTo({
       left: Math.max(0, targetX - viewport.clientWidth / 2),
       top: Math.max(0, targetY - viewport.clientHeight / 2),
@@ -3405,8 +3531,10 @@ function toggleTableBoxCalibration() {
   const bar = document.getElementById('tableBoxCalibrationBar');
   const btn = document.getElementById('btnCalibrateTableBox');
   if (isCalibratingTableBox) {
-    const { tableBox } = getSlipGridMetrics(slip);
-    calibDraftBox = [...tableBox];
+    const { tableQuad, colSplits } = getSlipGridMetrics(slip);
+    calibDraftQuad = tableQuad.map(p => [...p]);
+    calibDraftSplits = [...colSplits];
+    calibDraftBox = quadToBox(calibDraftQuad);
     if (bar) bar.classList.remove('hidden');
     if (btn) {
       btn.classList.add('btn-primary');
@@ -3421,6 +3549,8 @@ function toggleTableBoxCalibration() {
 function cancelTableBoxCalibration() {
   isCalibratingTableBox = false;
   calibDraftBox = null;
+  calibDraftQuad = null;
+  calibDraftSplits = null;
   const bar = document.getElementById('tableBoxCalibrationBar');
   if (bar) bar.classList.add('hidden');
   const btn = document.getElementById('btnCalibrateTableBox');
@@ -3432,71 +3562,158 @@ function cancelTableBoxCalibration() {
   if (existing) existing.remove();
 }
 
+function resetCalibrationSplits() {
+  if (!isCalibratingTableBox) return;
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  const { maxCol } = getSlipGridMetrics(slip);
+  calibDraftSplits = makeEqualSplits(maxCol);
+  renderTableBoxCalibrator();
+  showToast('↺ รีเซ็ตเส้นแบ่งคอลัมน์ให้เท่ากันทุกช่องแล้ว');
+}
+
 function renderTableBoxCalibrator() {
   const existing = document.getElementById('tableCalibOverlay');
-  if (!isCalibratingTableBox || !calibDraftBox) {
+  if (!isCalibratingTableBox || !calibDraftQuad || !calibDraftSplits) {
     if (existing) existing.remove();
     return;
   }
   const wrap = document.getElementById('photoCanvasWrap');
   if (!wrap) return;
   const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
-  const { maxCol } = getSlipGridMetrics(slip);
+  const { maxCol, sheetRows } = getSlipGridMetrics(slip);
 
-  let boxEl = existing;
-  if (!boxEl) {
-    boxEl = document.createElement('div');
-    boxEl.id = 'tableCalibOverlay';
-    boxEl.className = 'table-calib-box';
-    wrap.appendChild(boxEl);
+  let overlayEl = existing;
+  if (!overlayEl) {
+    overlayEl = document.createElement('div');
+    overlayEl.id = 'tableCalibOverlay';
+    overlayEl.className = 'table-calib-overlay';
+    wrap.appendChild(overlayEl);
   }
-  const [ymin, xmin, ymax, xmax] = calibDraftBox;
-  boxEl.style.top = `${(ymin / 10).toFixed(2)}%`;
-  boxEl.style.left = `${(xmin / 10).toFixed(2)}%`;
-  boxEl.style.height = `${((ymax - ymin) / 10).toFixed(2)}%`;
-  boxEl.style.width = `${((xmax - xmin) / 10).toFixed(2)}%`;
 
-  const colsHtml = Array.from({ length: maxCol }, () => '<div class="calib-grid-col"></div>').join('');
-  boxEl.innerHTML = `
-    <div class="calib-grid-preview" style="grid-template-columns:repeat(${maxCol}, 1fr);">${colsHtml}</div>
-    <div class="calib-handle nw" data-handle="nw" title="ลากมุมบนซ้าย"></div>
-    <div class="calib-handle ne" data-handle="ne" title="ลากมุมบนขวา"></div>
-    <div class="calib-handle sw" data-handle="sw" title="ลากมุมล่างซ้าย"></div>
-    <div class="calib-handle se" data-handle="se" title="ลากมุมล่างขวา"></div>
+  const cornerNames = ['มุมบนซ้าย', 'มุมบนขวา', 'มุมล่างขวา', 'มุมล่างซ้าย'];
+  const cornerHandlesHtml = calibDraftQuad
+    .map((_, idx) => `<div class="calib-corner-handle" data-drag-kind="corner" data-idx="${idx}" title="ลากปรับ ${cornerNames[idx]}"></div>`)
+    .join('');
+
+  const splitHandlesHtml = [];
+  for (let i = 1; i < maxCol; i++) {
+    splitHandlesHtml.push(`<div class="calib-split-handle" data-drag-kind="split" data-idx="${i}" data-v="0" title="ลากขยับความกว้างคอลัมน์ ${i} / ${i + 1}">↔</div>`);
+    splitHandlesHtml.push(`<div class="calib-split-handle" data-drag-kind="split" data-idx="${i}" data-v="0.5" title="ลากขยับความกว้างคอลัมน์ ${i} / ${i + 1}">↔</div>`);
+  }
+
+  const colTagsHtml = Array.from(
+    { length: maxCol },
+    (_, idx) => `<div class="calib-col-tag" data-col-tag="${idx}">${idx + 1}</div>`
+  ).join('');
+
+  overlayEl.innerHTML = `
+    <svg class="calib-svg" id="calibSvgCanvas" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+    ${colTagsHtml}
+    ${splitHandlesHtml.join('')}
+    ${cornerHandlesHtml}
   `;
 
-  const startDrag = ev => {
+  const updateVisuals = () => {
+    const svg = document.getElementById('calibSvgCanvas');
+    if (svg) {
+      const rowLines = [];
+      for (let r = 1; r < sheetRows; r++) {
+        const v = r / sheetRows;
+        const pL = quadPoint(calibDraftQuad, 0, v);
+        const pR = quadPoint(calibDraftQuad, 1, v);
+        rowLines.push(`<line class="calib-row-line" x1="${pL[0].toFixed(1)}" y1="${pL[1].toFixed(1)}" x2="${pR[0].toFixed(1)}" y2="${pR[1].toFixed(1)}" />`);
+      }
+      const colLines = [];
+      for (let i = 1; i < calibDraftSplits.length - 1; i++) {
+        const u = calibDraftSplits[i];
+        const pT = quadPoint(calibDraftQuad, u, 0);
+        const pB = quadPoint(calibDraftQuad, u, 1);
+        colLines.push(`<line class="calib-col-line" x1="${pT[0].toFixed(1)}" y1="${pT[1].toFixed(1)}" x2="${pB[0].toFixed(1)}" y2="${pB[1].toFixed(1)}" />`);
+      }
+      svg.innerHTML = `
+        <polygon class="calib-body-poly" data-drag-kind="move" points="${svgPtsStr(calibDraftQuad)}" />
+        ${rowLines.join('')}
+        ${colLines.join('')}
+      `;
+    }
+
+    overlayEl.querySelectorAll('.calib-corner-handle').forEach(el => {
+      const idx = Number(el.getAttribute('data-idx'));
+      const p = calibDraftQuad[idx];
+      if (p) {
+        el.style.left = `${(p[0] / 10).toFixed(2)}%`;
+        el.style.top = `${(p[1] / 10).toFixed(2)}%`;
+      }
+    });
+
+    overlayEl.querySelectorAll('.calib-split-handle').forEach(el => {
+      const idx = Number(el.getAttribute('data-idx'));
+      const v = Number(el.getAttribute('data-v')) || 0;
+      const p = quadPoint(calibDraftQuad, calibDraftSplits[idx], v);
+      el.style.left = `${(p[0] / 10).toFixed(2)}%`;
+      el.style.top = `${(p[1] / 10).toFixed(2)}%`;
+    });
+
+    overlayEl.querySelectorAll('.calib-col-tag').forEach(el => {
+      const idx = Number(el.getAttribute('data-col-tag'));
+      const uMid = (calibDraftSplits[idx] + calibDraftSplits[idx + 1]) / 2;
+      const p = quadPoint(calibDraftQuad, uMid, 0);
+      el.style.left = `${(p[0] / 10).toFixed(2)}%`;
+      el.style.top = `${(p[1] / 10).toFixed(2)}%`;
+    });
+  };
+
+  updateVisuals();
+
+  overlayEl.onpointerdown = ev => {
+    const kind = ev.target?.getAttribute?.('data-drag-kind');
+    if (!kind) return;
     ev.preventDefault();
     ev.stopPropagation();
-    const handle = ev.target?.getAttribute?.('data-handle') || 'move';
+
     const rect = wrap.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     const startX = ev.clientX;
     const startY = ev.clientY;
-    const orig = [...calibDraftBox];
+    const origQuad = calibDraftQuad.map(p => [...p]);
+    const idx = Number(ev.target.getAttribute('data-idx'));
+    const handleV = Number(ev.target.getAttribute('data-v')) || 0;
 
     const onMove = mv => {
-      const dx = ((mv.clientX - startX) / rect.width) * 1000;
-      const dy = ((mv.clientY - startY) / rect.height) * 1000;
-      let [nymin, nxmin, nymax, nxmax] = orig;
-      if (handle === 'move') {
-        const w = orig[3] - orig[1];
-        const h = orig[2] - orig[0];
-        nxmin = Math.max(0, Math.min(1000 - w, Math.round(orig[1] + dx)));
-        nymin = Math.max(0, Math.min(1000 - h, Math.round(orig[0] + dy)));
-        nxmax = nxmin + w;
-        nymax = nymin + h;
-      } else {
-        if (handle.includes('n')) nymin = Math.max(0, Math.min(orig[2] - 80, Math.round(orig[0] + dy)));
-        if (handle.includes('s')) nymax = Math.min(1000, Math.max(orig[0] + 80, Math.round(orig[2] + dy)));
-        if (handle.includes('w')) nxmin = Math.max(0, Math.min(orig[3] - 80, Math.round(orig[1] + dx)));
-        if (handle.includes('e')) nxmax = Math.min(1000, Math.max(orig[1] + 80, Math.round(orig[3] + dx)));
+      if (kind === 'corner') {
+        const dx = ((mv.clientX - startX) / rect.width) * 1000;
+        const dy = ((mv.clientY - startY) / rect.height) * 1000;
+        calibDraftQuad[idx] = [
+          Math.max(0, Math.min(1000, Math.round(origQuad[idx][0] + dx))),
+          Math.max(0, Math.min(1000, Math.round(origQuad[idx][1] + dy)))
+        ];
+      } else if (kind === 'move') {
+        const dx = ((mv.clientX - startX) / rect.width) * 1000;
+        const dy = ((mv.clientY - startY) / rect.height) * 1000;
+        const minDx = -Math.min(...origQuad.map(p => p[0]));
+        const maxDx = 1000 - Math.max(...origQuad.map(p => p[0]));
+        const minDy = -Math.min(...origQuad.map(p => p[1]));
+        const maxDy = 1000 - Math.max(...origQuad.map(p => p[1]));
+        const clDx = Math.max(minDx, Math.min(maxDx, dx));
+        const clDy = Math.max(minDy, Math.min(maxDy, dy));
+        calibDraftQuad = origQuad.map(p => [Math.round(p[0] + clDx), Math.round(p[1] + clDy)]);
+      } else if (kind === 'split') {
+        const mx = ((mv.clientX - rect.left) / rect.width) * 1000;
+        const my = ((mv.clientY - rect.top) / rect.height) * 1000;
+        const pL = quadPoint(calibDraftQuad, 0, handleV);
+        const pR = quadPoint(calibDraftQuad, 1, handleV);
+        const vx = pR[0] - pL[0];
+        const vy = pR[1] - pL[1];
+        const len2 = vx * vx + vy * vy;
+        if (len2 > 1) {
+          const proj = ((mx - pL[0]) * vx + (my - pL[1]) * vy) / len2;
+          const lo = calibDraftSplits[idx - 1] + 0.025;
+          const hi = calibDraftSplits[idx + 1] - 0.025;
+          calibDraftSplits[idx] = Number(Math.max(lo, Math.min(hi, proj)).toFixed(4));
+        }
       }
-      calibDraftBox = [nymin, nxmin, nymax, nxmax];
-      boxEl.style.top = `${(nymin / 10).toFixed(2)}%`;
-      boxEl.style.left = `${(nxmin / 10).toFixed(2)}%`;
-      boxEl.style.height = `${((nymax - nymin) / 10).toFixed(2)}%`;
-      boxEl.style.width = `${((nxmax - nxmin) / 10).toFixed(2)}%`;
+      calibDraftBox = quadToBox(calibDraftQuad);
+      updateVisuals();
     };
 
     const onUp = () => {
@@ -3506,13 +3723,11 @@ function renderTableBoxCalibrator() {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   };
-
-  boxEl.onpointerdown = startDrag;
 }
 
 async function saveCalibratedTableBox() {
   const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
-  if (!slip || !calibDraftBox) return;
+  if (!slip || !calibDraftQuad || !calibDraftSplits) return;
   const { maxCol, sheetRows } = getSlipGridMetrics(slip);
   const colHeaders = Array.from({ length: maxCol }, (_, idx) => {
     const sample = (slip.items || []).find(i => Number(i.col) === idx + 1 && i.colHeader);
@@ -3525,7 +3740,9 @@ async function saveCalibratedTableBox() {
     body: JSON.stringify({
       customerName: slip.customerName,
       slipId: slip.id,
-      tableBox: calibDraftBox,
+      tableBox: quadToBox(calibDraftQuad),
+      tableQuad: calibDraftQuad,
+      colSplits: calibDraftSplits,
       totalCols: maxCol,
       rowsPerCol: sheetRows,
       colHeaders,
@@ -3538,7 +3755,7 @@ async function saveCalibratedTableBox() {
   }
   cancelTableBoxCalibration();
   await fetchAppState();
-  showToast(`💾 จำกรอบตาราง ${maxCol}×${sheetRows} ไว้ให้ "${slip.customerName}" เรียบร้อย (รอบหน้าใช้ให้อัตโนมัติ!)`);
+  showToast(`💾 จำกรอบอิสระ 4 มุม & ช่องคอลัมน์ ${maxCol}×${sheetRows} ไว้ให้ "${slip.customerName}" เรียบร้อย!`);
 }
 
 function adjustZoom(delta) {

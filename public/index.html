@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_60" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_61" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -621,8 +621,9 @@
             </div>
           </div>
           <div id="tableBoxCalibrationBar" class="calib-bar hidden">
-            <span>📐 ลากมุมสีส้ม 4 มุมให้ตรงขอบตารางตัวเลขในรูป — ระบบจะจำแบบฟอร์มนี้ไว้ให้เด็กโพยคนนี้ในงวดถัดไป</span>
-            <div style="display:flex;gap:6px;flex-shrink:0;">
+            <span>📐 ลากมุมส้ม 4 มุมได้อย่างอิสระ (รองรับกระดาษเอียง) และลากปุ่ม ↔ เพื่อขยับความกว้างแต่ละคอลัมน์ให้ตรงเส้นจริง</span>
+            <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;">
+              <button class="btn btn-sm btn-outline" onclick="resetCalibrationSplits()">↺ แบ่งคอลัมน์เท่ากัน</button>
               <button class="btn btn-sm btn-success" onclick="saveCalibratedTableBox()">💾 บันทึก & จำไว้ให้คนนี้</button>
               <button class="btn btn-sm btn-ghost" onclick="cancelTableBoxCalibration()">ยกเลิก</button>
             </div>
@@ -1254,6 +1255,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_60"></script>
+  <script src="/app.js?v=20261120_61"></script>
 </body>
 </html>
