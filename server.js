@@ -109,13 +109,62 @@ function verifyPassword(plain, stored) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-function sanitizeUsers(users = []) {
-  return (users || []).map(u => ({
+function resolvePublicUser(u) {
+  if (!u) return null;
+  return {
     id: u.id,
     username: u.username,
     displayName: u.displayName,
-    role: u.role === 'admin' ? 'admin' : 'staff'
-  }));
+    role: u.role === 'admin' ? 'admin' : 'staff',
+    avatarUrl: u.avatarUrl || '',
+    phone: u.phone || '',
+    note: u.note || ''
+  };
+}
+
+function sanitizeUsers(users = []) {
+  return (users || []).map(resolvePublicUser);
+}
+
+function saveAvatarDataUrl(userId, dataUrl) {
+  const m = String(dataUrl || '').match(/^data:image\/(png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!m) {
+    throw new Error('ไฟล์รูปโปรไฟล์ไม่ถูกต้อง (รองรับ JPG, PNG, WebP, GIF)');
+  }
+  const buf = Buffer.from(m[2], 'base64');
+  if (!buf.length || buf.length > 2 * 1024 * 1024) {
+    throw new Error('รูปโปรไฟล์ต้องมีขนาดไม่เกิน 2 MB');
+  }
+  const ext = m[1].toLowerCase() === 'jpeg' ? 'jpg' : m[1].toLowerCase();
+  const safeId = String(userId || 'usr').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'usr';
+  const fileName = `avatar-${safeId}-${Date.now()}.${ext}`;
+  fs.writeFileSync(path.join(UPLOADS_DIR, fileName), buf);
+  return `/uploads/${fileName}`;
+}
+
+function deleteAvatarFileIfLocal(avatarUrl) {
+  if (typeof avatarUrl !== 'string' || !avatarUrl.startsWith('/uploads/avatar-')) return;
+  try {
+    const resolved = path.resolve(PUBLIC_DIR, avatarUrl.replace(/^\/+/, ''));
+    if (resolved.startsWith(UPLOADS_DIR + path.sep) && fs.existsSync(resolved)) {
+      fs.unlinkSync(resolved);
+    }
+  } catch {}
+}
+
+function getFreshSessionUser(req, db = null) {
+  const parsed = getSessionUser(req);
+  if (!parsed) return null;
+  try {
+    const data = db || loadDb();
+    const found = (data.users || []).find(
+      u => u.id === parsed.id || u.username.toLowerCase() === String(parsed.username || '').toLowerCase()
+    );
+    if (found) {
+      return { ...resolvePublicUser(found), exp: parsed.exp };
+    }
+  } catch {}
+  return parsed;
 }
 
 function sanitizeSettings(s = {}) {
@@ -1247,7 +1296,7 @@ const server = http.createServer(async (req, res) => {
           hasApiKey: Boolean((db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim()),
           pendingQueueCount: (db.slips || []).filter(s => s.status === 'pending_antigravity').length
         },
-        sessionUser: getSessionUser(req),
+        sessionUser: getFreshSessionUser(req, db),
         users: sanitizeUsers(db.users),
         auditLogs: (db.auditLogs || []).slice(0, 150),
         learnedRules: db.learnedRules || [],
@@ -1570,7 +1619,8 @@ const server = http.createServer(async (req, res) => {
 
     // API: Get Current Session User
     if (req.method === 'GET' && pathname === '/api/auth/me') {
-      const sessionUser = getSessionUser(req);
+      const parsedSession = getSessionUser(req);
+      const sessionUser = parsedSession ? getFreshSessionUser(req, loadDb()) : null;
       return sendJson(res, 200, {
         ok: true,
         authenticated: Boolean(sessionUser),
@@ -1616,12 +1666,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       loginAttempts.delete(clientIp);
-      const publicUser = {
-        id: found.id,
-        username: found.username,
-        displayName: found.displayName,
-        role: found.role === 'admin' ? 'admin' : 'staff'
-      };
+      const publicUser = resolvePublicUser(found);
       const token = createSessionToken(publicUser);
       const isHttps = req.headers['x-forwarded-proto'] === 'https';
       const cookieVal = `lotto_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${isHttps ? '; Secure' : ''}`;
@@ -1661,19 +1706,25 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
-    // API: Manage User Accounts (Add / Remove Staff or Admin accounts)
+    // API: Manage User Accounts (Add / Edit / Remove Staff or Admin accounts + Avatar)
     if (req.method === 'POST' && pathname === '/api/users') {
-      if (!requireAdmin(req, res)) return;
+      const sessionUser = getFreshSessionUser(req);
+      if (!sessionUser) {
+        return sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+      }
       const body = await parseJsonBody(req);
       const db = loadDb();
       const actor = getActorFromReq(req, body);
       db.users = db.users || [];
 
       if (body.action === 'add') {
+        if (!requireAdmin(req, res)) return;
         const username = String(body.username || '').trim();
         const password = String(body.password || '').trim();
         const displayName = String(body.displayName || username).trim();
         const role = body.role === 'admin' ? 'admin' : 'staff';
+        const phone = String(body.phone || '').trim().slice(0, 60);
+        const note = String(body.note || '').trim().slice(0, 160);
 
         if (!username) return sendJson(res, 400, { error: 'กรุณาระบุชื่อผู้ใช้ (Username)' });
         if (password.length < 6) {
@@ -1683,24 +1734,159 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { error: 'ชื่อผู้ใช้นี้มีในระบบแล้ว' });
         }
 
+        const newId = `USR-${Date.now().toString().slice(-5)}`;
+        let avatarUrl = '';
+        if (body.avatarBase64) {
+          try {
+            avatarUrl = saveAvatarDataUrl(newId, body.avatarBase64);
+          } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+          }
+        }
+
         db.users.push({
-          id: `USR-${Date.now().toString().slice(-5)}`,
+          id: newId,
           username,
           password: hashPassword(password),
           displayName,
-          role
+          role,
+          phone,
+          note,
+          avatarUrl
         });
         appendAuditLog(db, actor, 'จัดการบัญชีผู้ใช้', `สร้างบัญชีผู้ใช้ใหม่: ${displayName} (@${username})`);
-      } else if (body.action === 'remove' && body.id) {
+        saveDb(db);
+        return sendJson(res, 200, { ok: true, users: sanitizeUsers(db.users) });
+      }
+
+      if (body.action === 'edit' && body.id) {
+        const target = db.users.find(u => u.id === body.id);
+        if (!target) {
+          return sendJson(res, 404, { error: 'ไม่พบบัญชีผู้ใช้งานนี้ในระบบ' });
+        }
+        const isAdmin = sessionUser.role === 'admin';
+        const isSelf =
+          target.id === sessionUser.id ||
+          target.username.toLowerCase() === String(sessionUser.username || '').toLowerCase();
+        if (!isAdmin && !isSelf) {
+          return sendJson(res, 403, { error: 'เฉพาะบัญชีเจ้าของระบบ (Admin) เท่านั้นที่แก้ไขบัญชีผู้อื่นได้' });
+        }
+
+        const changes = [];
+        if (body.displayName !== undefined) {
+          const nextDisplay = String(body.displayName || '').trim();
+          if (!nextDisplay) {
+            return sendJson(res, 400, { error: 'กรุณาระบุชื่อที่แสดงในระบบ' });
+          }
+          if (nextDisplay !== target.displayName) changes.push(`ชื่อแสดง: ${nextDisplay}`);
+          target.displayName = nextDisplay;
+        }
+
+        if (isAdmin && body.username !== undefined) {
+          const nextUsername = String(body.username || '').trim();
+          if (!nextUsername) {
+            return sendJson(res, 400, { error: 'กรุณาระบุชื่อผู้ใช้ (Username)' });
+          }
+          if (target.username === 'admin' && nextUsername.toLowerCase() !== 'admin') {
+            return sendJson(res, 400, { error: 'ไม่สามารถเปลี่ยนชื่อผู้ใช้หลัก @admin ได้' });
+          }
+          if (
+            nextUsername.toLowerCase() !== target.username.toLowerCase() &&
+            db.users.some(u => u.id !== target.id && u.username.toLowerCase() === nextUsername.toLowerCase())
+          ) {
+            return sendJson(res, 400, { error: 'ชื่อผู้ใช้นี้มีในระบบแล้ว' });
+          }
+          if (nextUsername !== target.username) changes.push(`@${nextUsername}`);
+          target.username = nextUsername;
+        }
+
+        if (isAdmin && body.role !== undefined) {
+          const nextRole = body.role === 'admin' ? 'admin' : 'staff';
+          if (target.role === 'admin' && nextRole !== 'admin') {
+            const otherAdmins = db.users.filter(u => u.id !== target.id && u.role === 'admin');
+            if (otherAdmins.length === 0) {
+              return sendJson(res, 400, { error: 'ต้องมีบัญชีเจ้าของระบบ (Admin) อย่างน้อย 1 บัญชี' });
+            }
+          }
+          if (nextRole !== target.role) changes.push(`สิทธิ์: ${nextRole}`);
+          target.role = nextRole;
+        }
+
+        if (body.phone !== undefined) {
+          target.phone = String(body.phone || '').trim().slice(0, 60);
+        }
+        if (body.note !== undefined) {
+          target.note = String(body.note || '').trim().slice(0, 160);
+        }
+
+        const nextPassword = String(body.password || '').trim();
+        if (isAdmin && nextPassword) {
+          if (nextPassword.length < 6) {
+            return sendJson(res, 400, { error: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร' });
+          }
+          target.password = hashPassword(nextPassword);
+          changes.push('รีเซ็ตรหัสผ่าน');
+        }
+
+        if (body.avatarBase64) {
+          let newAvatarUrl = '';
+          try {
+            newAvatarUrl = saveAvatarDataUrl(target.id, body.avatarBase64);
+          } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+          }
+          deleteAvatarFileIfLocal(target.avatarUrl);
+          target.avatarUrl = newAvatarUrl;
+          changes.push('อัปเดตรูปโปรไฟล์');
+        } else if (body.removeAvatar === true) {
+          deleteAvatarFileIfLocal(target.avatarUrl);
+          target.avatarUrl = '';
+          changes.push('ลบรูปโปรไฟล์');
+        }
+
+        const publicTarget = resolvePublicUser(target);
+        appendAuditLog(
+          db,
+          actor,
+          'แก้ไขข้อมูลบัญชีผู้ใช้',
+          `อัปเดตบัญชี ${target.displayName} (@${target.username})${changes.length ? ` (${changes.join(', ')})` : ''}`
+        );
+        saveDb(db);
+
+        const extraHeaders = {};
+        if (isSelf) {
+          const refreshedToken = createSessionToken(publicTarget);
+          const isHttps = req.headers['x-forwarded-proto'] === 'https';
+          extraHeaders['Set-Cookie'] =
+            `lotto_session=${refreshedToken}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${isHttps ? '; Secure' : ''}`;
+        }
+
+        return sendJson(
+          res,
+          200,
+          {
+            ok: true,
+            user: publicTarget,
+            sessionUser: isSelf ? publicTarget : undefined,
+            users: sanitizeUsers(db.users)
+          },
+          extraHeaders
+        );
+      }
+
+      if (body.action === 'remove' && body.id) {
+        if (!requireAdmin(req, res)) return;
         const target = db.users.find(u => u.id === body.id);
         if (target && target.username !== 'admin') {
+          deleteAvatarFileIfLocal(target.avatarUrl);
           db.users = db.users.filter(u => u.id !== body.id);
           appendAuditLog(db, actor, 'จัดการบัญชีผู้ใช้', `ลบบัญชีผู้ใช้: ${target.displayName} (@${target.username})`);
         }
+        saveDb(db);
+        return sendJson(res, 200, { ok: true, users: sanitizeUsers(db.users) });
       }
 
-      saveDb(db);
-      return sendJson(res, 200, { ok: true, users: sanitizeUsers(db.users) });
+      return sendJson(res, 400, { error: 'คำสั่งจัดการบัญชีไม่ถูกต้อง' });
     }
 
     // API: Log Custom Frontend Audit Event (e.g. Export Excel, Print, Logout)

@@ -101,6 +101,14 @@ function updateCurrentUserUi() {
   if (el) {
     el.textContent = currentUser?.displayName || currentUser?.username || '-';
   }
+  const avatarEl = document.getElementById('currentUserAvatar');
+  if (avatarEl) {
+    if (currentUser?.avatarUrl) {
+      avatarEl.innerHTML = `<img src="${escapeHtml(currentUser.avatarUrl)}" alt="${escapeHtml(currentUser.displayName || currentUser.username || '')}" />`;
+    } else {
+      avatarEl.textContent = currentUser?.role === 'admin' ? '👑' : '👤';
+    }
+  }
 }
 
 function showAuthenticatedApp(user) {
@@ -342,6 +350,12 @@ async function fetchAppState(drawIdParam = '') {
   }
   if (!res.ok) return;
   appState = await res.json();
+
+  if (appState.sessionUser) {
+    currentUser = appState.sessionUser;
+    localStorage.setItem('lotto_user', JSON.stringify(currentUser));
+    updateCurrentUserUi();
+  }
 
   renderHeaderAndKpis();
   renderCustomersInDraw();
@@ -4928,11 +4942,77 @@ function switchSettingsSubtab(subTabId) {
   return switchSettingsSubTab(subTabId);
 }
 
+let pendingNewUserAvatarDataUrl = '';
+let pendingEditUserAvatarDataUrl = '';
+let pendingEditUserRemoveAvatar = false;
+
+function resizeAvatarFileToDataUrl(file, size = 256) {
+  return new Promise((resolve, reject) => {
+    if (!file || !String(file.type || '').startsWith('image/')) {
+      reject(new Error('กรุณาเลือกไฟล์รูปภาพเท่านั้น'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('ไม่สามารถอ่านไฟล์รูปภาพได้'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('ไฟล์รูปภาพเสียหายหรือไม่รองรับ'));
+      img.onload = () => {
+        const minSide = Math.min(img.width, img.height);
+        const sx = Math.floor((img.width - minSide) / 2);
+        const sy = Math.floor((img.height - minSide) / 2);
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+        ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+        resolve(canvas.toDataURL('image/jpeg', 0.88));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderUserAvatarHtml(user, sizeClass = 'user-avatar-md') {
+  if (user?.avatarUrl) {
+    return `<span class="user-avatar ${sizeClass}"><img src="${escapeHtml(user.avatarUrl)}" alt="${escapeHtml(user.displayName || user.username || '')}" /></span>`;
+  }
+  return `<span class="user-avatar ${sizeClass}">${user?.role === 'admin' ? '👑' : '👤'}</span>`;
+}
+
+async function handleNewUserAvatarSelect(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  try {
+    const dataUrl = await resizeAvatarFileToDataUrl(file, 256);
+    pendingNewUserAvatarDataUrl = dataUrl;
+    const preview = document.getElementById('newUserAvatarPreview');
+    if (preview) preview.innerHTML = `<img src="${dataUrl}" alt="preview" />`;
+    document.getElementById('btnClearNewUserAvatar')?.classList.remove('hidden');
+  } catch (err) {
+    showToast(`❌ ${err.message}`);
+  }
+}
+
+function clearNewUserAvatar() {
+  pendingNewUserAvatarDataUrl = '';
+  const input = document.getElementById('newUserAvatarFileInput');
+  if (input) input.value = '';
+  const preview = document.getElementById('newUserAvatarPreview');
+  if (preview) preview.textContent = '👤';
+  document.getElementById('btnClearNewUserAvatar')?.classList.add('hidden');
+}
+
 async function addUserAccount() {
   const username = (document.getElementById('newUsernameInput')?.value || '').trim();
   const password = (document.getElementById('newPasswordInput')?.value || '').trim();
   const displayName = (document.getElementById('newDisplayNameInput')?.value || username).trim();
   const role = document.getElementById('newRoleSelect')?.value || 'staff';
+  const phone = (document.getElementById('newUserPhoneInput')?.value || '').trim();
+  const note = (document.getElementById('newUserNoteInput')?.value || '').trim();
 
   if (!username) {
     showToast('กรุณาระบุชื่อผู้ใช้ (Username)');
@@ -4951,7 +5031,10 @@ async function addUserAccount() {
       username,
       password,
       displayName,
-      role
+      role,
+      phone,
+      note,
+      avatarBase64: pendingNewUserAvatarDataUrl || ''
     })
   });
   const data = await res.json();
@@ -4963,8 +5046,170 @@ async function addUserAccount() {
   document.getElementById('newUsernameInput').value = '';
   document.getElementById('newPasswordInput').value = '';
   document.getElementById('newDisplayNameInput').value = '';
+  const phoneEl = document.getElementById('newUserPhoneInput');
+  if (phoneEl) phoneEl.value = '';
+  const noteEl = document.getElementById('newUserNoteInput');
+  if (noteEl) noteEl.value = '';
+  clearNewUserAvatar();
   await fetchAppState();
   showToast(`✅ เพิ่มบัญชีผู้ใช้งาน "${displayName}" (@${username}) เรียบร้อย`);
+}
+
+function openEditUserModal(userId) {
+  const users = appState.users || [];
+  const user =
+    users.find(u => u.id === userId) ||
+    (currentUser && currentUser.id === userId ? currentUser : null);
+  if (!user) {
+    showToast('❌ ไม่พบข้อมูลบัญชีผู้ใช้งาน');
+    return;
+  }
+
+  pendingEditUserAvatarDataUrl = '';
+  pendingEditUserRemoveAvatar = false;
+  const fileEl = document.getElementById('editUserAvatarFileInput');
+  if (fileEl) fileEl.value = '';
+
+  document.getElementById('editUserIdInput').value = user.id || '';
+  document.getElementById('editUserDisplayNameInput').value = user.displayName || '';
+  document.getElementById('editUserUsernameInput').value = user.username || '';
+  document.getElementById('editUserRoleSelect').value = user.role === 'admin' ? 'admin' : 'staff';
+  document.getElementById('editUserPhoneInput').value = user.phone || '';
+  document.getElementById('editUserNoteInput').value = user.note || '';
+  document.getElementById('editUserPasswordInput').value = '';
+
+  const previewEl = document.getElementById('editUserAvatarPreview');
+  const removeBtn = document.getElementById('btnRemoveEditUserAvatar');
+  if (previewEl) {
+    if (user.avatarUrl) {
+      previewEl.innerHTML = `<img src="${escapeHtml(user.avatarUrl)}" alt="${escapeHtml(user.displayName || user.username || '')}" />`;
+    } else {
+      previewEl.textContent = user.role === 'admin' ? '👑' : '👤';
+    }
+  }
+  if (removeBtn) {
+    removeBtn.classList.toggle('hidden', !user.avatarUrl);
+  }
+
+  const isAdmin = currentUser?.role === 'admin';
+  const isPrimaryAdmin = user.username === 'admin';
+  const adminCount = users.filter(x => x.role === 'admin').length;
+
+  const usernameEl = document.getElementById('editUserUsernameInput');
+  const usernameHintEl = document.getElementById('editUserUsernameHint');
+  if (usernameEl) {
+    usernameEl.disabled = !isAdmin || isPrimaryAdmin;
+  }
+  if (usernameHintEl) {
+    usernameHintEl.textContent = isPrimaryAdmin ? '(บัญชีหลักเปลี่ยนไม่ได้)' : '';
+  }
+
+  const roleEl = document.getElementById('editUserRoleSelect');
+  if (roleEl) {
+    roleEl.disabled = !isAdmin || (user.role === 'admin' && adminCount <= 1);
+  }
+
+  const pwGroupEl = document.getElementById('editUserPasswordGroup');
+  if (pwGroupEl) {
+    pwGroupEl.classList.toggle('hidden', !isAdmin);
+  }
+
+  document.getElementById('editUserModalOverlay')?.classList.remove('hidden');
+  setTimeout(() => document.getElementById('editUserDisplayNameInput')?.focus(), 50);
+}
+
+function closeEditUserModal() {
+  document.getElementById('editUserModalOverlay')?.classList.add('hidden');
+}
+
+async function handleEditUserAvatarSelect(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  try {
+    const dataUrl = await resizeAvatarFileToDataUrl(file, 256);
+    pendingEditUserAvatarDataUrl = dataUrl;
+    pendingEditUserRemoveAvatar = false;
+    const previewEl = document.getElementById('editUserAvatarPreview');
+    if (previewEl) previewEl.innerHTML = `<img src="${dataUrl}" alt="preview" />`;
+    document.getElementById('btnRemoveEditUserAvatar')?.classList.remove('hidden');
+  } catch (err) {
+    showToast(`❌ ${err.message}`);
+  }
+}
+
+function removeEditUserAvatar() {
+  pendingEditUserAvatarDataUrl = '';
+  pendingEditUserRemoveAvatar = true;
+  const fileEl = document.getElementById('editUserAvatarFileInput');
+  if (fileEl) fileEl.value = '';
+  const roleVal = document.getElementById('editUserRoleSelect')?.value || 'staff';
+  const previewEl = document.getElementById('editUserAvatarPreview');
+  if (previewEl) previewEl.textContent = roleVal === 'admin' ? '👑' : '👤';
+  document.getElementById('btnRemoveEditUserAvatar')?.classList.add('hidden');
+}
+
+async function submitEditUserAccount() {
+  const id = (document.getElementById('editUserIdInput')?.value || '').trim();
+  const displayName = (document.getElementById('editUserDisplayNameInput')?.value || '').trim();
+  const username = (document.getElementById('editUserUsernameInput')?.value || '').trim();
+  const role = document.getElementById('editUserRoleSelect')?.value || 'staff';
+  const phone = (document.getElementById('editUserPhoneInput')?.value || '').trim();
+  const note = (document.getElementById('editUserNoteInput')?.value || '').trim();
+  const password = (document.getElementById('editUserPasswordInput')?.value || '').trim();
+
+  if (!id) return;
+  if (!displayName) {
+    showToast('กรุณาระบุชื่อที่แสดงในระบบ');
+    return;
+  }
+  if (!username) {
+    showToast('กรุณาระบุชื่อผู้ใช้ (Username)');
+    return;
+  }
+  if (password && password.length < 6) {
+    showToast('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
+    return;
+  }
+
+  const saveBtn = document.getElementById('btnSaveEditUser');
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'edit',
+        id,
+        displayName,
+        username,
+        role,
+        phone,
+        note,
+        password: password || undefined,
+        avatarBase64: pendingEditUserAvatarDataUrl || undefined,
+        removeAvatar: pendingEditUserRemoveAvatar
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      showToast(`❌ ${data.error || 'ไม่สามารถบันทึกข้อมูลบัญชีได้'}`);
+      return;
+    }
+
+    if (data.sessionUser) {
+      currentUser = data.sessionUser;
+      localStorage.setItem('lotto_user', JSON.stringify(currentUser));
+      updateCurrentUserUi();
+    }
+
+    closeEditUserModal();
+    await fetchAppState();
+    showToast(`✅ บันทึกข้อมูลบัญชี "${displayName}" เรียบร้อย`);
+  } catch (err) {
+    showToast(`❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล: ${err.message}`);
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
 }
 
 async function submitChangePassword() {
@@ -5008,6 +5253,7 @@ async function submitChangePassword() {
 }
 
 async function removeUserAccount(userId) {
+  if (!confirm('ยืนยันการลบบัญชีผู้ใช้งานนี้?')) return;
   const res = await fetch('/api/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -5026,21 +5272,38 @@ function renderUsersAndAuditLogs() {
     usersWrap.innerHTML = users
       .map(u => {
         const isCurrent = currentUser?.username === u.username;
+        const canEdit = currentUser?.role === 'admin' || isCurrent;
+        const metaParts = [];
+        if (u.phone) metaParts.push(`📞 ${escapeHtml(u.phone)}`);
+        if (u.note) metaParts.push(`📝 ${escapeHtml(u.note)}`);
         return `
-          <div class="contributor-item" style="margin-bottom:8px;border-color:${isCurrent ? 'var(--primary)' : 'var(--border)'};">
-            <div>
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                <strong style="font-size:14px;">${u.role === 'admin' ? '👑' : '👤'} ${escapeHtml(u.displayName)}</strong>
-                <span class="badge-100">@${escapeHtml(u.username)}</span>
-                ${isCurrent ? `<span class="badge-50">กำลังใช้งานอยู่</span>` : ''}
-              </div>
-              <div class="text-muted" style="font-size:11.5px;margin-top:2px;">
-                สิทธิ์: ${u.role === 'admin' ? 'เจ้าของระบบ (Admin)' : 'พนักงานคีย์โพย (Staff)'}
+          <div class="contributor-item" style="margin-bottom:8px;border-color:${isCurrent ? 'var(--primary)' : 'var(--border)'};gap:12px;">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0;flex:1;">
+              ${renderUserAvatarHtml(u, 'user-avatar-md')}
+              <div style="min-width:0;">
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                  <strong style="font-size:14px;">${u.role === 'admin' ? '👑' : '👤'} ${escapeHtml(u.displayName)}</strong>
+                  <span class="badge-100">@${escapeHtml(u.username)}</span>
+                  ${isCurrent ? `<span class="badge-50">กำลังใช้งานอยู่</span>` : ''}
+                </div>
+                <div class="text-muted" style="font-size:11.5px;margin-top:2px;">
+                  สิทธิ์: ${u.role === 'admin' ? 'เจ้าของระบบ (Admin)' : 'พนักงานคีย์โพย (Staff)'}
+                </div>
+                ${
+                  metaParts.length
+                    ? `<div class="text-muted" style="font-size:11.5px;margin-top:2px;word-break:break-word;">${metaParts.join(' • ')}</div>`
+                    : ''
+                }
               </div>
             </div>
-            <div style="display:flex;gap:6px;align-items:center;">
+            <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
               ${
-                u.username !== 'admin' && !isCurrent
+                canEdit
+                  ? `<button type="button" class="btn btn-outline btn-sm" onclick="openEditUserModal('${escapeJsArg(u.id)}')">✏️ แก้ไข</button>`
+                  : ''
+              }
+              ${
+                currentUser?.role === 'admin' && u.username !== 'admin' && !isCurrent
                   ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="removeUserAccount('${escapeJsArg(u.id)}')">ลบ</button>`
                   : ''
               }
