@@ -56,6 +56,7 @@ let calibDraftBox = null;
 let calibDraftQuad = null;
 let calibDraftMids = null;
 let calibDraftSplits = null;
+let lastFocusedInspectorCell = null;
 let currentZoom = 1.0;
 let uploadedBase64Image = '';
 let uploadedColumnSlices = null;
@@ -2897,6 +2898,9 @@ function applyInspectorLayoutUI(slip) {
 function selectSlipForInspection(slipId, highlightCol = null, highlightRow = null) {
   const slipChanged = currentInspectedSlipId !== slipId;
   currentInspectedSlipId = slipId;
+  if (slipChanged) {
+    lastFocusedInspectorCell = null;
+  }
   if (slipChanged && isCalibratingTableBox) {
     isCalibratingTableBox = false;
     calibDraftBox = null;
@@ -3238,7 +3242,42 @@ function renderIssueMarkersWithMesh(slip, tableQuad, tableMids, colSplits) {
       <div id="photoMarkerTooltip" class="photo-marker-tooltip hidden"></div>
     `;
   }
+  if (lastFocusedInspectorCell && showPhotoMarkers) {
+    renderActiveFocusPolygon(slip, tableQuad, tableMids, colSplits, lastFocusedInspectorCell.col, lastFocusedInspectorCell.row);
+  }
   applyPhotoMarkersVisibility();
+}
+
+function getActiveFocusPolygonPoints(slip, tableQuad, tableMids, colSplits, col, row, ignoreBox2d = false) {
+  const { sheetRows } = getSlipGridMetrics(slip);
+  const matchingItem = (slip?.items || []).find(i => Number(i.col) === Number(col) && Number(i.row) === Number(row));
+  if (!ignoreBox2d && Array.isArray(matchingItem?.box2d) && matchingItem.box2d.length === 4) {
+    return [
+      [matchingItem.box2d[1], matchingItem.box2d[0]],
+      [matchingItem.box2d[3], matchingItem.box2d[0]],
+      [matchingItem.box2d[3], matchingItem.box2d[2]],
+      [matchingItem.box2d[1], matchingItem.box2d[2]]
+    ];
+  }
+  return cellCurvedPolygonPoints(tableQuad, tableMids, colSplits, col, row, sheetRows, 3);
+}
+
+function renderActiveFocusPolygon(slip, tableQuad, tableMids, colSplits, col, row, ignoreBox2d = false) {
+  const focusGroup = document.getElementById('activeFocusPhotoSvgGroup');
+  if (!focusGroup) return null;
+  const pts = getActiveFocusPolygonPoints(slip, tableQuad, tableMids, colSplits, col, row, ignoreBox2d);
+  const tipX = Math.min(...pts.map(p => p[0]));
+  const tipY = Math.min(...pts.map(p => p[1]));
+  focusGroup.innerHTML = `
+    <polygon class="photo-focus-poly"
+      points="${svgPtsStr(pts)}"
+      data-tip="📍 คอลัมน์ ${col} แถว ${row}"
+      data-tip-x="${tipX.toFixed(1)}"
+      data-tip-y="${tipY.toFixed(1)}"
+      onmouseenter="showPhotoMarkerTooltip(this, true)"
+      onmouseleave="hidePhotoMarkerTooltip()" />
+  `;
+  return pts;
 }
 
 function showPhotoMarkerTooltip(el, isFocus = false) {
@@ -3260,6 +3299,7 @@ function hidePhotoMarkerTooltip() {
 }
 
 function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
+  lastFocusedInspectorCell = { col: Number(col) || 1, row: Number(row) || 1 };
   document.querySelectorAll('.paper-row-item.row-active').forEach(el => el.classList.remove('row-active'));
   const activeCellRow = document.getElementById(`cell-${col}-${row}`);
   if (activeCellRow) activeCellRow.classList.add('row-active');
@@ -3272,30 +3312,14 @@ function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
   if (!focusGroup) return;
   const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
   const slip = allInspectableSlips.find(s => s.id === currentInspectedSlipId);
-  const { sheetRows, tableQuad, tableMids, colSplits } = getSlipGridMetrics(slip);
-  const matchingItem = (slip?.items || []).find(i => Number(i.col) === Number(col) && Number(i.row) === Number(row));
+  const { tableQuad, tableMids, colSplits } = getSlipGridMetrics(slip);
+  const useDraft = Boolean(isCalibratingTableBox && calibDraftQuad && calibDraftMids && calibDraftSplits);
+  const activeQuad = useDraft ? calibDraftQuad : tableQuad;
+  const activeMids = useDraft ? calibDraftMids : tableMids;
+  const activeSplits = useDraft ? calibDraftSplits : colSplits;
 
-  const pts =
-    Array.isArray(matchingItem?.box2d) && matchingItem.box2d.length === 4
-      ? [
-          [matchingItem.box2d[1], matchingItem.box2d[0]],
-          [matchingItem.box2d[3], matchingItem.box2d[0]],
-          [matchingItem.box2d[3], matchingItem.box2d[2]],
-          [matchingItem.box2d[1], matchingItem.box2d[2]]
-        ]
-      : cellCurvedPolygonPoints(tableQuad, tableMids, colSplits, col, row, sheetRows, 3);
-
-  const tipX = Math.min(...pts.map(p => p[0]));
-  const tipY = Math.min(...pts.map(p => p[1]));
-  focusGroup.innerHTML = `
-    <polygon class="photo-focus-poly"
-      points="${svgPtsStr(pts)}"
-      data-tip="📍 คอลัมน์ ${col} แถว ${row}"
-      data-tip-x="${tipX.toFixed(1)}"
-      data-tip-y="${tipY.toFixed(1)}"
-      onmouseenter="showPhotoMarkerTooltip(this, true)"
-      onmouseleave="hidePhotoMarkerTooltip()" />
-  `;
+  const pts = renderActiveFocusPolygon(slip, activeQuad, activeMids, activeSplits, col, row, useDraft);
+  if (!pts || useDraft) return;
 
   // Auto-pan the zoomed photo viewport to the exact polygon centroid!
   const viewport = document.getElementById('photoViewport');
