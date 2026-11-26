@@ -1469,8 +1469,13 @@ const server = http.createServer(async (req, res) => {
         slip.columnSubtotals = normalizeColumnSubtotals(body.columnSubtotals);
       }
 
+      const parsedRowsPerCol = Math.max(0, Number(body.rowsPerCol) || 0);
+      const maxRowInSlip = validatedItems.reduce((m, i) => Math.max(m, Number(i.row) || 1), 1);
+      const maxColInSlip = validatedItems.reduce((m, i) => Math.max(m, Number(i.col) || 1), 1);
+
       slip.items = validatedItems;
-      slip.isGrid4x30 = validatedItems.length > 30;
+      slip.rowsPerCol = parsedRowsPerCol || maxRowInSlip;
+      slip.isGrid4x30 = maxColInSlip <= 4 && Math.max(maxRowInSlip, parsedRowsPerCol) >= 25;
       slip.totalItems = validatedItems.filter(i => !i.isEmpty).length;
       slip.totalMoney = validatedItems.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
       slip.reviewCount = validatedItems.filter(i => i.needsReview).length;
@@ -1598,6 +1603,7 @@ const server = http.createServer(async (req, res) => {
         const slip = (db.slips || []).find(s => s.id === String(body.slipId));
         if (slip) {
           slip.tableBox = rawBox;
+          slip.rowsPerCol = layout.rowsPerCol;
           if (layout.tableQuad) slip.tableQuad = layout.tableQuad;
           if (layout.tableMids) slip.tableMids = layout.tableMids;
           if (layout.colSplits) slip.colSplits = layout.colSplits;
@@ -2230,8 +2236,11 @@ const server = http.createServer(async (req, res) => {
           const targetSlip = (latestDb.slips || []).find(s => s.id === newSlip.id);
           if (targetSlip) {
             const items = ocrResult.items || [];
+            const maxRowInSlip = items.reduce((m, i) => Math.max(m, Number(i.row) || 1), 1);
+            const maxColInSlip = items.reduce((m, i) => Math.max(m, Number(i.col) || 1), 1);
             targetSlip.items = items;
-            targetSlip.isGrid4x30 = items.length > 30;
+            targetSlip.rowsPerCol = Number(ocrResult.rowsPerCol) || maxRowInSlip;
+            targetSlip.isGrid4x30 = maxColInSlip <= 4 && Math.max(maxRowInSlip, targetSlip.rowsPerCol) >= 25;
             targetSlip.totalItems = items.filter(i => !i.isEmpty).length;
             targetSlip.totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
             targetSlip.reviewCount = items.filter(i => i.needsReview).length;
@@ -2266,6 +2275,8 @@ const server = http.createServer(async (req, res) => {
       });
 
       const items = ocrResult.items || [];
+      const maxRowInSlip = items.reduce((m, i) => Math.max(m, Number(i.row) || 1), 1);
+      const maxColInSlip = items.reduce((m, i) => Math.max(m, Number(i.col) || 1), 1);
       const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
       const reviewCount = items.filter(i => i.needsReview).length;
 
@@ -2283,7 +2294,8 @@ const server = http.createServer(async (req, res) => {
         imageUrl: savedImageUrl,
         rotationDeg: Number(ocrResult.rotationNeededDeg) || 0,
         tableBox: ocrResult.tableBox || null,
-        isGrid4x30: items.length > 30,
+        rowsPerCol: Number(ocrResult.rowsPerCol) || maxRowInSlip,
+        isGrid4x30: maxColInSlip <= 4 && Math.max(maxRowInSlip, Number(ocrResult.rowsPerCol) || 0) >= 25,
         status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
         humanApproved: false,
         approvedBy: null,
@@ -2546,8 +2558,12 @@ const server = http.createServer(async (req, res) => {
         box2d: it.box2d || null
       }));
 
+      const maxRowInSlip = items.reduce((m, i) => Math.max(m, Number(i.row) || 1), 1);
+      const maxColInSlip = items.reduce((m, i) => Math.max(m, Number(i.col) || 1), 1);
+
       slip.items = items;
-      slip.isGrid4x30 = items.length > 30;
+      slip.rowsPerCol = Number(ocrResult.rowsPerCol) || maxRowInSlip;
+      slip.isGrid4x30 = maxColInSlip <= 4 && Math.max(maxRowInSlip, slip.rowsPerCol) >= 25;
       slip.totalItems = items.filter(i => !i.isEmpty).length;
       slip.totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
       slip.reviewCount = items.filter(i => i.needsReview).length;
@@ -2843,6 +2859,8 @@ const server = http.createServer(async (req, res) => {
         });
 
         const items = ocrResult.items || [];
+        const maxRowInSlip = items.reduce((m, i) => Math.max(m, Number(i.row) || 1), 1);
+        const maxColInSlip = items.reduce((m, i) => Math.max(m, Number(i.col) || 1), 1);
         const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
         const reviewCount = items.filter(i => i.needsReview).length;
 
@@ -2862,7 +2880,8 @@ const server = http.createServer(async (req, res) => {
           tableMids: ocrResult.tableMids || db.runnerLayouts?.[customerName]?.tableMids || null,
           colSplits: ocrResult.colSplits || db.runnerLayouts?.[customerName]?.colSplits || null,
           columnSubtotals: normalizeColumnSubtotals(ocrResult.columnSubtotals),
-          isGrid4x30: items.length > 30,
+          rowsPerCol: Number(ocrResult.rowsPerCol) || maxRowInSlip,
+          isGrid4x30: maxColInSlip <= 4 && Math.max(maxRowInSlip, Number(ocrResult.rowsPerCol) || 0) >= 25,
           status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
           humanApproved: false,
           approvedBy: null,
@@ -3105,6 +3124,8 @@ const server = http.createServer(async (req, res) => {
                   ocrOriginalAmtText: it.ocrOriginalAmtText || it.amtText || '',
                   box2d: it.box2d || null
                 }));
+                const maxRowInSlip = items.reduce((m, i) => Math.max(m, Number(i.row) || 1), 1);
+                const maxColInSlip = items.reduce((m, i) => Math.max(m, Number(i.col) || 1), 1);
                 const totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
                 const reviewCount = items.filter(i => i.needsReview).length;
 
@@ -3125,7 +3146,8 @@ const server = http.createServer(async (req, res) => {
                   tableMids: ocrResult.tableMids || db.runnerLayouts?.[customerName]?.tableMids || null,
                   colSplits: ocrResult.colSplits || db.runnerLayouts?.[customerName]?.colSplits || null,
                   columnSubtotals: normalizeColumnSubtotals(ocrResult.columnSubtotals),
-                  isGrid4x30: items.length > 30,
+                  rowsPerCol: Number(ocrResult.rowsPerCol) || maxRowInSlip,
+                  isGrid4x30: maxColInSlip <= 4 && Math.max(maxRowInSlip, Number(ocrResult.rowsPerCol) || 0) >= 25,
                   status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
                   humanApproved: false,
                   approvedBy: null,

@@ -5,14 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
   <title>Workspace Console</title>
+  <script>
+    try {
+      var t = localStorage.getItem('lotto_theme_v2');
+      if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_66" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_67" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
-  <div id="loginOverlay" class="modal-overlay no-print" style="z-index:9500;background:var(--bg-body, #0f172a);">
+  <div id="loginOverlay" class="modal-overlay hidden no-print" style="z-index:9500;background:var(--bg-body, #0f172a);">
     <div class="modal-card" style="max-width:400px;text-align:center;position:relative;">
       <button type="button" id="btnCloseLoginModal" class="btn btn-ghost btn-sm hidden" style="position:absolute;top:12px;right:12px;" onclick="closeLoginModal()">✕ ปิด</button>
       <h2 style="font-size:18px;margin-bottom:4px;">Sign In</h2>
@@ -31,7 +37,7 @@
     </div>
   </div>
 
-  <div class="app-shell hidden" id="appShell">
+  <div class="app-shell" id="appShell">
     <!-- ================================================================= -->
     <!-- แถบเมนูหลักด้านซ้ายมือ (ดีไซน์โมเดิร์น + สลับธีมสว่าง/มืด + ชื่อผู้ใช้งาน) -->
     <!-- ================================================================= -->
@@ -1353,6 +1359,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_66"></script>
+  <script src="/app.js?v=20261120_67"></script>
 </body>
 </html>

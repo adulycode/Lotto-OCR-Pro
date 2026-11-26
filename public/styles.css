@@ -1587,6 +1587,29 @@ body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .paper-grid-4col 
   background: #2563eb;
 }
 
+.photo-uncalibrated-pill {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  pointer-events: auto;
+  background: rgba(15, 23, 42, 0.88);
+  color: #fde047;
+  border: 1.5px solid rgba(250, 204, 21, 0.75);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.photo-uncalibrated-pill:hover {
+  background: rgba(15, 23, 42, 0.98);
+}
+
 /* Free-Form 4-Corner & Column-Split Calibration Overlay */
 .calib-bar {
   display: flex;

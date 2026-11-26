@@ -2795,10 +2795,19 @@ function getSlipGridMetrics(slip) {
   const maxCol = Math.max(slip?.isGrid4x30 ? 4 : 1, ...itemCols, 1);
   const maxRowInSlip = items.reduce((m, i) => Math.max(m, Number(i.row) || 1), 1);
   const savedLayout = slip ? appState.runnerLayouts?.[slip.customerName] : null;
-  const sheetRows =
-    slip?.isGrid4x30 && maxCol <= 4
-      ? Math.max(30, maxRowInSlip)
-      : Math.max(maxRowInSlip, Number(savedLayout?.rowsPerCol) || 1, 1);
+  const hasCalibratedGeometry = Boolean(
+    (Array.isArray(slip?.tableQuad) && slip.tableQuad.length === 4) ||
+    (Array.isArray(slip?.tableBox) && slip.tableBox.length === 4) ||
+    (Array.isArray(savedLayout?.tableQuad) && savedLayout.tableQuad.length === 4) ||
+    (Array.isArray(savedLayout?.tableBox) && savedLayout.tableBox.length === 4)
+  );
+  const explicitRows = Number(slip?.rowsPerCol) || Number(savedLayout?.rowsPerCol) || 0;
+  const sheetRows = Math.max(
+    maxRowInSlip,
+    explicitRows,
+    slip?.isGrid4x30 && maxCol <= 4 && maxRowInSlip >= 25 ? 30 : 0,
+    1
+  );
   const defaultBox = maxCol >= 6 ? [125, 55, 925, 965] : [141, 142, 914, 975];
   const tableQuad =
     Array.isArray(slip?.tableQuad) && slip.tableQuad.length === 4
@@ -2823,7 +2832,7 @@ function getSlipGridMetrics(slip) {
         : null;
   const tableMids = normalizeEdgeMids(rawMids, resolvedQuad);
   const colSplits = normalizeColSplits(slip?.colSplits || savedLayout?.colSplits, maxCol);
-  return { maxCol, sheetRows, tableBox, tableQuad: resolvedQuad, tableMids, colSplits, savedLayout };
+  return { maxCol, sheetRows, tableBox, tableQuad: resolvedQuad, tableMids, colSplits, savedLayout, hasCalibratedGeometry };
 }
 
 function isEffectivePaperView() {
@@ -3102,7 +3111,11 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     .map(colNum => {
       const colItems = (slip.items || []).filter(i => (i.col || 1) === colNum);
       const maxRowInCol = colItems.reduce((m, it) => Math.max(m, Number(it.row) || 1), 1);
-      const maxRows = paperMode ? sheetRows : (slip.isGrid4x30 && maxCol === 4 ? Math.max(30, maxRowInCol) : Math.max(maxRowInCol, colItems.length, 1));
+      const maxRows = paperMode
+        ? sheetRows
+        : (slip.isGrid4x30 && maxCol === 4 && sheetRows >= 25
+            ? Math.max(30, maxRowInCol)
+            : Math.max(maxRowInCol, colItems.length, 1));
       const sampleColItem = colItems.find(i => i.colHeader || i.categoryHint) || {};
       const colHeaderLabel = sampleColItem.colHeader
         ? sampleColItem.colHeader
@@ -3235,25 +3248,34 @@ function onPaperCellKeydown(event, col, row, field) {
 function renderIssueMarkersWithMesh(slip, tableQuad, tableMids, colSplits) {
   const markersEl = document.getElementById('photoIssueMarkers');
   if (!markersEl || !slip) return;
-  const { maxCol, sheetRows } = getSlipGridMetrics(slip);
+  const { maxCol, sheetRows, hasCalibratedGeometry } = getSlipGridMetrics(slip);
   const warnItems = (slip.items || []).filter(i => i.needsReview || (i.warnings && i.warnings.length > 0));
   markersEl.style.top = '';
   markersEl.style.left = '';
   markersEl.style.bottom = '';
   markersEl.style.right = '';
 
+  const hasUnboxedWarn = warnItems.some(w => !(Array.isArray(w.box2d) && w.box2d.length === 4));
+  const needsUncalibratedHint = !hasCalibratedGeometry && !isCalibratingTableBox && hasUnboxedWarn;
+  const uncalibratedHtml = needsUncalibratedHint
+    ? `<button type="button" class="photo-uncalibrated-pill" onclick="toggleTableBoxCalibration()">📐 บิลนี้ยังไม่มีพิกัดกรอบ — กดปรับกรอบให้ตรง</button>`
+    : '';
+
   if (slip.isGrid4x30 || maxCol >= 2) {
     const boxesSvg = warnItems
       .map(w => {
-        const pts =
-          Array.isArray(w.box2d) && w.box2d.length === 4 && !isCalibratingTableBox
-            ? [
-                [w.box2d[1], w.box2d[0]],
-                [w.box2d[3], w.box2d[0]],
-                [w.box2d[3], w.box2d[2]],
-                [w.box2d[1], w.box2d[2]]
-              ]
-            : cellCurvedPolygonPoints(tableQuad, tableMids, colSplits, w.col || 1, w.row || 1, sheetRows, 3);
+        const hasOwnBox = Array.isArray(w.box2d) && w.box2d.length === 4 && !isCalibratingTableBox;
+        if (!hasOwnBox && !hasCalibratedGeometry && !isCalibratingTableBox) {
+          return '';
+        }
+        const pts = hasOwnBox
+          ? [
+              [w.box2d[1], w.box2d[0]],
+              [w.box2d[3], w.box2d[0]],
+              [w.box2d[3], w.box2d[2]],
+              [w.box2d[1], w.box2d[2]]
+            ]
+          : cellCurvedPolygonPoints(tableQuad, tableMids, colSplits, w.col || 1, w.row || 1, sheetRows, 3);
         const tipX = Math.min(...pts.map(p => p[0]));
         const tipY = Math.min(...pts.map(p => p[1]));
         const label = `คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})`;
@@ -3274,6 +3296,7 @@ function renderIssueMarkersWithMesh(slip, tableQuad, tableMids, colSplits) {
         ${boxesSvg}
         <g id="activeFocusPhotoSvgGroup"></g>
       </svg>
+      ${uncalibratedHtml}
       <div id="photoMarkerTooltip" class="photo-marker-tooltip hidden"></div>
     `;
   } else {
@@ -3281,6 +3304,7 @@ function renderIssueMarkersWithMesh(slip, tableQuad, tableMids, colSplits) {
       <svg class="photo-markers-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
         <g id="activeFocusPhotoSvgGroup"></g>
       </svg>
+      ${uncalibratedHtml}
       <div id="photoMarkerTooltip" class="photo-marker-tooltip hidden"></div>
     `;
   }
@@ -3291,7 +3315,7 @@ function renderIssueMarkersWithMesh(slip, tableQuad, tableMids, colSplits) {
 }
 
 function getActiveFocusPolygonPoints(slip, tableQuad, tableMids, colSplits, col, row, ignoreBox2d = false) {
-  const { sheetRows } = getSlipGridMetrics(slip);
+  const { sheetRows, hasCalibratedGeometry } = getSlipGridMetrics(slip);
   const matchingItem = (slip?.items || []).find(i => Number(i.col) === Number(col) && Number(i.row) === Number(row));
   if (!ignoreBox2d && Array.isArray(matchingItem?.box2d) && matchingItem.box2d.length === 4) {
     return [
@@ -3301,6 +3325,9 @@ function getActiveFocusPolygonPoints(slip, tableQuad, tableMids, colSplits, col,
       [matchingItem.box2d[1], matchingItem.box2d[2]]
     ];
   }
+  if (!hasCalibratedGeometry && !isCalibratingTableBox) {
+    return null;
+  }
   return cellCurvedPolygonPoints(tableQuad, tableMids, colSplits, col, row, sheetRows, 3);
 }
 
@@ -3308,6 +3335,10 @@ function renderActiveFocusPolygon(slip, tableQuad, tableMids, colSplits, col, ro
   const focusGroup = document.getElementById('activeFocusPhotoSvgGroup');
   if (!focusGroup) return null;
   const pts = getActiveFocusPolygonPoints(slip, tableQuad, tableMids, colSplits, col, row, ignoreBox2d);
+  if (!pts) {
+    focusGroup.innerHTML = '';
+    return null;
+  }
   const tipX = Math.min(...pts.map(p => p[0]));
   const tipY = Math.min(...pts.map(p => p[1]));
   focusGroup.innerHTML = `
