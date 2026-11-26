@@ -125,6 +125,7 @@ function showAuthenticatedApp(user) {
   document.getElementById('appShell')?.classList.remove('hidden');
   const webhookEl = document.getElementById('webhookUrlDisplay');
   if (webhookEl) webhookEl.value = `${window.location.origin}/api/line/webhook`;
+  connectRealtimeEvents();
 }
 
 function showStealthLogin() {
@@ -133,6 +134,7 @@ function showStealthLogin() {
     clearTimeout(antigravityQueuePollTimer);
     antigravityQueuePollTimer = null;
   }
+  disconnectRealtimeEvents();
   currentUser = null;
   localStorage.removeItem('lotto_user');
   if (wasAppVisible) {
@@ -344,6 +346,111 @@ function switchTab(tabId) {
 }
 
 let antigravityQueuePollTimer = null;
+let sseEventSource = null;
+let sseReconnectTimer = null;
+let sseRefreshDebounceTimer = null;
+
+function isUserActivelyEditingUi() {
+  if (isCalibratingTableBox) return true;
+  const active = document.activeElement;
+  if (!active || !['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return false;
+  return Boolean(
+    active.closest('#paperGridContainer, #editUserModalOverlay, #lineMessageInput, #lineComposerCustomerInput')
+  );
+}
+
+function scheduleRealtimeRefresh() {
+  if (sseRefreshDebounceTimer) clearTimeout(sseRefreshDebounceTimer);
+  sseRefreshDebounceTimer = setTimeout(async () => {
+    sseRefreshDebounceTimer = null;
+    if (!currentUser) return;
+    if (isUserActivelyEditingUi()) {
+      try {
+        const url = appState.currentDrawId
+          ? `/api/state?drawId=${encodeURIComponent(appState.currentDrawId)}`
+          : '/api/state';
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const fresh = await res.json();
+        appState.lineChats = fresh.lineChats || [];
+        appState.lineReadAt = fresh.lineReadAt || {};
+        appState.summary = fresh.summary || appState.summary;
+        appState.antigravityStatus = fresh.antigravityStatus || appState.antigravityStatus;
+        updateLineUnreadSidebarBadge();
+        const activeId = document.activeElement?.id || '';
+        if (activeId !== 'lineMessageInput' && activeId !== 'lineComposerCustomerInput') {
+          renderLineSimulator();
+        }
+      } catch {}
+      return;
+    }
+    await fetchAppState(appState.currentDrawId);
+  }, 300);
+}
+
+function disconnectRealtimeEvents() {
+  if (sseReconnectTimer) {
+    clearTimeout(sseReconnectTimer);
+    sseReconnectTimer = null;
+  }
+  if (sseRefreshDebounceTimer) {
+    clearTimeout(sseRefreshDebounceTimer);
+    sseRefreshDebounceTimer = null;
+  }
+  if (sseEventSource) {
+    try { sseEventSource.close(); } catch {}
+    sseEventSource = null;
+  }
+}
+
+function connectRealtimeEvents() {
+  if (!currentUser || typeof EventSource === 'undefined') return;
+  if (sseEventSource) return;
+  try {
+    const es = new EventSource('/api/events');
+    sseEventSource = es;
+
+    es.addEventListener('line_message', ev => {
+      try {
+        const d = JSON.parse(ev.data || '{}');
+        if (d.customerName) {
+          const preview = d.preview ? `: ${d.preview}` : '';
+          showToast(`💬 LINE ใหม่จาก "${d.customerName}"${preview}`);
+        }
+      } catch {}
+      scheduleRealtimeRefresh();
+    });
+
+    es.addEventListener('ocr_completed', ev => {
+      try {
+        const d = JSON.parse(ev.data || '{}');
+        if (d.customerName) {
+          showToast(`✅ อ่านโพยของ "${d.customerName}" เสร็จแล้ว (${d.totalItems || 0} รายการ)`);
+        }
+      } catch {}
+      scheduleRealtimeRefresh();
+    });
+
+    es.addEventListener('line_read_updated', () => {
+      scheduleRealtimeRefresh();
+    });
+
+    es.addEventListener('state_updated', () => {
+      scheduleRealtimeRefresh();
+    });
+
+    es.onerror = () => {
+      try { es.close(); } catch {}
+      if (sseEventSource === es) sseEventSource = null;
+      if (currentUser && !sseReconnectTimer) {
+        sseReconnectTimer = setTimeout(() => {
+          sseReconnectTimer = null;
+          connectRealtimeEvents();
+        }, 4000);
+      }
+    };
+  } catch {}
+}
 
 async function fetchAppState(drawIdParam = '') {
   const url = drawIdParam ? `/api/state?drawId=${encodeURIComponent(drawIdParam)}` : '/api/state';

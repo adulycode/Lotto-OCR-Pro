@@ -348,6 +348,32 @@ function isAntigravityOnline() {
   return Boolean(antigravityLastSeenAt && Date.now() - antigravityLastSeenAt < 420_000);
 }
 
+// Real-Time Server-Sent Events (SSE) Clients + 25s Nginx Keepalive Heartbeat
+const sseClients = new Set();
+
+function broadcastSseEvent(eventType, payload = {}) {
+  if (sseClients.size === 0) return;
+  const frame = `event: ${eventType}\ndata: ${JSON.stringify({ type: eventType, ts: Date.now(), ...payload })}\n\n`;
+  for (const clientRes of Array.from(sseClients)) {
+    try {
+      clientRes.write(frame);
+    } catch {
+      sseClients.delete(clientRes);
+    }
+  }
+}
+
+setInterval(() => {
+  if (sseClients.size === 0) return;
+  for (const clientRes of Array.from(sseClients)) {
+    try {
+      clientRes.write(': keepalive\n\n');
+    } catch {
+      sseClients.delete(clientRes);
+    }
+  }
+}, 25_000).unref();
+
 function appendAuditLog(db, actorName, actionType, detail) {
   db.auditLogs = db.auditLogs || [];
   db.auditLogs.unshift({
@@ -1165,6 +1191,29 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // API: Real-Time Server-Sent Events Stream (SSE)
+    if (req.method === 'GET' && pathname === '/api/events') {
+      if (sseClients.size >= 100) {
+        const oldest = sseClients.values().next().value;
+        if (oldest) {
+          sseClients.delete(oldest);
+          try { oldest.end(); } catch {}
+        }
+      }
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      });
+      res.write(`event: connected\ndata: ${JSON.stringify({ ok: true, ts: Date.now() })}\n\n`);
+      sseClients.add(res);
+      const cleanupSse = () => sseClients.delete(res);
+      req.on('close', cleanupSse);
+      res.on('error', cleanupSse);
+      return;
+    }
+
     // API: Get State for the selected Draw Period
     if (req.method === 'GET' && pathname === '/api/state') {
       const db = loadDb();
@@ -1521,6 +1570,13 @@ const server = http.createServer(async (req, res) => {
         `อ่านโพย "${slip.title}" ของ ${slip.customerName} สำเร็จ (${slip.totalItems} รายการ รวม ${slip.totalMoney.toLocaleString()} บาท)`
       );
       saveDb(db);
+      broadcastSseEvent('ocr_completed', {
+        drawId: slip.drawId,
+        slipId: slip.id,
+        customerName: slip.customerName,
+        totalItems: slip.totalItems,
+        totalMoney: slip.totalMoney
+      });
       return sendJson(res, 200, { ok: true, slip });
     }
 
@@ -2451,6 +2507,11 @@ const server = http.createServer(async (req, res) => {
         `ดัดแปลงรูปโพยของ "${slip.customerName}" (${slip.title}) เป็นภาพเอกสารตรง`
       );
       saveDb(db);
+      broadcastSseEvent('state_updated', {
+        source: 'flatten',
+        drawId: slip.drawId,
+        slipId: slip.id
+      });
       return sendJson(res, 200, { ok: true, slip });
     }
 
@@ -2614,6 +2675,13 @@ const server = http.createServer(async (req, res) => {
         `อ่านโพย "${slip.customerName}" (${slip.title}) ใหม่สำเร็จ (${slip.totalItems} รายการ รวม ${slip.totalMoney.toLocaleString()} บาท)`
       );
       saveDb(db);
+      broadcastSseEvent('ocr_completed', {
+        drawId: slip.drawId,
+        slipId: slip.id,
+        customerName: slip.customerName,
+        totalItems: slip.totalItems,
+        totalMoney: slip.totalMoney
+      });
       return sendJson(res, 200, { ok: true, slip });
     }
 
@@ -2788,6 +2856,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       saveDb(db);
+      broadcastSseEvent('state_updated', { source: 'slip_update', drawId: slip.drawId, slipId: slip.id });
       return sendJson(res, 200, {
         ok: true,
         slip,
@@ -2862,6 +2931,10 @@ const server = http.createServer(async (req, res) => {
       }
 
       saveDb(db);
+      broadcastSseEvent('line_read_updated', {
+        customerName: body.customerName || '',
+        markAll: Boolean(body.markAll)
+      });
       return sendJson(res, 200, { ok: true, lineReadAt: db.lineReadAt });
     }
 
@@ -2980,6 +3053,7 @@ const server = http.createServer(async (req, res) => {
         });
 
         saveDb(db);
+        broadcastSseEvent('state_updated', { source: 'line_composer', drawId: currentDraw.id, customerName });
         return sendJson(res, 200, { ok: true, slip: newSlip, botReply });
       } else {
         db.lineChats.push({
@@ -3005,6 +3079,7 @@ const server = http.createServer(async (req, res) => {
             timestamp: new Date().toISOString()
           });
           saveDb(db);
+          broadcastSseEvent('state_updated', { source: 'line_composer', drawId: currentDraw.id, customerName });
           return sendJson(res, 200, { ok: false, botReply: errReply });
         }
 
@@ -3069,6 +3144,7 @@ const server = http.createServer(async (req, res) => {
         });
 
         saveDb(db);
+        broadcastSseEvent('state_updated', { source: 'line_composer', drawId: currentDraw.id, customerName });
         return sendJson(res, 200, { ok: true, slip: newSlip, botReply });
       }
     }
@@ -3106,6 +3182,7 @@ const server = http.createServer(async (req, res) => {
       const currentDraw = resolved.draw;
       const token = (db.settings.lineChannelAccessToken || process.env.LINE_CHANNEL_ACCESS_TOKEN || '').trim();
       db.lineChats = db.lineChats || [];
+      let lastWebhookEvent = null;
 
       for (const ev of events) {
         if (ev.type === 'message' && ev.message) {
@@ -3126,6 +3203,12 @@ const server = http.createServer(async (req, res) => {
                 text: ev.message.text,
                 timestamp: nowIso
               });
+              lastWebhookEvent = {
+                drawId: currentDraw.id,
+                customerName,
+                msgType: 'text',
+                preview: String(ev.message.text).slice(0, 60)
+              };
             }
             replyText = resolved.rejectMessage;
           } else if (ev.message.type === 'image' && token) {
@@ -3149,6 +3232,12 @@ const server = http.createServer(async (req, res) => {
                 text: `ส่งรูปโพย รอบที่ ${nextRound}`,
                 timestamp: nowIso
               });
+              lastWebhookEvent = {
+                drawId: currentDraw.id,
+                customerName,
+                msgType: 'image',
+                preview: `ส่งรูปโพย รอบที่ ${nextRound}`
+              };
 
               const hasApiKey = Boolean((db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim());
               let ocrResult = null;
@@ -3291,6 +3380,12 @@ const server = http.createServer(async (req, res) => {
               text: rawText,
               timestamp: nowIso
             });
+            lastWebhookEvent = {
+              drawId: currentDraw.id,
+              customerName,
+              msgType: 'text',
+              preview: rawText.slice(0, 60)
+            };
 
             const items = parseFreeTextMessage(rawText, db.settings);
             if (items.length > 0) {
@@ -3382,6 +3477,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       saveDb(db);
+      if (lastWebhookEvent) {
+        broadcastSseEvent('line_message', lastWebhookEvent);
+      }
       return sendJson(res, 200, { status: 'ok' });
     }
 
