@@ -54,6 +54,7 @@ let paperWhiteTheme = (() => {
 let isCalibratingTableBox = false;
 let calibDraftBox = null;
 let calibDraftQuad = null;
+let calibDraftMids = null;
 let calibDraftSplits = null;
 let currentZoom = 1.0;
 let uploadedBase64Image = '';
@@ -707,13 +708,23 @@ function renderCustomersInDraw() {
         })
         .join('');
 
+      const custSlips = c.slips || [];
+      const pendingSlips = custSlips.filter(sl => !sl.humanApproved || sl.status === 'pending_antigravity');
+      const pendingCount = pendingSlips.length;
+      const pendingWarnPts = pendingSlips.reduce((sum, sl) => sum + (sl.reviewCount || 0), 0);
+
       return `
-        <div class="customer-card ${isActive ? 'active-customer' : ''}" onclick="filterByCustomer('${escapeJsArg(c.customerName)}')">
+        <div class="customer-card ${isActive ? 'active-customer' : ''} ${pendingCount > 0 ? 'has-pending-review' : ''}" onclick="filterByCustomer('${escapeJsArg(c.customerName)}')">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
             <div style="flex:1;min-width:0;">
               <div style="font-size:13.5px;font-weight:700;color:var(--text-main);display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
                 <span>👤 ${escapeHtml(c.customerName)}</span>
                 <span class="runner-rounds-badge">ส่งแล้ว ${c.slipCount} รอบ</span>
+                ${
+                  pendingCount > 0
+                    ? `<button type="button" class="badge-50 pending-review-pill-btn" onclick="event.stopPropagation(); jumpToSlipInspector('${escapeJsArg(pendingSlips[0].id)}', 1, 1)" title="คลิกเพื่อเปิดหน้าตรวจบิล OCR ของคนนี้ทันที">⏳ รอตรวจ ${pendingCount} บิล${pendingWarnPts > 0 ? ` (${pendingWarnPts} จุดเตือน)` : ''} ➔</button>`
+                    : `<span class="badge-100" style="padding:2px 8px;font-size:11px;">✅ ตรวจครบแล้ว (เข้า Pool)</span>`
+                }
               </div>
               <div class="text-muted" style="margin-top:2px;font-size:11px;">
                 รวมทุกรอบ: <strong>${c.totalItems} รายการ</strong> • ล่าสุด: ${formatThaiDateTime(c.latestAt)}
@@ -2676,7 +2687,70 @@ function quadPoint(quad, u, v) {
   return [topX + (botX - topX) * v, topY + (botY - topY) * v];
 }
 
-function cellQuadPoints(quad, colSplits, col, row, sheetRows) {
+function defaultEdgeMids(quad) {
+  const [p0, p1, p2, p3] = quad;
+  return [
+    [Math.round((p0[0] + p1[0]) / 2), Math.round((p0[1] + p1[1]) / 2)], // 0: Top Mid
+    [Math.round((p1[0] + p2[0]) / 2), Math.round((p1[1] + p2[1]) / 2)], // 1: Right Mid
+    [Math.round((p3[0] + p2[0]) / 2), Math.round((p3[1] + p2[1]) / 2)], // 2: Bottom Mid
+    [Math.round((p0[0] + p3[0]) / 2), Math.round((p0[1] + p3[1]) / 2)]  // 3: Left Mid
+  ];
+}
+
+function normalizeEdgeMids(mids, quad) {
+  if (
+    Array.isArray(mids) &&
+    mids.length === 4 &&
+    mids.every(p => Array.isArray(p) && p.length === 2)
+  ) {
+    return mids.map(p => [Number(p[0]) || 0, Number(p[1]) || 0]);
+  }
+  return defaultEdgeMids(quad);
+}
+
+function quadBezier(p0, mid, p1, t) {
+  const ctrlX = 2 * mid[0] - 0.5 * (p0[0] + p1[0]);
+  const ctrlY = 2 * mid[1] - 0.5 * (p0[1] + p1[1]);
+  const mt = 1 - t;
+  return [
+    mt * mt * p0[0] + 2 * mt * t * ctrlX + t * t * p1[0],
+    mt * mt * p0[1] + 2 * mt * t * ctrlY + t * t * p1[1]
+  ];
+}
+
+function coonsPoint(quad, mids, u, v) {
+  if (!mids || mids.length !== 4) return quadPoint(quad, u, v);
+  const [p0, p1, p2, p3] = quad;
+  const T = quadBezier(p0, mids[0], p1, u);
+  const R = quadBezier(p1, mids[1], p2, v);
+  const B = quadBezier(p3, mids[2], p2, u);
+  const L = quadBezier(p0, mids[3], p3, v);
+  const Bi = quadPoint(quad, u, v);
+  return [
+    (1 - v) * T[0] + v * B[0] + (1 - u) * L[0] + u * R[0] - Bi[0],
+    (1 - v) * T[1] + v * B[1] + (1 - u) * L[1] + u * R[1] - Bi[1]
+  ];
+}
+
+function sampleCurvePath(quad, mids, axis, fixedVal, steps = 14) {
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    pts.push(axis === 'u' ? coonsPoint(quad, mids, fixedVal, t) : coonsPoint(quad, mids, t, fixedVal));
+  }
+  return pts;
+}
+
+function sampleQuadPerimeter(quad, mids, steps = 12) {
+  const pts = [];
+  for (let i = 0; i < steps; i++) pts.push(coonsPoint(quad, mids, i / steps, 0));
+  for (let i = 0; i < steps; i++) pts.push(coonsPoint(quad, mids, 1, i / steps));
+  for (let i = 0; i < steps; i++) pts.push(coonsPoint(quad, mids, 1 - i / steps, 1));
+  for (let i = 0; i < steps; i++) pts.push(coonsPoint(quad, mids, 0, 1 - i / steps));
+  return pts;
+}
+
+function cellCurvedPolygonPoints(quad, mids, colSplits, col, row, sheetRows, subSteps = 3) {
   const maxC = Math.max(1, colSplits.length - 1);
   const c = Math.max(1, Math.min(maxC, Number(col) || 1));
   const r = Math.max(1, Math.min(sheetRows, Number(row) || 1));
@@ -2684,12 +2758,16 @@ function cellQuadPoints(quad, colSplits, col, row, sheetRows) {
   const u1 = colSplits[c];
   const v0 = (r - 1) / sheetRows;
   const v1 = r / sheetRows;
-  return [
-    quadPoint(quad, u0, v0),
-    quadPoint(quad, u1, v0),
-    quadPoint(quad, u1, v1),
-    quadPoint(quad, u0, v1)
-  ];
+  const pts = [];
+  for (let i = 0; i < subSteps; i++) pts.push(coonsPoint(quad, mids, u0 + ((u1 - u0) * i) / subSteps, v0));
+  for (let i = 0; i < subSteps; i++) pts.push(coonsPoint(quad, mids, u1, v0 + ((v1 - v0) * i) / subSteps));
+  for (let i = 0; i < subSteps; i++) pts.push(coonsPoint(quad, mids, u1 - ((u1 - u0) * i) / subSteps, v1));
+  for (let i = 0; i < subSteps; i++) pts.push(coonsPoint(quad, mids, u0, v1 - ((v1 - v0) * i) / subSteps));
+  return pts;
+}
+
+function cellQuadPoints(quad, colSplits, col, row, sheetRows) {
+  return cellCurvedPolygonPoints(quad, null, colSplits, col, row, sheetRows, 1);
 }
 
 function svgPtsStr(pts) {
@@ -2722,8 +2800,15 @@ function getSlipGridMetrics(slip) {
           ? savedLayout.tableBox
           : defaultBox;
   const resolvedQuad = tableQuad || boxToQuad(tableBox);
+  const rawMids =
+    Array.isArray(slip?.tableMids) && slip.tableMids.length === 4
+      ? slip.tableMids
+      : !slip?.tableQuad && Array.isArray(savedLayout?.tableMids) && savedLayout.tableMids.length === 4
+        ? savedLayout.tableMids
+        : null;
+  const tableMids = normalizeEdgeMids(rawMids, resolvedQuad);
   const colSplits = normalizeColSplits(slip?.colSplits || savedLayout?.colSplits, maxCol);
-  return { maxCol, sheetRows, tableBox, tableQuad: resolvedQuad, colSplits, savedLayout };
+  return { maxCol, sheetRows, tableBox, tableQuad: resolvedQuad, tableMids, colSplits, savedLayout };
 }
 
 function isEffectivePaperView() {
@@ -2822,9 +2907,13 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   const slip = allInspectableSlips.find(s => s.id === slipId);
   if (!slip) return;
 
-  const { maxCol, sheetRows, tableQuad, colSplits } = getSlipGridMetrics(slip);
+  const { maxCol, sheetRows, tableQuad, tableMids, colSplits } = getSlipGridMetrics(slip);
   populateQuickSlipSelect(slip.id);
   applyInspectorLayoutUI(slip);
+  const btnRestore = document.getElementById('btnRestoreOriginalPhoto');
+  if (btnRestore) {
+    btnRestore.classList.toggle('hidden', !Boolean(slip.isFlattened && slip.originalImageUrl));
+  }
 
   currentInspectorRunner = slip.customerName;
   const learnInput = document.getElementById('learnCustomerInput');
@@ -2944,25 +3033,24 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
     `;
   }
 
-  // วาดกรอบชี้ตำแหน่งที่มีปัญหาบนรูปกระดาษโพยต้นฉบับ (SVG Polygon อิสระตามกรอบ 4 มุมเอียง & เส้นแบ่งคอลัมน์จริง)
+  // วาดกรอบชี้ตำแหน่งที่มีปัญหาบนรูปกระดาษโพยต้นฉบับ (SVG Polygon โค้งตามกรอบ 8 จุด & เส้นแบ่งคอลัมน์จริง)
   const gridOverlayEl = document.getElementById('gridOverlay4x30');
   if (gridOverlayEl) {
     const colLinesSvg = colSplits
       .slice(1, -1)
       .map(u => {
-        const top = quadPoint(tableQuad, u, 0);
-        const bot = quadPoint(tableQuad, u, 1);
-        return `<line x1="${top[0].toFixed(1)}" y1="${top[1].toFixed(1)}" x2="${bot[0].toFixed(1)}" y2="${bot[1].toFixed(1)}" stroke="rgba(245,158,11,0.88)" stroke-width="2" stroke-dasharray="6 4" vector-effect="non-scaling-stroke" />`;
+        const pts = sampleCurvePath(tableQuad, tableMids, 'u', u, 14);
+        return `<polyline points="${svgPtsStr(pts)}" fill="none" stroke="rgba(245,158,11,0.88)" stroke-width="2" stroke-dasharray="6 4" vector-effect="non-scaling-stroke" />`;
       })
       .join('');
     const colLabelsHtml = Array.from({ length: maxCol }, (_, idx) => {
       const uMid = (colSplits[idx] + colSplits[idx + 1]) / 2;
-      const pt = quadPoint(tableQuad, uMid, 0);
+      const pt = coonsPoint(tableQuad, tableMids, uMid, 0);
       return `<div class="calib-col-tag" style="left:${(pt[0] / 10).toFixed(2)}%;top:${(pt[1] / 10).toFixed(2)}%;">ค.${idx + 1}</div>`;
     }).join('');
     gridOverlayEl.innerHTML = `
       <svg class="photo-markers-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-        <polygon points="${svgPtsStr(tableQuad)}" fill="none" stroke="rgba(249,115,22,0.9)" stroke-width="2.2" vector-effect="non-scaling-stroke" />
+        <polygon points="${svgPtsStr(sampleQuadPerimeter(tableQuad, tableMids, 12))}" fill="none" stroke="rgba(249,115,22,0.9)" stroke-width="2.2" vector-effect="non-scaling-stroke" />
         ${colLinesSvg}
       </svg>
       ${colLabelsHtml}
@@ -2987,7 +3075,7 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
                   [w.box2d[3], w.box2d[2]],
                   [w.box2d[1], w.box2d[2]]
                 ]
-              : cellQuadPoints(tableQuad, colSplits, w.col || 1, w.row || 1, sheetRows);
+              : cellCurvedPolygonPoints(tableQuad, tableMids, colSplits, w.col || 1, w.row || 1, sheetRows, 3);
           const tipX = Math.min(...pts.map(p => p[0]));
           const tipY = Math.min(...pts.map(p => p[1]));
           const label = `คอลัมน์ ${Number(w.col) || 1} แถว ${Number(w.row) || 1} (${escapeHtml(w.numText)}=${escapeHtml(w.amtText)})`;
@@ -3179,7 +3267,7 @@ function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
   if (!focusGroup) return;
   const allInspectableSlips = [...(appState.slips || []), ...(appState.trainingSlips || [])];
   const slip = allInspectableSlips.find(s => s.id === currentInspectedSlipId);
-  const { sheetRows, tableQuad, colSplits } = getSlipGridMetrics(slip);
+  const { sheetRows, tableQuad, tableMids, colSplits } = getSlipGridMetrics(slip);
   const matchingItem = (slip?.items || []).find(i => Number(i.col) === Number(col) && Number(i.row) === Number(row));
 
   const pts =
@@ -3190,7 +3278,7 @@ function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
           [matchingItem.box2d[3], matchingItem.box2d[2]],
           [matchingItem.box2d[1], matchingItem.box2d[2]]
         ]
-      : cellQuadPoints(tableQuad, colSplits, col, row, sheetRows);
+      : cellCurvedPolygonPoints(tableQuad, tableMids, colSplits, col, row, sheetRows, 3);
 
   const tipX = Math.min(...pts.map(p => p[0]));
   const tipY = Math.min(...pts.map(p => p[1]));
@@ -3208,8 +3296,8 @@ function highlightActivePhotoCell(col, row, numText = '', amtText = '') {
   const viewport = document.getElementById('photoViewport');
   const wrap = document.getElementById('photoCanvasWrap');
   if (viewport && wrap) {
-    const cx = pts.reduce((s, p) => s + p[0], 0) / 4000;
-    const cy = pts.reduce((s, p) => s + p[1], 0) / 4000;
+    const cx = pts.reduce((s, p) => s + p[0], 0) / (pts.length * 1000);
+    const cy = pts.reduce((s, p) => s + p[1], 0) / (pts.length * 1000);
     const targetX = wrap.offsetWidth * cx;
     const targetY = wrap.offsetHeight * cy;
     viewport.scrollTo({
@@ -3531,8 +3619,9 @@ function toggleTableBoxCalibration() {
   const bar = document.getElementById('tableBoxCalibrationBar');
   const btn = document.getElementById('btnCalibrateTableBox');
   if (isCalibratingTableBox) {
-    const { tableQuad, colSplits } = getSlipGridMetrics(slip);
+    const { tableQuad, tableMids, colSplits } = getSlipGridMetrics(slip);
     calibDraftQuad = tableQuad.map(p => [...p]);
+    calibDraftMids = tableMids.map(p => [...p]);
     calibDraftSplits = [...colSplits];
     calibDraftBox = quadToBox(calibDraftQuad);
     if (bar) bar.classList.remove('hidden');
@@ -3550,6 +3639,7 @@ function cancelTableBoxCalibration() {
   isCalibratingTableBox = false;
   calibDraftBox = null;
   calibDraftQuad = null;
+  calibDraftMids = null;
   calibDraftSplits = null;
   const bar = document.getElementById('tableBoxCalibrationBar');
   if (bar) bar.classList.add('hidden');
@@ -3563,17 +3653,18 @@ function cancelTableBoxCalibration() {
 }
 
 function resetCalibrationSplits() {
-  if (!isCalibratingTableBox) return;
+  if (!isCalibratingTableBox || !calibDraftQuad) return;
   const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
   const { maxCol } = getSlipGridMetrics(slip);
   calibDraftSplits = makeEqualSplits(maxCol);
+  calibDraftMids = defaultEdgeMids(calibDraftQuad);
   renderTableBoxCalibrator();
-  showToast('↺ รีเซ็ตเส้นแบ่งคอลัมน์ให้เท่ากันทุกช่องแล้ว');
+  showToast('↺ รีเซ็ตเส้นตรงและแบ่งคอลัมน์เท่ากันทุกช่องแล้ว');
 }
 
 function renderTableBoxCalibrator() {
   const existing = document.getElementById('tableCalibOverlay');
-  if (!isCalibratingTableBox || !calibDraftQuad || !calibDraftSplits) {
+  if (!isCalibratingTableBox || !calibDraftQuad || !calibDraftMids || !calibDraftSplits) {
     if (existing) existing.remove();
     return;
   }
@@ -3595,6 +3686,11 @@ function renderTableBoxCalibrator() {
     .map((_, idx) => `<div class="calib-corner-handle" data-drag-kind="corner" data-idx="${idx}" title="ลากปรับ ${cornerNames[idx]}"></div>`)
     .join('');
 
+  const midNames = ['จุดกลางขอบบน (ดัดโค้งบน)', 'จุดกลางขอบขวา (ดัดโค้งขวา)', 'จุดกลางขอบล่าง (ดัดโค้งล่าง)', 'จุดกลางขอบซ้าย (ดัดโค้งซ้าย)'];
+  const midHandlesHtml = calibDraftMids
+    .map((_, idx) => `<div class="calib-mid-handle" data-drag-kind="mid" data-idx="${idx}" title="ลาก ${midNames[idx]}"></div>`)
+    .join('');
+
   const splitHandlesHtml = [];
   for (let i = 1; i < maxCol; i++) {
     splitHandlesHtml.push(`<div class="calib-split-handle" data-drag-kind="split" data-idx="${i}" data-v="0" title="ลากขยับความกว้างคอลัมน์ ${i} / ${i + 1}">↔</div>`);
@@ -3610,6 +3706,7 @@ function renderTableBoxCalibrator() {
     <svg class="calib-svg" id="calibSvgCanvas" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
     ${colTagsHtml}
     ${splitHandlesHtml.join('')}
+    ${midHandlesHtml}
     ${cornerHandlesHtml}
   `;
 
@@ -3618,20 +3715,16 @@ function renderTableBoxCalibrator() {
     if (svg) {
       const rowLines = [];
       for (let r = 1; r < sheetRows; r++) {
-        const v = r / sheetRows;
-        const pL = quadPoint(calibDraftQuad, 0, v);
-        const pR = quadPoint(calibDraftQuad, 1, v);
-        rowLines.push(`<line class="calib-row-line" x1="${pL[0].toFixed(1)}" y1="${pL[1].toFixed(1)}" x2="${pR[0].toFixed(1)}" y2="${pR[1].toFixed(1)}" />`);
+        const pts = sampleCurvePath(calibDraftQuad, calibDraftMids, 'v', r / sheetRows, 14);
+        rowLines.push(`<polyline class="calib-row-line" fill="none" points="${svgPtsStr(pts)}" />`);
       }
       const colLines = [];
       for (let i = 1; i < calibDraftSplits.length - 1; i++) {
-        const u = calibDraftSplits[i];
-        const pT = quadPoint(calibDraftQuad, u, 0);
-        const pB = quadPoint(calibDraftQuad, u, 1);
-        colLines.push(`<line class="calib-col-line" x1="${pT[0].toFixed(1)}" y1="${pT[1].toFixed(1)}" x2="${pB[0].toFixed(1)}" y2="${pB[1].toFixed(1)}" />`);
+        const pts = sampleCurvePath(calibDraftQuad, calibDraftMids, 'u', calibDraftSplits[i], 14);
+        colLines.push(`<polyline class="calib-col-line" fill="none" points="${svgPtsStr(pts)}" />`);
       }
       svg.innerHTML = `
-        <polygon class="calib-body-poly" data-drag-kind="move" points="${svgPtsStr(calibDraftQuad)}" />
+        <polygon class="calib-body-poly" data-drag-kind="move" points="${svgPtsStr(sampleQuadPerimeter(calibDraftQuad, calibDraftMids, 14))}" />
         ${rowLines.join('')}
         ${colLines.join('')}
       `;
@@ -3646,10 +3739,19 @@ function renderTableBoxCalibrator() {
       }
     });
 
+    overlayEl.querySelectorAll('.calib-mid-handle').forEach(el => {
+      const idx = Number(el.getAttribute('data-idx'));
+      const p = calibDraftMids[idx];
+      if (p) {
+        el.style.left = `${(p[0] / 10).toFixed(2)}%`;
+        el.style.top = `${(p[1] / 10).toFixed(2)}%`;
+      }
+    });
+
     overlayEl.querySelectorAll('.calib-split-handle').forEach(el => {
       const idx = Number(el.getAttribute('data-idx'));
       const v = Number(el.getAttribute('data-v')) || 0;
-      const p = quadPoint(calibDraftQuad, calibDraftSplits[idx], v);
+      const p = coonsPoint(calibDraftQuad, calibDraftMids, calibDraftSplits[idx], v);
       el.style.left = `${(p[0] / 10).toFixed(2)}%`;
       el.style.top = `${(p[1] / 10).toFixed(2)}%`;
     });
@@ -3657,13 +3759,20 @@ function renderTableBoxCalibrator() {
     overlayEl.querySelectorAll('.calib-col-tag').forEach(el => {
       const idx = Number(el.getAttribute('data-col-tag'));
       const uMid = (calibDraftSplits[idx] + calibDraftSplits[idx + 1]) / 2;
-      const p = quadPoint(calibDraftQuad, uMid, 0);
+      const p = coonsPoint(calibDraftQuad, calibDraftMids, uMid, 0);
       el.style.left = `${(p[0] / 10).toFixed(2)}%`;
       el.style.top = `${(p[1] / 10).toFixed(2)}%`;
     });
   };
 
   updateVisuals();
+
+  const adjMidsForCorner = [
+    [0, 3], // corner 0 (TL) -> top mid, left mid
+    [0, 1], // corner 1 (TR) -> top mid, right mid
+    [1, 2], // corner 2 (BR) -> right mid, bottom mid
+    [2, 3]  // corner 3 (BL) -> bottom mid, left mid
+  ];
 
   overlayEl.onpointerdown = ev => {
     const kind = ev.target?.getAttribute?.('data-drag-kind');
@@ -3676,6 +3785,7 @@ function renderTableBoxCalibrator() {
     const startX = ev.clientX;
     const startY = ev.clientY;
     const origQuad = calibDraftQuad.map(p => [...p]);
+    const origMids = calibDraftMids.map(p => [...p]);
     const idx = Number(ev.target.getAttribute('data-idx'));
     const handleV = Number(ev.target.getAttribute('data-v')) || 0;
 
@@ -3683,25 +3793,41 @@ function renderTableBoxCalibrator() {
       if (kind === 'corner') {
         const dx = ((mv.clientX - startX) / rect.width) * 1000;
         const dy = ((mv.clientY - startY) / rect.height) * 1000;
-        calibDraftQuad[idx] = [
-          Math.max(0, Math.min(1000, Math.round(origQuad[idx][0] + dx))),
-          Math.max(0, Math.min(1000, Math.round(origQuad[idx][1] + dy)))
+        const nx = Math.max(0, Math.min(1000, Math.round(origQuad[idx][0] + dx)));
+        const ny = Math.max(0, Math.min(1000, Math.round(origQuad[idx][1] + dy)));
+        const actualDx = nx - origQuad[idx][0];
+        const actualDy = ny - origQuad[idx][1];
+        calibDraftQuad[idx] = [nx, ny];
+        adjMidsForCorner[idx].forEach(mIdx => {
+          calibDraftMids[mIdx] = [
+            Math.max(0, Math.min(1000, Math.round(origMids[mIdx][0] + actualDx * 0.5))),
+            Math.max(0, Math.min(1000, Math.round(origMids[mIdx][1] + actualDy * 0.5)))
+          ];
+        });
+      } else if (kind === 'mid') {
+        const dx = ((mv.clientX - startX) / rect.width) * 1000;
+        const dy = ((mv.clientY - startY) / rect.height) * 1000;
+        calibDraftMids[idx] = [
+          Math.max(0, Math.min(1000, Math.round(origMids[idx][0] + dx))),
+          Math.max(0, Math.min(1000, Math.round(origMids[idx][1] + dy)))
         ];
       } else if (kind === 'move') {
         const dx = ((mv.clientX - startX) / rect.width) * 1000;
         const dy = ((mv.clientY - startY) / rect.height) * 1000;
-        const minDx = -Math.min(...origQuad.map(p => p[0]));
-        const maxDx = 1000 - Math.max(...origQuad.map(p => p[0]));
-        const minDy = -Math.min(...origQuad.map(p => p[1]));
-        const maxDy = 1000 - Math.max(...origQuad.map(p => p[1]));
+        const allPts = [...origQuad, ...origMids];
+        const minDx = -Math.min(...allPts.map(p => p[0]));
+        const maxDx = 1000 - Math.max(...allPts.map(p => p[0]));
+        const minDy = -Math.min(...allPts.map(p => p[1]));
+        const maxDy = 1000 - Math.max(...allPts.map(p => p[1]));
         const clDx = Math.max(minDx, Math.min(maxDx, dx));
         const clDy = Math.max(minDy, Math.min(maxDy, dy));
         calibDraftQuad = origQuad.map(p => [Math.round(p[0] + clDx), Math.round(p[1] + clDy)]);
+        calibDraftMids = origMids.map(p => [Math.round(p[0] + clDx), Math.round(p[1] + clDy)]);
       } else if (kind === 'split') {
         const mx = ((mv.clientX - rect.left) / rect.width) * 1000;
         const my = ((mv.clientY - rect.top) / rect.height) * 1000;
-        const pL = quadPoint(calibDraftQuad, 0, handleV);
-        const pR = quadPoint(calibDraftQuad, 1, handleV);
+        const pL = coonsPoint(calibDraftQuad, calibDraftMids, 0, handleV);
+        const pR = coonsPoint(calibDraftQuad, calibDraftMids, 1, handleV);
         const vx = pR[0] - pL[0];
         const vy = pR[1] - pL[1];
         const len2 = vx * vx + vy * vy;
@@ -3727,7 +3853,7 @@ function renderTableBoxCalibrator() {
 
 async function saveCalibratedTableBox() {
   const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
-  if (!slip || !calibDraftQuad || !calibDraftSplits) return;
+  if (!slip || !calibDraftQuad || !calibDraftMids || !calibDraftSplits) return;
   const { maxCol, sheetRows } = getSlipGridMetrics(slip);
   const colHeaders = Array.from({ length: maxCol }, (_, idx) => {
     const sample = (slip.items || []).find(i => Number(i.col) === idx + 1 && i.colHeader);
@@ -3742,6 +3868,7 @@ async function saveCalibratedTableBox() {
       slipId: slip.id,
       tableBox: quadToBox(calibDraftQuad),
       tableQuad: calibDraftQuad,
+      tableMids: calibDraftMids,
       colSplits: calibDraftSplits,
       totalCols: maxCol,
       rowsPerCol: sheetRows,
@@ -3755,7 +3882,216 @@ async function saveCalibratedTableBox() {
   }
   cancelTableBoxCalibration();
   await fetchAppState();
-  showToast(`💾 จำกรอบอิสระ 4 มุม & ช่องคอลัมน์ ${maxCol}×${sheetRows} ไว้ให้ "${slip.customerName}" เรียบร้อย!`);
+  showToast(`💾 จำกรอบโค้ง 8 จุด & ช่องคอลัมน์ ${maxCol}×${sheetRows} ไว้ให้ "${slip.customerName}" เรียบร้อย!`);
+}
+
+async function flattenSlipPhotoFromCalibration() {
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  const imgEl = document.getElementById('inspectorImage');
+  if (!slip || !imgEl || !imgEl.src || !calibDraftQuad || !calibDraftMids || !calibDraftSplits) {
+    showToast('⚠️ กรุณากด "📐 ปรับกรอบให้ตรง" และรอรูปโหลดก่อนครับ');
+    return;
+  }
+
+  const btn = document.getElementById('btnFlattenSlipPhoto');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ กำลังปรับภาพเอกสารตรง...';
+  }
+
+  try {
+    const loadedImg = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error('ไม่สามารถอ่านไฟล์ภาพต้นฉบับได้'));
+      im.src = imgEl.src;
+    });
+
+    const srcW = loadedImg.naturalWidth || loadedImg.width;
+    const srcH = loadedImg.naturalHeight || loadedImg.height;
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = srcW;
+    srcCanvas.height = srcH;
+    const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+    srcCtx.drawImage(loadedImg, 0, 0, srcW, srcH);
+    const srcImgData = srcCtx.getImageData(0, 0, srcW, srcH).data;
+
+    // Estimate straightened table dimensions in source pixels
+    const topPxW = Math.hypot((calibDraftQuad[1][0] - calibDraftQuad[0][0]) * srcW / 1000, (calibDraftQuad[1][1] - calibDraftQuad[0][1]) * srcH / 1000);
+    const botPxW = Math.hypot((calibDraftQuad[2][0] - calibDraftQuad[3][0]) * srcW / 1000, (calibDraftQuad[2][1] - calibDraftQuad[3][1]) * srcH / 1000);
+    const leftPxH = Math.hypot((calibDraftQuad[3][0] - calibDraftQuad[0][0]) * srcW / 1000, (calibDraftQuad[3][1] - calibDraftQuad[0][1]) * srcH / 1000);
+    const rightPxH = Math.hypot((calibDraftQuad[2][0] - calibDraftQuad[1][0]) * srcW / 1000, (calibDraftQuad[2][1] - calibDraftQuad[1][1]) * srcH / 1000);
+    let tableOutW = Math.max(400, (topPxW + botPxW) / 2);
+    let tableOutH = Math.max(300, (leftPxH + rightPxH) / 2);
+
+    const padLeftFrac = 0.04;
+    const padRightFrac = 0.04;
+    const padTopFrac = 0.11;
+    const padBotFrac = 0.08;
+
+    let outW = Math.round(tableOutW / (1 - padLeftFrac - padRightFrac));
+    let outH = Math.round(tableOutH / (1 - padTopFrac - padBotFrac));
+    const maxDim = 1600;
+    if (Math.max(outW, outH) > maxDim) {
+      const sc = maxDim / Math.max(outW, outH);
+      outW = Math.round(outW * sc);
+      outH = Math.round(outH * sc);
+    }
+
+    const outLeftPx = Math.round(outW * padLeftFrac);
+    const outRightPx = Math.round(outW * (1 - padRightFrac));
+    const outTopPx = Math.round(outH * padTopFrac);
+    const outBotPx = Math.round(outH * (1 - padBotFrac));
+    const effTableW = Math.max(1, outRightPx - outLeftPx);
+    const effTableH = Math.max(1, outBotPx - outTopPx);
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = outW;
+    outCanvas.height = outH;
+    const outCtx = outCanvas.getContext('2d');
+    const outImageData = outCtx.createImageData(outW, outH);
+    const outData = outImageData.data;
+
+    // Precompute Coons patch delta LUTs along X (u) and Y (v) for fast bilinear warp
+    const quadPx = calibDraftQuad.map(p => [(p[0] / 1000) * srcW, (p[1] / 1000) * srcH]);
+    const midsPx = calibDraftMids.map(p => [(p[0] / 1000) * srcW, (p[1] / 1000) * srcH]);
+    const [q0, q1, q2, q3] = quadPx;
+
+    const uArr = new Float32Array(outW);
+    const dTopX = new Float32Array(outW);
+    const dTopY = new Float32Array(outW);
+    const dBotX = new Float32Array(outW);
+    const dBotY = new Float32Array(outW);
+    for (let ox = 0; ox < outW; ox++) {
+      const u = (ox - outLeftPx) / effTableW;
+      uArr[ox] = u;
+      const tPt = quadBezier(q0, midsPx[0], q1, u);
+      const bPt = quadBezier(q3, midsPx[2], q2, u);
+      dTopX[ox] = tPt[0] - (q0[0] + (q1[0] - q0[0]) * u);
+      dTopY[ox] = tPt[1] - (q0[1] + (q1[1] - q0[1]) * u);
+      dBotX[ox] = bPt[0] - (q3[0] + (q2[0] - q3[0]) * u);
+      dBotY[ox] = bPt[1] - (q3[1] + (q2[1] - q3[1]) * u);
+    }
+
+    const vArr = new Float32Array(outH);
+    const lX = new Float32Array(outH);
+    const lY = new Float32Array(outH);
+    const rX = new Float32Array(outH);
+    const rY = new Float32Array(outH);
+    for (let oy = 0; oy < outH; oy++) {
+      const v = (oy - outTopPx) / effTableH;
+      vArr[oy] = v;
+      const lPt = quadBezier(q0, midsPx[3], q3, v);
+      const rPt = quadBezier(q1, midsPx[1], q2, v);
+      lX[oy] = lPt[0];
+      lY[oy] = lPt[1];
+      rX[oy] = rPt[0];
+      rY[oy] = rPt[1];
+    }
+
+    const maxSrcX = srcW - 1.001;
+    const maxSrcY = srcH - 1.001;
+    let dstOff = 0;
+    for (let oy = 0; oy < outH; oy++) {
+      const v = vArr[oy];
+      const oneMinusV = 1 - v;
+      const curLX = lX[oy];
+      const curLY = lY[oy];
+      const curRX = rX[oy];
+      const curRY = rY[oy];
+      for (let ox = 0; ox < outW; ox++) {
+        const u = uArr[ox];
+        const oneMinusU = 1 - u;
+        let sx = oneMinusV * dTopX[ox] + v * dBotX[ox] + oneMinusU * curLX + u * curRX;
+        let sy = oneMinusV * dTopY[ox] + v * dBotY[ox] + oneMinusU * curLY + u * curRY;
+        if (sx < 0) sx = 0;
+        else if (sx > maxSrcX) sx = maxSrcX;
+        if (sy < 0) sy = 0;
+        else if (sy > maxSrcY) sy = maxSrcY;
+
+        const x0 = sx | 0;
+        const y0 = sy | 0;
+        const fx = sx - x0;
+        const fy = sy - y0;
+        const fx1 = 1 - fx;
+        const fy1 = 1 - fy;
+
+        const w00 = fx1 * fy1;
+        const w10 = fx * fy1;
+        const w01 = fx1 * fy;
+        const w11 = fx * fy;
+
+        const i00 = (y0 * srcW + x0) * 4;
+        const i10 = i00 + 4;
+        const i01 = i00 + srcW * 4;
+        const i11 = i01 + 4;
+
+        outData[dstOff] = srcImgData[i00] * w00 + srcImgData[i10] * w10 + srcImgData[i01] * w01 + srcImgData[i11] * w11;
+        outData[dstOff + 1] = srcImgData[i00 + 1] * w00 + srcImgData[i10 + 1] * w10 + srcImgData[i01 + 1] * w01 + srcImgData[i11 + 1] * w11;
+        outData[dstOff + 2] = srcImgData[i00 + 2] * w00 + srcImgData[i10 + 2] * w10 + srcImgData[i01 + 2] * w01 + srcImgData[i11 + 2] * w11;
+        outData[dstOff + 3] = 255;
+        dstOff += 4;
+      }
+    }
+    outCtx.putImageData(outImageData, 0, 0);
+    const dataUrl = outCanvas.toDataURL('image/jpeg', 0.9);
+
+    const flatBox = [
+      Math.round(padTopFrac * 1000),
+      Math.round(padLeftFrac * 1000),
+      Math.round((1 - padBotFrac) * 1000),
+      Math.round((1 - padRightFrac) * 1000)
+    ];
+    const flatQuad = boxToQuad(flatBox);
+    const flatMids = defaultEdgeMids(flatQuad);
+    const { maxCol, sheetRows } = getSlipGridMetrics(slip);
+
+    const res = await fetch(`/api/slips/${encodeURIComponent(slip.id)}/flatten`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base64Image: dataUrl,
+        sourceQuad: calibDraftQuad,
+        sourceMids: calibDraftMids,
+        colSplits: calibDraftSplits,
+        totalCols: maxCol,
+        rowsPerCol: sheetRows,
+        flatBox,
+        flatQuad,
+        flatMids
+      })
+    });
+    if (!res.ok) {
+      throw new Error(await readApiError(res, 'ไม่สามารถบันทึกรูปภาพเอกสารตรงได้'));
+    }
+    cancelTableBoxCalibration();
+    await fetchAppState();
+    showToast('📄 แปลงรูปโพยเป็นภาพเอกสารตรงเรียบร้อย! (กด "↩️ คืนรูปต้นฉบับ" ได้ตลอดเวลา)');
+  } catch (err) {
+    showToast(`❌ ${err.message || 'แปลงภาพไม่สำเร็จ'}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '📄 แปลงเป็นภาพเอกสารตรง';
+    }
+  }
+}
+
+async function restoreOriginalSlipPhoto() {
+  const slip = (appState.slips || []).find(s => s.id === currentInspectedSlipId);
+  if (!slip) return;
+  const res = await fetch(`/api/slips/${encodeURIComponent(slip.id)}/flatten`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ restoreOriginal: true })
+  });
+  if (!res.ok) {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถคืนรูปต้นฉบับได้')}`);
+    return;
+  }
+  cancelTableBoxCalibration();
+  await fetchAppState();
+  showToast('↩️ คืนค่ารูปโพยต้นฉบับเรียบร้อยแล้ว');
 }
 
 function adjustZoom(delta) {

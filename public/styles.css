@@ -528,6 +528,26 @@ body {
   background: var(--primary-soft);
 }
 
+.customer-card.has-pending-review {
+  border-left: 4px solid #f59e0b;
+}
+
+.pending-review-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.pending-review-pill-btn:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
 .runner-rounds-badge {
   background: var(--primary-soft);
   color: var(--primary-hover);
@@ -1640,6 +1660,25 @@ body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .paper-grid-4col 
 .calib-corner-handle:active {
   cursor: grabbing;
   transform: translate(-50%, -50%) scale(1.15);
+}
+
+.calib-mid-handle {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  transform: translate(-50%, -50%);
+  background: #0ea5e9;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  cursor: grab;
+  z-index: 18;
+  touch-action: none;
+}
+
+.calib-mid-handle:hover,
+.calib-mid-handle:active {
+  transform: translate(-50%, -50%) scale(1.16);
 }
 
 .calib-split-handle {

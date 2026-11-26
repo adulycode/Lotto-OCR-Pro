@@ -1351,6 +1351,11 @@ const server = http.createServer(async (req, res) => {
       } else if (!slip.colSplits && Array.isArray(db.runnerLayouts?.[slip.customerName]?.colSplits)) {
         slip.colSplits = db.runnerLayouts[slip.customerName].colSplits;
       }
+      if (Array.isArray(body.tableMids) && body.tableMids.length === 4) {
+        slip.tableMids = body.tableMids;
+      } else if (!slip.tableMids && Array.isArray(db.runnerLayouts?.[slip.customerName]?.tableMids)) {
+        slip.tableMids = db.runnerLayouts[slip.customerName].tableMids;
+      }
 
       slip.items = validatedItems;
       slip.isGrid4x30 = validatedItems.length > 30;
@@ -1447,6 +1452,15 @@ const server = http.createServer(async (req, res) => {
         rawSplits.every((v, idx) => idx === 0 || v > rawSplits[idx - 1])
           ? rawSplits.map(v => Number(v.toFixed(4)))
           : null;
+      const rawMids =
+        Array.isArray(body.tableMids) &&
+        body.tableMids.length === 4 &&
+        body.tableMids.every(p => Array.isArray(p) && p.length === 2)
+          ? body.tableMids.map(p => [
+              Math.max(0, Math.min(1000, Math.round(Number(p[0]) || 0))),
+              Math.max(0, Math.min(1000, Math.round(Number(p[1]) || 0)))
+            ])
+          : null;
 
       db.runnerLayouts = db.runnerLayouts || {};
       const preferredRotationDeg =
@@ -1457,6 +1471,7 @@ const server = http.createServer(async (req, res) => {
       const layout = {
         tableBox: rawBox,
         tableQuad: rawQuad || db.runnerLayouts[customerName]?.tableQuad || null,
+        tableMids: rawMids || db.runnerLayouts[customerName]?.tableMids || null,
         colSplits: validSplits || db.runnerLayouts[customerName]?.colSplits || null,
         totalCols: Math.max(1, Number(body.totalCols) || 4),
         rowsPerCol: Math.max(1, Number(body.rowsPerCol) || 30),
@@ -1471,6 +1486,7 @@ const server = http.createServer(async (req, res) => {
         if (slip) {
           slip.tableBox = rawBox;
           if (layout.tableQuad) slip.tableQuad = layout.tableQuad;
+          if (layout.tableMids) slip.tableMids = layout.tableMids;
           if (layout.colSplits) slip.colSplits = layout.colSplits;
           if (body.preferredRotationDeg !== undefined) {
             slip.rotationDeg = preferredRotationDeg;
@@ -2044,6 +2060,114 @@ const server = http.createServer(async (req, res) => {
         slip: newSlip,
         ocrResult
       });
+    }
+
+    // API: Flatten / Straighten Slip Image via 8-point Coons Patch (or restore original)
+    if (req.method === 'POST' && /^\/api\/slips\/[^/]+\/flatten$/.test(pathname)) {
+      const slipId = decodeURIComponent(pathname.replace('/api/slips/', '').replace('/flatten', ''));
+      const body = await parseJsonBody(req);
+      const db = loadDb();
+      const slip = (db.slips || []).find(s => s.id === slipId);
+      if (!slip) return sendJson(res, 404, { ok: false, error: 'ไม่พบบิลนี้ในระบบ' });
+
+      if (body.restoreOriginal) {
+        if (!slip.originalImageUrl) {
+          return sendJson(res, 400, { ok: false, error: 'ไม่มีรูปต้นฉบับให้กู้คืน' });
+        }
+        const prevFlat = slip.imageUrl;
+        slip.imageUrl = slip.originalImageUrl;
+        slip.rotationDeg = slip.originalRotationDeg ?? 0;
+        slip.isFlattened = false;
+        if (Array.isArray(slip.originalTableQuad) && slip.originalTableQuad.length === 4) {
+          slip.tableQuad = slip.originalTableQuad;
+        }
+        if (Array.isArray(slip.originalTableMids) && slip.originalTableMids.length === 4) {
+          slip.tableMids = slip.originalTableMids;
+        }
+        if (Array.isArray(slip.tableQuad) && slip.tableQuad.length === 4) {
+          const xs = slip.tableQuad.map(p => Number(p[0]) || 0);
+          const ys = slip.tableQuad.map(p => Number(p[1]) || 0);
+          slip.tableBox = [Math.round(Math.min(...ys)), Math.round(Math.min(...xs)), Math.round(Math.max(...ys)), Math.round(Math.max(...xs))];
+        }
+        if (
+          prevFlat &&
+          prevFlat !== slip.imageUrl &&
+          prevFlat.startsWith('/uploads/flattened-')
+        ) {
+          const oldPath = path.resolve(PUBLIC_DIR, prevFlat.replace(/^\/+/, ''));
+          if (oldPath.startsWith(UPLOADS_DIR + path.sep) && fs.existsSync(oldPath)) {
+            try { fs.unlinkSync(oldPath); } catch {}
+          }
+        }
+        appendAuditLog(
+          db,
+          getActorFromReq(req, body),
+          'คืนค่ารูปโพยต้นฉบับ',
+          `คืนค่ารูปต้นฉบับของ "${slip.customerName}" (${slip.title})`
+        );
+        saveDb(db);
+        return sendJson(res, 200, { ok: true, slip });
+      }
+
+      const rawImg = String(body.base64Image || '');
+      const matches = rawImg.match(/^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/i);
+      if (!matches) {
+        return sendJson(res, 400, { ok: false, error: 'ไฟล์ภาพที่แปลงแล้วไม่ถูกต้อง' });
+      }
+      const ext = matches[1].toLowerCase() === 'png' ? 'png' : 'jpg';
+      const fileName = `flattened-${Date.now()}.${ext}`;
+      fs.writeFileSync(path.join(UPLOADS_DIR, fileName), Buffer.from(matches[2], 'base64'));
+
+      if (!slip.isFlattened) {
+        slip.originalImageUrl = slip.originalImageUrl || slip.imageUrl;
+        slip.originalRotationDeg = slip.originalRotationDeg ?? (slip.rotationDeg || 0);
+      } else if (slip.imageUrl && slip.imageUrl.startsWith('/uploads/flattened-')) {
+        const oldPath = path.resolve(PUBLIC_DIR, slip.imageUrl.replace(/^\/+/, ''));
+        if (oldPath.startsWith(UPLOADS_DIR + path.sep) && fs.existsSync(oldPath)) {
+          try { fs.unlinkSync(oldPath); } catch {}
+        }
+      }
+
+      if (Array.isArray(body.sourceQuad) && body.sourceQuad.length === 4) {
+        slip.originalTableQuad = body.sourceQuad;
+      }
+      if (Array.isArray(body.sourceMids) && body.sourceMids.length === 4) {
+        slip.originalTableMids = body.sourceMids;
+      }
+
+      db.runnerLayouts = db.runnerLayouts || {};
+      if (slip.customerName && Array.isArray(body.sourceQuad) && body.sourceQuad.length === 4) {
+        const xs = body.sourceQuad.map(p => Number(p[0]) || 0);
+        const ys = body.sourceQuad.map(p => Number(p[1]) || 0);
+        db.runnerLayouts[slip.customerName] = {
+          ...(db.runnerLayouts[slip.customerName] || {}),
+          tableBox: [Math.round(Math.min(...ys)), Math.round(Math.min(...xs)), Math.round(Math.max(...ys)), Math.round(Math.max(...xs))],
+          tableQuad: body.sourceQuad,
+          tableMids: Array.isArray(body.sourceMids) && body.sourceMids.length === 4 ? body.sourceMids : null,
+          colSplits: Array.isArray(body.colSplits) ? body.colSplits : db.runnerLayouts[slip.customerName]?.colSplits || null,
+          totalCols: Number(body.totalCols) || db.runnerLayouts[slip.customerName]?.totalCols || 4,
+          rowsPerCol: Number(body.rowsPerCol) || db.runnerLayouts[slip.customerName]?.rowsPerCol || 30,
+          preferredRotationDeg: slip.originalRotationDeg ?? 0,
+          updatedAt: new Date().toISOString()
+        };
+      }
+
+      slip.imageUrl = `/uploads/${fileName}`;
+      slip.rotationDeg = 0;
+      slip.isFlattened = true;
+      if (Array.isArray(body.flatBox) && body.flatBox.length === 4) slip.tableBox = body.flatBox;
+      if (Array.isArray(body.flatQuad) && body.flatQuad.length === 4) slip.tableQuad = body.flatQuad;
+      if (Array.isArray(body.flatMids) && body.flatMids.length === 4) slip.tableMids = body.flatMids;
+      if (Array.isArray(body.colSplits) && body.colSplits.length >= 2) slip.colSplits = body.colSplits;
+
+      appendAuditLog(
+        db,
+        getActorFromReq(req, body),
+        'แปลงรูปโพยเป็นภาพเอกสารตรง',
+        `ดัดแปลงรูปโพยของ "${slip.customerName}" (${slip.title}) เป็นภาพเอกสารตรง`
+      );
+      saveDb(db);
+      return sendJson(res, 200, { ok: true, slip });
     }
 
     // API: Re-run AI OCR on an Existing Slip Image (supports upright rotated image from client)

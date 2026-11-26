@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_61" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_62" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -611,8 +611,11 @@
               <button class="btn btn-sm btn-outline" onclick="togglePhotoMarkers()" id="btnTogglePhotoMarkers" title="เปิด/ปิดกรอบมาร์คจุดบนรูปโพย (ช่องกรอกในตารางขวายังคงไฮไลต์เหมือนเดิม)">
                 🎯 มาร์คบนรูป: เปิด
               </button>
-              <button class="btn btn-sm btn-outline" onclick="toggleTableBoxCalibration()" id="btnCalibrateTableBox" title="ลากปรับกรอบ 4 มุมให้ตรงกับตารางบนรูป (ระบบจะจำไว้ให้เด็กโพยคนนี้ในรอบหน้า)">
+              <button class="btn btn-sm btn-outline" onclick="toggleTableBoxCalibration()" id="btnCalibrateTableBox" title="ลากปรับกรอบ 8 จุดให้ตรงกับตารางบนรูป (ระบบจะจำไว้ให้เด็กโพยคนนี้ในรอบหน้า)">
                 📐 ปรับกรอบให้ตรง
+              </button>
+              <button class="btn btn-sm btn-outline hidden" onclick="restoreOriginalSlipPhoto()" id="btnRestoreOriginalPhoto" title="กลับไปใช้รูปถ่ายต้นฉบับก่อนปรับภาพตรง">
+                ↩️ คืนรูปต้นฉบับ
               </button>
               <button class="btn btn-sm btn-ghost" onclick="adjustZoom(-0.25)">➖</button>
               <span id="zoomLevelText">100%</span>
@@ -621,8 +624,9 @@
             </div>
           </div>
           <div id="tableBoxCalibrationBar" class="calib-bar hidden">
-            <span>📐 ลากมุมส้ม 4 มุมได้อย่างอิสระ (รองรับกระดาษเอียง) และลากปุ่ม ↔ เพื่อขยับความกว้างแต่ละคอลัมน์ให้ตรงเส้นจริง</span>
+            <span>📐 ลาก <strong>4 มุม (ส้ม)</strong> + <strong>4 จุดกลางขอบ (ฟ้า)</strong> เพื่อดัดตามความโค้งกระดาษ และลาก <strong>↔</strong> ขยับความกว้างคอลัมน์</span>
             <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;">
+              <button class="btn btn-sm btn-primary" id="btnFlattenSlipPhoto" onclick="flattenSlipPhotoFromCalibration()" title="ดึงและคลี่รูปโพยที่บิด/โค้ง ให้กลายเป็นภาพเอกสารสี่เหลี่ยมตรง">📄 แปลงเป็นภาพเอกสารตรง</button>
               <button class="btn btn-sm btn-outline" onclick="resetCalibrationSplits()">↺ แบ่งคอลัมน์เท่ากัน</button>
               <button class="btn btn-sm btn-success" onclick="saveCalibratedTableBox()">💾 บันทึก & จำไว้ให้คนนี้</button>
               <button class="btn btn-sm btn-ghost" onclick="cancelTableBoxCalibration()">ยกเลิก</button>
@@ -1255,6 +1259,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_61"></script>
+  <script src="/app.js?v=20261120_62"></script>
 </body>
 </html>
