@@ -1864,9 +1864,60 @@ body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .paper-grid-4col 
   font-weight: 700;
   font-size: 13px;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 3px;
   color: var(--gold);
   border-top: 1px solid var(--border);
+}
+
+.paper-col-footer-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.paper-col-footer.footer-match {
+  border-top: 2px solid rgba(16, 185, 129, 0.7);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.paper-col-footer.footer-mismatch {
+  border-top: 2px solid rgba(239, 68, 68, 0.9);
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.col-subtotal-sub {
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px dashed var(--border-light);
+  border-radius: 4px;
+  padding: 2px 5px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.col-subtotal-sub:hover {
+  border-color: var(--primary);
+  color: var(--text-main);
+}
+
+.col-subtotal-sub.match {
+  color: var(--success);
+  border-color: rgba(16, 185, 129, 0.45);
+  border-style: solid;
+}
+
+.col-subtotal-sub.mismatch {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.65);
+  border-style: solid;
+  font-weight: 700;
 }
 
 /* Paper Sheet Mode (เหมือนกระดาษโพยหวยเต็มแผ่นแนวนอน) */

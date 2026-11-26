@@ -33,7 +33,13 @@ const LOTTERY_OCR_SYSTEM_PROMPT = `คุณคือระบบ AI OCR ผู�
    - กฎคณิตศาสตร์ช่วยเช็ค:
      * ถ้าช่องเลขลงท้ายด้วย "×6" เลข 3 ตัวข้างหน้าต้องเป็นเลขไม่ซ้ำกันเลย 3 หลัก และยอดเงินรวมต้องหารด้วย 6 ลงตัว (เช่น 60, 66, 120, 132)
      * ถ้าช่องเลขลงท้ายด้วย "×3" เลข 3 ตัวข้างหน้าต้องมีเลขซ้ำกัน 1 คู่ (เลขเบิ้ล เช่น 977, 144, 244, 449, 922, 112, 998) และยอดเงินรวมต้องหารด้วย 3 ลงตัว (เช่น 15, 30, 33, 60, 66, 72, 99, 108, 132, 264, 360, 990)
-6. หากแถวใดมีรอยขีดฆ่า เขียนทับ หรือลายมือกำกวมไม่ชัดเจน ให้ตั้งค่า needsReview = true และระบุเหตุผลในช่อง note`;
+6. หากแถวใดมีรอยขีดฆ่า เขียนทับ หรือลายมือกำกวมไม่ชัดเจน ให้ตั้งค่า needsReview = true และระบุเหตุผลในช่อง note (ห้ามใส่ note ในช่องปกติที่ไม่มีปัญหา)
+7. ส่งพิกัดกรอบตารางในรอบเดียวกันเพื่อทำไฮไลต์ตรงทันที:
+   - tableQuad = 4 มุม [บนซ้าย, บนขวา, ล่างขวา, ล่างซ้าย] พิกัด [x, y] สเกล 0..1000 โดยขอบบนอยู่ใต้แถวหัวตาราง (ขอบบนของแถวตัวเลขที่ 1) และขอบล่างอยู่เหนือแถว รวม (ขอบล่างของแถวตัวเลขสุดท้าย)
+   - tableMids = 4 จุดกึ่งกลางขอบ [กลางบน, กลางขวา, กลางล่าง, กลางซ้าย] ตามแนวโค้งของกระดาษ
+   - colSplits = อาร์เรย์จุดแบ่งคอลัมน์จากซ้ายไปขวา 0.0..1.0 (เริ่มด้วย 0 จบด้วย 1 จำนวนคอลัมน์ + 1 ค่า สะท้อนความกว้างจริงของแต่ละคอลัมน์)
+   - หากแถวใดตั้งค่า needsReview = true ให้ส่ง box2d [ymin, xmin, ymax, xmax] ของช่องนั้นกลับมาด้วย
+8. หากท้ายคอลัมน์ในแถว "รวม" มีลายมือเขียนยอดรวมคอลัมน์ไว้ ให้อ่านใส่ใน columnSubtotals [{ col, writtenTotal }] (ถ้าช่องรวมว่างไม่ต้องใส่)`;
 
 const RESPONSE_SCHEMA = {
   type: 'OBJECT',
@@ -47,6 +53,33 @@ const RESPONSE_SCHEMA = {
       type: 'ARRAY',
       description: 'พิกัดกรอบตารางทั้งหมดในสเกล 0 ถึง 1000 รูปแบบ [ymin, xmin, ymax, xmax]',
       items: { type: 'NUMBER' }
+    },
+    tableQuad: {
+      type: 'ARRAY',
+      description: '4 มุมตารางตัวเลข [บนซ้าย, บนขวา, ล่างขวา, ล่างซ้าย] รูปแบบ [x, y] 0..1000 (ขอบบนใต้หัวตาราง ขอบล่างเหนือแถวรวม)',
+      items: { type: 'ARRAY', items: { type: 'NUMBER' } }
+    },
+    tableMids: {
+      type: 'ARRAY',
+      description: '4 จุดกลางขอบ [กลางบน, กลางขวา, กลางล่าง, กลางซ้าย] [x, y] 0..1000',
+      items: { type: 'ARRAY', items: { type: 'NUMBER' } }
+    },
+    colSplits: {
+      type: 'ARRAY',
+      description: 'เส้นแบ่งคอลัมน์จากซ้ายไปขวา 0.0..1.0 (เริ่มด้วย 0 จบด้วย 1)',
+      items: { type: 'NUMBER' }
+    },
+    columnSubtotals: {
+      type: 'ARRAY',
+      description: 'ยอดรวมที่เขียนด้วยลายมือในช่อง รวม ท้ายแต่ละคอลัมน์ (เฉพาะคอลัมน์ที่มีตัวเลขเขียนไว้)',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          col: { type: 'INTEGER' },
+          writtenTotal: { type: 'NUMBER' }
+        },
+        required: ['col', 'writtenTotal']
+      }
     },
     items: {
       type: 'ARRAY',
@@ -342,6 +375,10 @@ async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true
     let sheetPage = '1';
     let rotationNeededDeg = 0;
     let parsedTableBox = [141, 142, 914, 975];
+    let parsedTableQuad = Array.isArray(runnerLayout?.tableQuad) ? runnerLayout.tableQuad : null;
+    let parsedTableMids = Array.isArray(runnerLayout?.tableMids) ? runnerLayout.tableMids : null;
+    let parsedColSplits = Array.isArray(runnerLayout?.colSplits) ? runnerLayout.colSplits : null;
+    let parsedColumnSubtotals = [];
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
 
@@ -384,6 +421,29 @@ async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true
       }
       if (Array.isArray(parsed.tableBox) && parsed.tableBox.length === 4) {
         parsedTableBox = parsed.tableBox;
+      }
+      const clamp1000 = n => Math.max(0, Math.min(1000, Math.round(Number(n) || 0)));
+      if (Array.isArray(parsed.tableQuad) && parsed.tableQuad.length === 4 && parsed.tableQuad.every(p => Array.isArray(p) && p.length === 2)) {
+        parsedTableQuad = parsed.tableQuad.map(p => [clamp1000(p[0]), clamp1000(p[1])]);
+        const xs = parsedTableQuad.map(p => p[0]);
+        const ys = parsedTableQuad.map(p => p[1]);
+        parsedTableBox = [Math.min(...ys), Math.min(...xs), Math.max(...ys), Math.max(...xs)];
+      }
+      if (Array.isArray(parsed.tableMids) && parsed.tableMids.length === 4 && parsed.tableMids.every(p => Array.isArray(p) && p.length === 2)) {
+        parsedTableMids = parsed.tableMids.map(p => [clamp1000(p[0]), clamp1000(p[1])]);
+      }
+      if (Array.isArray(parsed.colSplits) && parsed.colSplits.length >= 2) {
+        const nums = parsed.colSplits.map(v => Math.max(0, Math.min(1, Number(v) || 0)));
+        nums[0] = 0;
+        nums[nums.length - 1] = 1;
+        if (nums.every((v, idx) => idx === 0 || v > nums[idx - 1] + 0.01)) {
+          parsedColSplits = nums.map(v => Number(v.toFixed(4)));
+        }
+      }
+      if (Array.isArray(parsed.columnSubtotals)) {
+        parsedColumnSubtotals = parsed.columnSubtotals
+          .map(cs => ({ col: Math.max(1, Number(cs.col) || 1), writtenTotal: Number(cs.writtenTotal) || 0 }))
+          .filter(cs => cs.writtenTotal > 0);
       }
       rawItems = parsed.items || [];
       totalInputTokens = usage.promptTokenCount || 0;
@@ -429,6 +489,10 @@ async function analyzeSlipImage({ base64Image, columnSlices, useFullImage = true
       sheetPage,
       rotationNeededDeg,
       tableBox: parsedTableBox,
+      tableQuad: parsedTableQuad,
+      tableMids: parsedTableMids,
+      colSplits: parsedColSplits,
+      columnSubtotals: parsedColumnSubtotals,
       items: validatedItems,
       usage: {
         inputTokens: totalInputTokens,

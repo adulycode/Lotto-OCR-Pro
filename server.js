@@ -17,6 +17,45 @@ const {
 } = require('./lotteryEngine');
 const { analyzeSlipImage, detectPaperMeshWithGemini, applyLearnedCorrectionsToRow } = require('./geminiOcr');
 
+function normalizeColumnSubtotals(raw) {
+  if (!Array.isArray(raw)) return [];
+  const byCol = new Map();
+  for (const entry of raw) {
+    const col = Math.max(1, Number(entry?.col) || 1);
+    const writtenTotal = Number(entry?.writtenTotal);
+    if (Number.isFinite(writtenTotal) && writtenTotal > 0) {
+      byCol.set(col, Math.round(writtenTotal));
+    }
+  }
+  return Array.from(byCol.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([col, writtenTotal]) => ({ col, writtenTotal }));
+}
+
+function computeColumnSubtotalChecks(slip) {
+  const calcByCol = new Map();
+  for (const it of slip?.items || []) {
+    const col = Math.max(1, Number(it.col) || 1);
+    calcByCol.set(col, (calcByCol.get(col) || 0) + (Number(it.rowTotalMoney) || 0));
+  }
+  const checks = [];
+  for (const entry of normalizeColumnSubtotals(slip?.columnSubtotals || [])) {
+    const calculatedTotal = calcByCol.get(entry.col) || 0;
+    const diff = calculatedTotal - entry.writtenTotal;
+    checks.push({
+      col: entry.col,
+      writtenTotal: entry.writtenTotal,
+      calculatedTotal,
+      diff,
+      isMatch: diff === 0
+    });
+  }
+  return {
+    checks,
+    mismatches: checks.filter(c => !c.isMatch)
+  };
+}
+
 const PORT = process.env.PORT || 3088;
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
@@ -1109,12 +1148,16 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
+        const subCheck = computeColumnSubtotalChecks(s);
+
         return {
           ...s,
           roundNumber,
           full100Money,
           half50Money,
           restrictedHits: Array.from(new Set(restrictedHits)),
+          columnSubtotalChecks: subCheck.checks,
+          subtotalMismatchCount: subCheck.mismatches.length,
           humanApproved: Boolean(s.humanApproved),
           approvedBy: s.approvedBy || null,
           approvedAt: s.approvedAt || null,
@@ -1371,6 +1414,10 @@ const server = http.createServer(async (req, res) => {
           slip.isFlattened = true;
           slip.rotationDeg = 0;
         }
+      }
+
+      if (Array.isArray(body.columnSubtotals)) {
+        slip.columnSubtotals = normalizeColumnSubtotals(body.columnSubtotals);
       }
 
       slip.items = validatedItems;
@@ -2319,6 +2366,12 @@ const server = http.createServer(async (req, res) => {
       slip.totalMoney = items.reduce((s, i) => s + (i.rowTotalMoney || 0), 0);
       slip.reviewCount = items.filter(i => i.needsReview).length;
       if (ocrResult.tableBox && !slip.isFlattened) slip.tableBox = ocrResult.tableBox;
+      if (ocrResult.tableQuad && !slip.isFlattened) slip.tableQuad = ocrResult.tableQuad;
+      if (ocrResult.tableMids && !slip.isFlattened) slip.tableMids = ocrResult.tableMids;
+      if (ocrResult.colSplits && !slip.isFlattened) slip.colSplits = ocrResult.colSplits;
+      if (Array.isArray(ocrResult.columnSubtotals) && ocrResult.columnSubtotals.length > 0) {
+        slip.columnSubtotals = normalizeColumnSubtotals(ocrResult.columnSubtotals);
+      }
       if (ocrResult.sheetDate) slip.sheetDate = ocrResult.sheetDate;
       if (body.rotationDeg !== undefined) {
         slip.rotationDeg = ((Number(body.rotationDeg) || 0) % 360 + 360) % 360;
@@ -2356,6 +2409,20 @@ const server = http.createServer(async (req, res) => {
       if (body.rotationDeg !== undefined) {
         slip.rotationDeg = ((Number(body.rotationDeg) || 0) % 360 + 360) % 360;
         if (!Array.isArray(body.items) && !body.markVerified && body.customerName === undefined && body.title === undefined) {
+          saveDb(db);
+          return sendJson(res, 200, { ok: true, slip });
+        }
+      }
+
+      if (Array.isArray(body.columnSubtotals)) {
+        slip.columnSubtotals = normalizeColumnSubtotals(body.columnSubtotals);
+        if (!Array.isArray(body.items) && !body.markVerified && !body.unverify) {
+          appendAuditLog(
+            db,
+            getActorFromReq(req, body),
+            'บันทึกยอดเทียบท้ายคอลัมน์',
+            `ตั้งค่ายอด "รวม" ท้ายคอลัมน์ของ "${slip.customerName}" (${slip.title})`
+          );
           saveDb(db);
           return sendJson(res, 200, { ok: true, slip });
         }
@@ -2604,6 +2671,11 @@ const server = http.createServer(async (req, res) => {
           customerLineId: `U_${customerName}`,
           source: 'LINE รูปโพยกระดาษ',
           imageUrl: savedImageUrl,
+          tableBox: ocrResult.tableBox || db.runnerLayouts?.[customerName]?.tableBox || null,
+          tableQuad: ocrResult.tableQuad || db.runnerLayouts?.[customerName]?.tableQuad || null,
+          tableMids: ocrResult.tableMids || db.runnerLayouts?.[customerName]?.tableMids || null,
+          colSplits: ocrResult.colSplits || db.runnerLayouts?.[customerName]?.colSplits || null,
+          columnSubtotals: normalizeColumnSubtotals(ocrResult.columnSubtotals),
           isGrid4x30: items.length > 30,
           status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
           humanApproved: false,
@@ -2862,7 +2934,11 @@ const server = http.createServer(async (req, res) => {
                   source: 'LINE รูปโพยกระดาษ',
                   imageUrl,
                   rotationDeg: Number(ocrResult.rotationNeededDeg) || 0,
-                  tableBox: ocrResult.tableBox || null,
+                  tableBox: ocrResult.tableBox || db.runnerLayouts?.[customerName]?.tableBox || null,
+                  tableQuad: ocrResult.tableQuad || db.runnerLayouts?.[customerName]?.tableQuad || null,
+                  tableMids: ocrResult.tableMids || db.runnerLayouts?.[customerName]?.tableMids || null,
+                  colSplits: ocrResult.colSplits || db.runnerLayouts?.[customerName]?.colSplits || null,
+                  columnSubtotals: normalizeColumnSubtotals(ocrResult.columnSubtotals),
                   isGrid4x30: items.length > 30,
                   status: reviewCount > 0 ? 'needs_review' : 'ai_passed',
                   humanApproved: false,

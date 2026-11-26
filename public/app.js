@@ -2979,6 +2979,14 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
   const warnItems = (slip.items || []).filter(
     i => i.needsReview || (i.warnings && i.warnings.length > 0)
   );
+  const subtotalMismatches = (slip.columnSubtotalChecks || []).filter(c => !c.isMatch);
+  const mismatchHtml = subtotalMismatches.length > 0
+    ? `<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:rgba(239,68,68,0.14);border:1px solid rgba(239,68,68,0.45);color:#fca5a5;">
+        <strong>🚨 ยอด "รวม" ท้ายคอลัมน์ไม่ตรงกับที่เขียนในกระดาษ ${subtotalMismatches.length} คอลัมน์:</strong>
+        ${subtotalMismatches.map(m => `คอลัมน์ ${m.col} (ระบบ ${m.calculatedTotal.toLocaleString()}฿ vs ใบเขียน ${m.writtenTotal.toLocaleString()}฿, ต่าง ${m.diff > 0 ? '+' : ''}${m.diff.toLocaleString()}฿)`).join(' • ')}
+      </div>`
+    : '';
+
   if (slip.status === 'pending_antigravity') {
     const agStatus = appState.antigravityStatus || {};
     if (!agStatus.online && !agStatus.hasApiKey) {
@@ -2999,7 +3007,7 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
         <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">⏳ รอการอ่านตัวเลข</span>
       `;
     }
-  } else if (warnItems.length > 0) {
+  } else if (warnItems.length > 0 || subtotalMismatches.length > 0) {
     banner.className = 'validation-banner warn';
     const warnDesc = warnItems
       .map(w => {
@@ -3012,8 +3020,8 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
       .join(' | ');
     banner.innerHTML = `
       <div>
-        <strong>⚠️ พบจุดที่ควรเช็คเทียบกับรูปกระดาษ ${warnItems.length} จุด:</strong>
-        <div style="margin-top:3px;">${warnDesc}</div>
+        ${warnItems.length > 0 ? `<strong>⚠️ พบจุดที่ควรเช็คเทียบกับรูปกระดาษ ${warnItems.length} จุด:</strong><div style="margin-top:3px;">${warnDesc}</div>` : ''}
+        ${mismatchHtml}
       </div>
       <span style="font-family:var(--font-mono);font-weight:700;white-space:nowrap;">ยอดรวมใบนี้: ${slip.totalMoney.toLocaleString()} ฿</span>
     `;
@@ -3147,6 +3155,21 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
         `);
       }
 
+      const subEntry = (slip.columnSubtotalChecks || []).find(c => c.col === colNum) ||
+        (() => {
+          const raw = (slip.columnSubtotals || []).find(c => Number(c.col) === colNum);
+          if (!raw || !(Number(raw.writtenTotal) > 0)) return null;
+          const wt = Number(raw.writtenTotal);
+          return { col: colNum, writtenTotal: wt, calculatedTotal: colTotal, diff: colTotal - wt, isMatch: colTotal === wt };
+        })();
+      const footerClass = subEntry ? (subEntry.isMatch ? 'footer-match' : 'footer-mismatch') : '';
+      const subBtnClass = subEntry ? (subEntry.isMatch ? 'match' : 'mismatch') : '';
+      const subBtnText = subEntry
+        ? (subEntry.isMatch
+            ? `✅ ตรงใบ (${subEntry.writtenTotal.toLocaleString()}฿)`
+            : `⚠️ ใบเขียน ${subEntry.writtenTotal.toLocaleString()}฿ (ต่าง ${subEntry.diff > 0 ? '+' : ''}${subEntry.diff.toLocaleString()}฿)`)
+        : '+ เทียบยอดรวมใบ';
+
       return `
         <div class="paper-col-box">
           <div class="paper-col-header">
@@ -3156,9 +3179,14 @@ function selectSlipForInspection(slipId, highlightCol = null, highlightRow = nul
           <div class="paper-col-body">
             ${rowsHtml.join('') || '<div class="text-muted" style="padding:12px;text-align:center;">ไม่มีรายการในคอลัมน์นี้</div>'}
           </div>
-          <div class="paper-col-footer">
-            <span>${paperMode ? 'รวม' : `รวมคอลัมน์ ${colNum}:`}</span>
-            <span>${colTotal.toLocaleString()} ฿</span>
+          <div class="paper-col-footer ${footerClass}">
+            <div class="paper-col-footer-top">
+              <span>${paperMode ? 'รวม' : `รวมคอลัมน์ ${colNum}:`}</span>
+              <span>${colTotal.toLocaleString()} ฿</span>
+            </div>
+            <button type="button" class="col-subtotal-sub ${subBtnClass}" onclick="promptColumnWrittenTotal('${escapeJsArg(slip.id)}', ${colNum}, ${subEntry ? subEntry.writtenTotal : 0})" title="กรอกยอดรวมท้ายคอลัมน์ที่เขียนในกระดาษเพื่อตรวจเทียบ">
+              ${subBtnText}
+            </button>
           </div>
         </div>
       `;
@@ -3356,6 +3384,32 @@ function filterInspectorWarningsOnly() {
 
 async function onCellEdit(col, row) {
   await saveAndVerifyCurrentSlip(false);
+}
+
+async function promptColumnWrittenTotal(slipId, colNum, currentVal = 0) {
+  const slip = (appState.slips || []).find(s => s.id === slipId);
+  if (!slip) return;
+  const raw = window.prompt(
+    `กรอกยอด "รวม" ท้ายคอลัมน์ที่ ${colNum} ตามที่เขียนในกระดาษ (เว้นว่างหรือใส่ 0 เพื่อยกเลิกการเทียบ):`,
+    currentVal > 0 ? String(currentVal) : ''
+  );
+  if (raw === null) return;
+  const numVal = Number(String(raw).replace(/,/g, '').trim()) || 0;
+  const nextSubs = (slip.columnSubtotals || []).filter(c => Number(c.col) !== colNum);
+  if (numVal > 0) {
+    nextSubs.push({ col: colNum, writtenTotal: Math.round(numVal) });
+  }
+  const res = await fetch(`/api/slips/${encodeURIComponent(slipId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ columnSubtotals: nextSubs })
+  });
+  if (res.ok) {
+    await fetchAppState();
+    showToast(numVal > 0 ? `🧮 บันทึกยอดเทียบคอลัมน์ที่ ${colNum} (${numVal.toLocaleString()}฿) แล้ว` : `ล้างยอดเทียบคอลัมน์ที่ ${colNum} แล้ว`);
+  } else {
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถบันทึกยอดเทียบคอลัมน์ได้')}`);
+  }
 }
 
 async function saveAndVerifyCurrentSlip(markVerified = false) {
