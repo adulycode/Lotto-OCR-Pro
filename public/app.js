@@ -4984,12 +4984,28 @@ async function rotateBase64Image90(dataUrl, degrees = 90) {
 function renderUploadFullImagePreview() {
   const grid = document.getElementById('slicePreviewGrid');
   if (!grid || !uploadedBase64Image) return;
+  document.getElementById('btnClearUploadPreview')?.classList.remove('hidden');
   grid.innerHTML = `
     <div class="slice-item" style="grid-column: 1 / -1; text-align:center;">
       <div style="margin-bottom:6px;font-weight:700;color:var(--text-main);">📄 ภาพโพยความละเอียดสูงเต็มใบ (รองรับ 2, 4, 5 และ 8 คอลัมน์อัตโนมัติ)</div>
       <img src="${uploadedBase64Image}" style="max-width:100%;max-height:280px;object-fit:contain;border-radius:6px;border:1px solid var(--border);" />
     </div>
   `;
+}
+
+function clearUploadPreviewImage(silent = false) {
+  uploadedBase64Image = '';
+  uploadedColumnSlices = null;
+  const input = document.getElementById('directFileInput');
+  if (input) input.value = '';
+  const grid = document.getElementById('slicePreviewGrid');
+  if (grid) {
+    grid.innerHTML = '<div class="slice-item">ยังไม่ได้เลือกรูปโพย (รองรับ 2, 4, 5 และ 8 คอลัมน์อัตโนมัติ)</div>';
+  }
+  document.getElementById('btnClearUploadPreview')?.classList.add('hidden');
+  if (!silent) {
+    showToast('🗑️ ยกเลิกรูปที่เลือกแล้ว');
+  }
 }
 
 async function rotateUploadPreviewImage(degrees) {
@@ -5086,6 +5102,10 @@ async function previewUploadImage(inputEl) {
 }
 
 async function runDirectOcrUpload() {
+  if (!uploadedBase64Image) {
+    showToast('⚠️ กรุณาเลือกรูปโพยกระดาษก่อนกดเริ่มอ่านครับ');
+    return;
+  }
   const btn = document.getElementById('btnRunOcr');
   const customerName = document.getElementById('uploadCustomerName').value.trim() || 'ลูกค้าทั่วไป';
   const title = document.getElementById('uploadSlipTitle').value.trim() || `โพยกระดาษ - ${customerName}`;
@@ -5116,6 +5136,7 @@ async function runDirectOcrUpload() {
     await fetchAppState();
 
     if (data.slip) {
+      clearUploadPreviewImage(true);
       currentInspectedSlipId = data.slip.id;
       switchTab('tab-inspector');
       renderInspectorSelector();

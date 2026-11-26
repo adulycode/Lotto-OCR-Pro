@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_69" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_70" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -742,9 +742,10 @@
             <div id="slicePreviewContainer" class="slice-preview-box">
               <div class="slice-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
                 <span>🖼️ ตัวอย่างรูปโพยที่จะส่งให้ AI อ่านเต็มใบ (หมุนปรับแนวภาพได้หากถ่ายตะแคง):</span>
-                <div style="display:flex;gap:6px;">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
                   <button type="button" class="btn btn-outline btn-sm" onclick="rotateUploadPreviewImage(-90)">🔄 หมุนซ้าย 90°</button>
                   <button type="button" class="btn btn-outline btn-sm" onclick="rotateUploadPreviewImage(90)">🔄 หมุนขวา 90°</button>
+                  <button type="button" id="btnClearUploadPreview" class="btn btn-ghost btn-sm hidden" style="color:var(--danger);" onclick="clearUploadPreviewImage()">🗑️ ยกเลิกรูป</button>
                 </div>
               </div>
               <div class="slice-grid" id="slicePreviewGrid">
@@ -1352,6 +1353,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_69"></script>
+  <script src="/app.js?v=20261120_70"></script>
 </body>
 </html>
