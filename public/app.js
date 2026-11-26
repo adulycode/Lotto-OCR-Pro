@@ -5246,31 +5246,46 @@ function onFirstPrizeInput(val) {
 }
 
 async function fetchLatestGloLotteryResult() {
-  showToast('🔄 กำลังดึงผลสลากกินแบ่งรัฐบาลล่าสุดจากกองสลาก...');
+  const btn = document.getElementById('btnFetchGloResult');
+  if (btn) btn.disabled = true;
+  showToast('🔄 กำลังดึงผลสลากจริงจากกองสลาก (glo.or.th)...');
+  try {
+    const res = await fetch('/api/draws/winning-result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        drawId: appState.currentDrawId,
+        action: 'fetch_glo'
+      })
+    });
+    if (!res.ok) {
+      showToast(`⏳ ${await readApiError(res, 'ไม่สามารถดึงผลรางวัลได้')}`);
+      return;
+    }
+    const data = await res.json();
+    await fetchAppState();
+    const w = data.winningResult || {};
+    showToast(`🏆 ดึงผลกองสลากจริงสำเร็จ! รางวัลที่ 1: ${w.firstPrize} (3 ตัวบน: ${w.threeTop} | 2 ตัวล่าง: ${w.twoBottom})`);
+  } finally {
+    renderWinnersTab();
+  }
+}
+
+async function clearWinningResult() {
   const res = await fetch('/api/draws/winning-result', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       drawId: appState.currentDrawId,
-      action: 'fetch_glo'
+      action: 'clear'
     })
   });
   if (!res.ok) {
-    showToast(`❌ ${await readApiError(res, 'ไม่สามารถดึงผลรางวัลได้')}`);
+    showToast(`❌ ${await readApiError(res, 'ไม่สามารถล้างผลรางวัลได้')}`);
     return;
   }
-  const data = await res.json();
   await fetchAppState();
-  const w = data.winningResult || {};
-  showToast(`🏆 ดึงผลกองสลากสำเร็จ! รางวัลที่ 1: ${w.firstPrize} (3 ตัวบน: ${w.threeTop} | 2 ตัวล่าง: ${w.twoBottom})`);
-}
-
-async function applySampleWinningNumbers(firstPrize, threeTop, twoTop, twoBottom) {
-  document.getElementById('winFirstPrizeInput').value = firstPrize;
-  document.getElementById('winThreeTopInput').value = threeTop;
-  document.getElementById('winTwoTopInput').value = twoTop;
-  document.getElementById('winTwoBottomInput').value = twoBottom;
-  await saveManualWinningResult();
+  showToast('🗑️ ล้างผลรางวัลงวดนี้แล้ว');
 }
 
 async function saveManualWinningResult() {
@@ -5309,18 +5324,55 @@ function renderWinnersTab() {
   const tickets = wc.winningTickets || [];
   const runners = wc.winnersByRunner || [];
   const claims = wc.dealerClaims || [];
+  const drawTitle = appState.currentDraw?.title || 'งวดนี้';
+  const isFuture = Boolean(win.isFutureDraw);
+  const hasResult = Boolean(win.hasWinningResult);
 
   const fpEl = document.getElementById('winFirstPrizeInput');
+  const ttEl = document.getElementById('winThreeTopInput');
+  const t2El = document.getElementById('winTwoTopInput');
+  const b2El = document.getElementById('winTwoBottomInput');
   if (fpEl) {
-    fpEl.value = win.firstPrize || '945583';
-    document.getElementById('winThreeTopInput').value = win.threeTop || '583';
-    document.getElementById('winTwoTopInput').value = win.twoTop || '83';
-    document.getElementById('winTwoBottomInput').value = win.twoBottom || '21';
+    fpEl.value = hasResult ? (win.firstPrize || '') : '';
+    ttEl.value = hasResult ? (win.threeTop || '') : '';
+    t2El.value = hasResult ? (win.twoTop || '') : '';
+    b2El.value = hasResult ? (win.twoBottom || '') : '';
+    fpEl.disabled = isFuture;
+    ttEl.disabled = isFuture;
+    t2El.disabled = isFuture;
+    b2El.disabled = isFuture;
+  }
+
+  const fetchBtn = document.getElementById('btnFetchGloResult');
+  const saveWinBtn = document.getElementById('btnSaveManualWin');
+  const clearWinBtn = document.getElementById('btnClearWinResult');
+  if (fetchBtn) fetchBtn.disabled = isFuture;
+  if (saveWinBtn) saveWinBtn.disabled = isFuture;
+  if (clearWinBtn) clearWinBtn.classList.toggle('hidden', !hasResult || isFuture);
+
+  const statusBannerEl = document.getElementById('winDrawStatusBanner');
+  if (statusBannerEl) {
+    if (isFuture) {
+      statusBannerEl.className = 'validation-banner warn';
+      statusBannerEl.innerHTML = `<div><strong>⏳ งวด "${escapeHtml(drawTitle)}" ยังไม่ถึงวันออกรางวัล</strong> — ยังไม่สามารถดึงหรือแสดงผลรางวัลงวดนี้ได้</div>`;
+    } else if (!hasResult) {
+      statusBannerEl.className = 'validation-banner ai';
+      statusBannerEl.innerHTML = `<div><strong>📌 ยังไม่ได้ดึงผลรางวัลงวด "${escapeHtml(drawTitle)}"</strong> — กดปุ่ม <strong>"🔄 ดึงผลกองสลากงวดนี้ (glo.or.th)"</strong> เพื่อดึงผลรางวัลจริง</div>`;
+    } else {
+      statusBannerEl.className = 'validation-banner hidden';
+      statusBannerEl.innerHTML = '';
+    }
   }
 
   const srcEl = document.getElementById('winResultSourceText');
   if (srcEl) {
-    srcEl.textContent = `${win.source || 'ผลรางวัลปัจจุบัน'} • 3 ตัวบน: ${win.threeTop} (โต๊ด: ${(win.threeTopPerms || []).join(', ')}) • 2 ตัวบน: ${win.twoTop} • 2 ตัวล่าง: ${win.twoBottom}`;
+    if (isFuture) {
+      srcEl.textContent = `⏳ ยังไม่ถึงวันออกรางวัล (${drawTitle}) — ระบบจะเปิดให้ดึงผลจริงจากสำนักงานสลากฯ ได้ในวันออกรางวัล`;
+    } else if (!hasResult) {
+      srcEl.textContent = `ยังไม่มีผลรางวัลงวดนี้ (${drawTitle}) — กดดึงผลจริงจากกองสลากหรือกรอกเลขรางวัลเมื่อออกผลแล้ว`;
+    } else {
+      srcEl.textContent = `${win.source || 'ผลรางวัลจริง'} • 3 ตัวบน: ${win.threeTop || '-'} (โต๊ด: ${(win.threeTopPerms || []).join(', ')}) • 2 ตัวบน: ${win.twoTop || '-'} • 2 ตัวล่าง: ${win.twoBottom || '-'}`;
+    }
   }
 
   const kpiCnt = document.getElementById('winKpiTicketCount');
@@ -5338,7 +5390,12 @@ function renderWinnersTab() {
 
   const tbody = document.getElementById('winningTicketsTableBody');
   if (tbody) {
-    if (tickets.length === 0) {
+    if (!hasResult) {
+      const msg = isFuture
+        ? '⏳ งวดนี้ยังไม่ถึงวันออกรางวัล — ยังไม่สามารถแสดงผลตรวจรางวัลได้'
+        : 'ยังไม่มีผลรางวัลสำหรับงวดนี้ (กดดึงผลกองสลากเมื่อออกรางวัลแล้ว)';
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted);">${msg}</td></tr>`;
+    } else if (tickets.length === 0) {
       tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted);">ไม่มีรายการที่ถูกรางวัลสำหรับเลขชุดนี้</td></tr>`;
     } else {
       tbody.innerHTML = tickets

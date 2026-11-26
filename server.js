@@ -2007,70 +2007,131 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, draw: newDraw });
     }
 
-    // API: Fetch GLO Lottery Results or Save Manual Winning Numbers
+    // API: Fetch GLO Lottery Results or Save/Clear Winning Numbers
     if (req.method === 'POST' && pathname === '/api/draws/winning-result') {
       if (!requireAdmin(req, res)) return;
       const body = await parseJsonBody(req);
       const db = loadDb();
       const draw = db.draws.find(d => d.id === (body.drawId || db.currentDrawId)) || db.draws[0];
+      if (!draw) {
+        return sendJson(res, 404, { ok: false, error: 'ไม่พบงวดหวยที่ระบุ' });
+      }
+
+      const todayBangkok = (() => {
+        try {
+          return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+        } catch {
+          return new Date().toISOString().slice(0, 10);
+        }
+      })();
+      const drawDate = String(draw.drawDate || '').trim();
+      const isFutureDraw = Boolean(drawDate && drawDate > todayBangkok);
+
+      if (body.action === 'clear') {
+        draw.winningResult = null;
+        appendAuditLog(
+          db,
+          getActorFromReq(req, body),
+          'ล้างผลรางวัลงวด',
+          `ล้างผลรางวัลของ "${draw.title}" เพื่อรอผลจริง`
+        );
+        saveDb(db);
+        broadcastSseEvent('state_updated', { source: 'winning_result', drawId: draw.id });
+        return sendJson(res, 200, { ok: true, winningResult: null });
+      }
 
       if (body.action === 'fetch_glo') {
+        if (isFutureDraw) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: `งวด "${draw.title}" ยังไม่ถึงวันออกรางวัล ไม่สามารถดึงผลกองสลากได้`
+          });
+        }
+
+        const dateMatch = drawDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!dateMatch) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: 'ไม่พบวันที่ออกรางวัล (drawDate) ของงวดนี้'
+          });
+        }
+
         let gloData = null;
         try {
-          const gloRes = await fetch('https://lotto.api.rayriffy.com/latest', {
-            headers: { 'User-Agent': 'LottoOCR-Pro/1.0' }
+          const gloRes = await fetch('https://www.glo.or.th/api/lottery/getLotteryAward', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+            body: JSON.stringify({ date: dateMatch[3], month: dateMatch[2], year: dateMatch[1] }),
+            signal: AbortSignal.timeout(8000)
           });
           if (gloRes.ok) {
             const json = await gloRes.json();
-            const prizes = json?.response?.prizes || [];
-            const runningNumbers = json?.response?.runningNumbers || [];
-            const prizeFirst = prizes.find(p => p.id === 'prizeFirst')?.number?.[0] || '';
-            const runningBackTwo = runningNumbers.find(r => r.id === 'runningNumberBackTwo')?.number?.[0] || '';
-            const dateText = json?.response?.date || '';
+            const resDate = String(json?.response?.date || '').trim();
+            const dataObj = json?.response?.data || {};
+            const firstPrize = String(dataObj?.first?.number?.[0]?.value || '').replace(/[^\d]/g, '').slice(0, 6);
+            const twoBottom = String(dataObj?.last2?.number?.[0]?.value || '').replace(/[^\d]/g, '').slice(0, 2);
 
-            if (prizeFirst && prizeFirst.length === 6) {
+            if (json?.status === true && resDate === drawDate && firstPrize.length === 6 && twoBottom.length === 2) {
               gloData = {
-                firstPrize: prizeFirst,
-                threeTop: prizeFirst.slice(-3),
-                twoTop: prizeFirst.slice(-2),
-                twoBottom: runningBackTwo || '21',
-                source: `ดึงข้อมูลกองสลากสำเร็จ (งวด ${dateText})`,
+                firstPrize,
+                threeTop: firstPrize.slice(-3),
+                twoTop: firstPrize.slice(-2),
+                twoBottom,
+                drawDate: resDate,
+                source: `ผลสลากจริงจากกองสลาก (glo.or.th • งวด ${draw.title})`,
                 updatedAt: new Date().toISOString()
               };
             }
           }
         } catch (err) {
-          console.error('GLO fetch fallback:', err.message);
+          console.error('GLO fetch error:', err.message);
         }
 
         if (!gloData) {
-          gloData = {
-            firstPrize: '945583',
-            threeTop: '583',
-            twoTop: '83',
-            twoBottom: '21',
-            source: 'ผลสลากตัวอย่างงวด 16 พ.ย. (รางวัลที่ 1: 945583 / เลขท้าย 2 ตัว: 21)',
-            updatedAt: new Date().toISOString()
-          };
+          return sendJson(res, 400, {
+            ok: false,
+            error: `สำนักงานสลากฯ ยังไม่ประกาศผลรางวัลสำหรับ "${draw.title}" (หรือเชื่อมต่อ glo.or.th ไม่สำเร็จ)`
+          });
         }
 
         draw.winningResult = gloData;
+        appendAuditLog(
+          db,
+          getActorFromReq(req, body),
+          'ดึงผลกองสลากจริง',
+          `ดึงผลรางวัล "${draw.title}": รางวัลที่ 1 ${gloData.firstPrize} • 2 ตัวล่าง ${gloData.twoBottom}`
+        );
         saveDb(db);
+        broadcastSseEvent('state_updated', { source: 'winning_result', drawId: draw.id });
         return sendJson(res, 200, { ok: true, winningResult: draw.winningResult });
       } else {
+        if (isFutureDraw) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: `งวด "${draw.title}" ยังไม่ถึงวันออกรางวัล ไม่สามารถบันทึกผลรางวัลล่วงหน้าได้`
+          });
+        }
         const firstPrize = String(body.firstPrize || '').replace(/[^\d]/g, '').slice(0, 6);
         let threeTop = String(body.threeTop || '').replace(/[^\d]/g, '').slice(0, 3);
-        if (!threeTop && firstPrize.length >= 3) threeTop = firstPrize.slice(-3);
+        if (!threeTop && firstPrize.length === 6) threeTop = firstPrize.slice(-3);
         let twoTop = String(body.twoTop || '').replace(/[^\d]/g, '').slice(0, 2);
         if (!twoTop && threeTop.length >= 2) twoTop = threeTop.slice(-2);
         const twoBottom = String(body.twoBottom || '').replace(/[^\d]/g, '').slice(0, 2);
 
+        if (firstPrize.length !== 6 && threeTop.length !== 3 && twoTop.length !== 2 && twoBottom.length !== 2) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: 'กรุณากรอกเลขรางวัลให้ถูกต้องก่อนกดคำนวณ'
+          });
+        }
+
         draw.winningResult = {
-          firstPrize: firstPrize || (threeTop ? `945${threeTop}` : ''),
+          firstPrize,
           threeTop,
           twoTop,
           twoBottom,
-          source: 'กำหนดเลขรางวัลเพื่อตรวจคนถูก',
+          drawDate,
+          source: `บันทึกผลรางวัลงวด "${draw.title}"`,
           updatedAt: new Date().toISOString()
         };
 
@@ -2081,7 +2142,14 @@ const server = http.createServer(async (req, res) => {
           };
         }
 
+        appendAuditLog(
+          db,
+          getActorFromReq(req, body),
+          'บันทึกผลรางวัลงวด',
+          `บันทึกผล "${draw.title}": ${firstPrize || threeTop || '-'} • 2 ตัวล่าง ${twoBottom || '-'}`
+        );
         saveDb(db);
+        broadcastSseEvent('state_updated', { source: 'winning_result', drawId: draw.id });
         return sendJson(res, 200, { ok: true, winningResult: draw.winningResult });
       }
     }

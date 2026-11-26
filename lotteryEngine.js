@@ -598,23 +598,34 @@ function aggregateSlips(slips, settings = {}, restrictedList = [], layoffs = [])
   return results;
 }
 
+function getBangkokTodayYmd() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
 /**
  * Checks all slips and dealer layoffs in a draw against the winning lottery numbers.
  * Calculates exact payouts per runner/slip/row (respecting 100% before-cutoff vs 50% after-cutoff)
  * and calculates dealer claim recovery + net profit/loss for the draw.
  */
 function checkDrawWinners(slips = [], currentDraw = {}, settings = {}, layoffs = []) {
-  const win = currentDraw.winningResult || {
-    firstPrize: '945583',
-    threeTop: '583',
-    twoTop: '83',
-    twoBottom: '21',
-    drawDateText: 'งวดวันที่ 16 พ.ย. 2569'
-  };
+  const rawWin = currentDraw?.winningResult || null;
+  const drawDate = String(currentDraw?.drawDate || '').trim();
+  const todayBangkok = getBangkokTodayYmd();
+  const isFutureDraw = Boolean(drawDate && todayBangkok && drawDate > todayBangkok);
 
-  const threeTop = String(win.threeTop || (win.firstPrize ? win.firstPrize.slice(-3) : '')).trim();
-  const twoTop = String(win.twoTop || (threeTop ? threeTop.slice(-2) : '')).trim();
-  const twoBottom = String(win.twoBottom || '').trim();
+  const cleanDigits = (val, maxLen) => String(val || '').replace(/[^\d]/g, '').slice(0, maxLen);
+  const firstPrize = isFutureDraw ? '' : cleanDigits(rawWin?.firstPrize, 6);
+  const threeTop = isFutureDraw ? '' : (cleanDigits(rawWin?.threeTop, 3) || (firstPrize.length === 6 ? firstPrize.slice(-3) : ''));
+  const twoTop = isFutureDraw ? '' : (cleanDigits(rawWin?.twoTop, 2) || (threeTop.length === 3 ? threeTop.slice(-2) : ''));
+  const twoBottom = isFutureDraw ? '' : cleanDigits(rawWin?.twoBottom, 2);
+  const hasWinningResult = Boolean(
+    !isFutureDraw &&
+    (firstPrize.length === 6 || threeTop.length === 3 || twoTop.length === 2 || twoBottom.length === 2)
+  );
 
   const rates = settings.payoutRates || {
     threeStraight: 500, // 3 ตัวตรง บาทละ 500
@@ -636,6 +647,7 @@ function checkDrawWinners(slips = [], currentDraw = {}, settings = {}, layoffs =
   for (const slip of slips) {
     if (slip.status === 'cancelled' || slip.isTrainingOnly) continue;
     totalSalesInDraw += slip.totalMoney || 0;
+    if (!hasWinningResult) continue;
 
     for (const item of slip.items || []) {
       if (item.isEmpty || !item.baseNumber) continue;
@@ -770,7 +782,7 @@ function checkDrawWinners(slips = [], currentDraw = {}, settings = {}, layoffs =
   let totalDealerRecovery = 0;
   const dealerClaims = [];
 
-  for (const lf of layoffs || []) {
+  for (const lf of hasWinningResult ? (layoffs || []) : []) {
     for (const it of lf.items || []) {
       const num = String(it.number || '').trim();
       const sendAmt = Number(it.sendTotal) || 0;
@@ -824,13 +836,16 @@ function checkDrawWinners(slips = [], currentDraw = {}, settings = {}, layoffs =
 
   return {
     winningResult: {
-      firstPrize: win.firstPrize || '',
+      firstPrize,
       threeTop,
       twoTop,
       twoBottom,
       threeTopPerms,
-      source: win.source || 'ตั้งค่าในระบบ',
-      updatedAt: win.updatedAt || null
+      drawDate,
+      isFutureDraw,
+      hasWinningResult,
+      source: hasWinningResult ? (rawWin?.source || 'ตั้งค่าในระบบ') : '',
+      updatedAt: hasWinningResult ? (rawWin?.updatedAt || null) : null
     },
     payoutRates: rates,
     winningTickets,
