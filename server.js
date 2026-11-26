@@ -3578,6 +3578,7 @@ const server = http.createServer(async (req, res) => {
       relPath === 'app.js' ||
       relPath === 'styles.css' ||
       relPath === 'mascot-logo.jpg' ||
+      relPath === 'favicon.svg' ||
       relPath === 'index.html' ||
       relPath === 'uploads' ||
       relPath.startsWith('uploads/') ||
