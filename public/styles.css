@@ -3202,3 +3202,126 @@ body.inspector-fs .inspector-3col-layout:not(.paper-view-mode) .paper-grid-4col 
 .sidebar-user-trigger:hover {
   opacity: 0.85;
 }
+
+/* 32-Bit Pixel Art AI Robot Status Pill */
+.ai-robot-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  margin-bottom: 7px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  transition: transform 0.14s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.ai-robot-pill:hover {
+  transform: translateY(-1px);
+}
+
+.ai-robot-pill.state-active {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: var(--success-soft);
+}
+
+.ai-robot-pill.state-working {
+  border-color: rgba(245, 158, 11, 0.55);
+  background: var(--warning-soft);
+}
+
+.ai-robot-pill.state-offline {
+  border-color: var(--border);
+  background: var(--bg-input);
+  opacity: 0.92;
+}
+
+.ai-robot-canvas-wrap {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-theme="dark"] .ai-robot-canvas-wrap {
+  background: rgba(2, 6, 23, 0.58);
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.ai-robot-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.ai-robot-hud {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ai-robot-title-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-main);
+}
+
+.ai-robot-pill.state-active .ai-robot-title-row {
+  color: var(--success);
+}
+
+.ai-robot-pill.state-working .ai-robot-title-row {
+  color: var(--warning);
+}
+
+.ai-robot-pill.state-offline .ai-robot-title-row {
+  color: var(--text-muted);
+}
+
+.ai-robot-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-subtle);
+}
+
+.ai-robot-pill.state-active .ai-robot-dot {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.28);
+  animation: robotDotPulse 2.2s infinite ease-in-out;
+}
+
+.ai-robot-pill.state-working .ai-robot-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+  animation: robotDotPulse 0.85s infinite ease-in-out;
+}
+
+.ai-robot-sub {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes robotDotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.22); opacity: 0.65; }
+}

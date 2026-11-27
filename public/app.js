@@ -320,6 +320,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyTheme(currentTheme);
   applyFontScale(currentFontScale, false);
   applyFontFamily(currentFontFamily, false);
+  initAiRobotPixelWidget();
   buildPrintable4x30Template();
   initPhotoViewportDragPan();
   await checkAuthAndBoot();
@@ -733,6 +734,154 @@ function renderHeaderAndKpis() {
   renderAntigravityStatusUi();
 }
 
+let aiRobotMode = 'active';
+let isDirectOcrRunning = false;
+let aiRobotRafStarted = false;
+
+function pxBox(ctx, x, y, w, h, base, hi, sh, border = '#0f172a') {
+  ctx.fillStyle = border;
+  ctx.fillRect(x, y, w, h);
+  if (w > 2 && h > 2) {
+    ctx.fillStyle = base;
+    ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+    if (hi) {
+      ctx.fillStyle = hi;
+      ctx.fillRect(x + 1, y + 1, w - 2, 1);
+      ctx.fillRect(x + 1, y + 1, 1, h - 2);
+    }
+    if (sh) {
+      ctx.fillStyle = sh;
+      ctx.fillRect(x + 1, y + h - 2, w - 2, 1);
+      ctx.fillRect(x + w - 2, y + 1, 1, h - 2);
+    }
+  }
+}
+
+function drawAiRobot32(ctx, tMs) {
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, 32, 32);
+
+  const mode = aiRobotMode;
+  const isWorking = mode === 'working';
+  const isOffline = mode === 'offline';
+
+  const bob = isOffline
+    ? 1
+    : isWorking
+      ? Math.round(Math.sin(tMs / 130))
+      : ((Math.floor(tMs / 750) % 2) === 0 ? 0 : -1);
+
+  const frameDrop = isOffline ? 1 : 0;
+  const dy = bob + frameDrop;
+
+  // Ground shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+  ctx.fillRect(9, 29, 14, 2);
+
+  // Palette (3-tone 32-bit shading)
+  const pal = isOffline
+    ? { base: '#64748b', hi: '#94a3b8', sh: '#475569', core: '#334155', coreHi: '#475569', ant: '#64748b' }
+    : isWorking
+      ? { base: '#d97706', hi: '#fbbf24', sh: '#92400e', core: '#f59e0b', coreHi: '#fef08a', ant: '#fde047' }
+      : { base: '#10b981', hi: '#6ee7b7', sh: '#047857', core: '#34d399', coreHi: '#a7f3d0', ant: '#4ade80' };
+
+  // Signal waves (Working mode) or Zzz (Offline mode) or sparkle (Active mode)
+  if (isWorking) {
+    const waveStep = Math.floor(tMs / 180) % 3;
+    ctx.fillStyle = '#fbbf24';
+    if (waveStep >= 0) ctx.fillRect(13, 2 + dy, 6, 1);
+    if (waveStep >= 1) ctx.fillRect(11, 0 + Math.max(0, dy), 10, 1);
+  } else if (isOffline) {
+    const zPhase = Math.floor(tMs / 480) % 3;
+    ctx.fillStyle = '#94a3b8';
+    const zy = 4 - zPhase;
+    ctx.fillRect(24, zy, 3, 1);
+    ctx.fillRect(25, zy + 1, 1, 1);
+    ctx.fillRect(24, zy + 2, 3, 1);
+  } else if (Math.floor(tMs / 350) % 4 === 0) {
+    ctx.fillStyle = '#a7f3d0';
+    ctx.fillRect(26, 4, 1, 3);
+    ctx.fillRect(25, 5, 3, 1);
+  }
+
+  // Antenna mast + glowing tip
+  pxBox(ctx, 15, 5 + dy, 2, 3, '#94a3b8', '#cbd5e1', '#475569');
+  const tipGlow = isOffline
+    ? '#475569'
+    : (isWorking && Math.floor(tMs / 140) % 2 === 0)
+      ? '#fef08a'
+      : pal.ant;
+  pxBox(ctx, 14, 3 + dy, 4, 3, tipGlow, '#ffffff', pal.sh);
+
+  // Ear bolts
+  pxBox(ctx, 6, 10 + dy, 3, 5, '#64748b', '#94a3b8', '#334155');
+  pxBox(ctx, 23, 10 + dy, 3, 5, '#64748b', '#94a3b8', '#334155');
+
+  // Head chassis
+  pxBox(ctx, 8, 7 + dy, 16, 11, pal.base, pal.hi, pal.sh);
+
+  // Recessed dark visor
+  pxBox(ctx, 10, 9 + dy, 12, 6, '#0b1120', '#1e293b', '#020617');
+
+  // Visor eyes / scanner bar
+  if (isOffline) {
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(12, 12 + dy, 3, 1);
+    ctx.fillRect(17, 12 + dy, 3, 1);
+  } else if (isWorking) {
+    const scanX = 11 + Math.floor((Math.sin(tMs / 140) * 0.5 + 0.5) * 7);
+    ctx.fillStyle = '#22d3ee';
+    ctx.fillRect(scanX, 11 + dy, 3, 2);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(scanX + 1, 11 + dy, 1, 2);
+  } else {
+    const blink = (tMs % 3200) > 3040;
+    if (blink) {
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(12, 12 + dy, 2, 1);
+      ctx.fillRect(18, 12 + dy, 2, 1);
+    } else {
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(12, 10 + dy, 2, 3);
+      ctx.fillRect(18, 10 + dy, 2, 3);
+      ctx.fillStyle = '#e0f2fe';
+      ctx.fillRect(12, 10 + dy, 1, 1);
+      ctx.fillRect(18, 10 + dy, 1, 1);
+    }
+  }
+
+  // Torso
+  pxBox(ctx, 10, 18 + dy, 12, 7, pal.base, pal.hi, pal.sh);
+
+  // Chest energy core
+  const pulseOn = !isOffline && (Math.floor(tMs / (isWorking ? 160 : 550)) % 2 === 0);
+  pxBox(ctx, 14, 19 + dy, 4, 4, pulseOn ? pal.coreHi : pal.core, '#ffffff', pal.sh);
+
+  // Articulated arms
+  const armLShift = isWorking ? ((Math.floor(tMs / 160) % 2 === 0) ? -1 : 1) : 0;
+  const armRShift = isWorking ? -armLShift : 0;
+  pxBox(ctx, 6, 18 + dy + armLShift, 4, 6, '#94a3b8', '#cbd5e1', '#475569');
+  pxBox(ctx, 22, 18 + dy + armRShift, 4, 6, '#94a3b8', '#cbd5e1', '#475569');
+
+  // Dual legs & feet
+  pxBox(ctx, 11, 25 + frameDrop, 4, 5, '#475569', '#94a3b8', '#1e293b');
+  pxBox(ctx, 17, 25 + frameDrop, 4, 5, '#475569', '#94a3b8', '#1e293b');
+}
+
+function initAiRobotPixelWidget() {
+  if (aiRobotRafStarted) return;
+  const canvas = document.getElementById('aiRobotPixelCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  aiRobotRafStarted = true;
+  const tick = t => {
+    drawAiRobot32(ctx, t);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 function renderAntigravityStatusUi() {
   const ag = appState.antigravityStatus || {
     online: false,
@@ -742,23 +891,33 @@ function renderAntigravityStatusUi() {
     pendingQueueCount: 0
   };
 
+  const pendingCnt = Number(ag.pendingQueueCount) || 0;
+  const isWorking = pendingCnt > 0 || isDirectOcrRunning;
+  const isActive = Boolean(ag.online || ag.hasApiKey);
+  aiRobotMode = isWorking ? 'working' : isActive ? 'active' : 'offline';
+
   const pillEl = document.getElementById('antigravityStatusSidebarPill');
+  const labelEl = document.getElementById('aiRobotStatusLabel');
+  const subEl = document.getElementById('aiRobotStatusSub');
+  const qBadgeEl = document.getElementById('aiRobotQueueBadge');
   if (pillEl) {
-    if (ag.online) {
-      pillEl.style.borderColor = 'rgba(16,185,129,0.35)';
-      pillEl.style.background = 'var(--success-soft)';
-      pillEl.style.color = 'var(--success)';
-      pillEl.innerHTML = `<span>🟢 Antigravity: ออนไลน์ (Priority #1)</span>${ag.pendingQueueCount > 0 ? `<span class="badge-50" style="font-size:10px;padding:1px 5px;">คิว ${ag.pendingQueueCount}</span>` : ''}`;
-    } else if (ag.hasApiKey) {
-      pillEl.style.borderColor = 'rgba(37,99,235,0.35)';
-      pillEl.style.background = 'var(--info-soft)';
-      pillEl.style.color = 'var(--info)';
-      pillEl.innerHTML = `<span>🔵 Antigravity ออฟไลน์ (ใช้ API Key 24 ชม.)</span>`;
+    pillEl.classList.remove('state-active', 'state-working', 'state-offline');
+    if (aiRobotMode === 'working') {
+      pillEl.classList.add('state-working');
+      if (labelEl) labelEl.textContent = 'AI Working';
+      if (subEl) subEl.textContent = pendingCnt > 0 ? `กำลังอ่านโพย ${pendingCnt} ใบ...` : 'กำลังอ่านโพย...';
+    } else if (aiRobotMode === 'active') {
+      pillEl.classList.add('state-active');
+      if (labelEl) labelEl.textContent = 'AI Active';
+      if (subEl) subEl.textContent = 'พร้อมอ่านโพยอัตโนมัติ';
     } else {
-      pillEl.style.borderColor = 'var(--border)';
-      pillEl.style.background = 'var(--bg-input)';
-      pillEl.style.color = 'var(--text-muted)';
-      pillEl.innerHTML = `<span>⚪ Antigravity ออฟไลน์ (โหมดจำลอง / รอใส่ API Key)</span>`;
+      pillEl.classList.add('state-offline');
+      if (labelEl) labelEl.textContent = 'AI Offline';
+      if (subEl) subEl.textContent = 'ยังไม่เปิดใช้งาน AI';
+    }
+    if (qBadgeEl) {
+      qBadgeEl.textContent = pendingCnt > 0 ? `คิว ${pendingCnt}` : '';
+      qBadgeEl.classList.toggle('hidden', pendingCnt <= 0);
     }
   }
 
@@ -5188,6 +5347,8 @@ async function runDirectOcrUpload() {
   const submittedAt = getSimSubmittedAt('uploadTimingSelect');
 
   btn.disabled = true;
+  isDirectOcrRunning = true;
+  renderAntigravityStatusUi();
   btn.textContent = isTrainingOnly
     ? '🧠 กำลังอ่านโพยเก่าเพื่อฝึกสอนลายมือให้ AI (ไม่คิดเงินรวมในงวดปัจจุบัน)...'
     : '⏳ กำลังอ่านลายมือด้วย AI + ตรวจสอบกฎคณิตศาสตร์ 4 ชั้น...';
@@ -5216,7 +5377,7 @@ async function runDirectOcrUpload() {
       renderInspectorSelector();
       if (data.queuedForAntigravity || data.slip.status === 'pending_antigravity') {
         showToast(
-          `🤖 ส่งรูปโพยเข้าคิว Antigravity Agent (Priority #1) แล้ว! หน้าเว็บจะอัปเดตตัวเลขอัตโนมัติทันทีที่อ่านเสร็จ`
+          `🤖 ส่งรูปโพยให้ระบบ AI อ่านแล้ว! หน้าเว็บจะอัปเดตตัวเลขอัตโนมัติทันทีที่อ่านเสร็จ`
         );
       } else {
         showToast(
@@ -5229,8 +5390,10 @@ async function runDirectOcrUpload() {
   } catch (err) {
     showToast(`❌ เกิดข้อผิดพลาด: ${err.message}`);
   } finally {
+    isDirectOcrRunning = false;
+    renderAntigravityStatusUi();
     btn.disabled = false;
-    btn.textContent = '🚀 เริ่มอ่านลายมือในโพยด้วย AI (Gemini 2.5 Pro)';
+    btn.textContent = '🚀 เริ่มอ่านลายมือในโพยด้วย AI';
   }
 }
 

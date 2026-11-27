@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261120_72" />
+  <link rel="stylesheet" href="/styles.css?v=20261120_73" />
 </head>
 <body>
   <!-- หน้าจอล็อกอินเข้าใช้งานระบบ (User Authentication) -->
@@ -170,12 +170,21 @@
         </button>
       </nav>
 
-      <!-- ส่วนท้ายแถบเมนู: สถานะ Antigravity Hybrid OCR • สลับโหมดสีสว่าง/มืด • ข้อมูลผู้ใช้ที่ล็อกอินอยู่ -->
+      <!-- ส่วนท้ายแถบเมนู: สถานะ AI Robot • ปรับขนาดฟอนต์ • สลับโหมดสีสว่าง/มืด • ข้อมูลผู้ใช้ -->
       <div class="sidebar-footer sidebar-hide-on-collapse">
-        <div id="antigravityStatusSidebarPill" onclick="switchTab('tab-template'); switchSettingsSubTab('sub-ai');"
-          style="cursor:pointer;margin-bottom:6px;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:600;border:1px solid var(--border);background:var(--bg-input);display:flex;align-items:center;justify-content:space-between;gap:4px;"
-          title="คลิกเพื่อดูและตั้งค่าโหมด Hybrid OCR Priority (Antigravity + Gemini API Key)">
-          <span>🟢 Antigravity: ออนไลน์ (Priority #1)</span>
+        <div id="antigravityStatusSidebarPill" class="ai-robot-pill state-active" onclick="switchTab('tab-template'); switchSettingsSubTab('sub-ai');"
+          title="สถานะระบบ AI อ่านโพยอัตโนมัติ (คลิกเพื่อตั้งค่า)">
+          <div class="ai-robot-canvas-wrap">
+            <canvas id="aiRobotPixelCanvas" width="32" height="32" class="ai-robot-canvas"></canvas>
+          </div>
+          <div class="ai-robot-hud">
+            <div class="ai-robot-title-row">
+              <span class="ai-robot-dot" id="aiRobotDot"></span>
+              <span id="aiRobotStatusLabel">AI Active</span>
+              <span id="aiRobotQueueBadge" class="badge-50 hidden" style="font-size:10px;padding:1px 5px;margin-left:auto;"></span>
+            </div>
+            <div class="ai-robot-sub" id="aiRobotStatusSub">พร้อมอ่านโพยอัตโนมัติ</div>
+          </div>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
           <span style="font-size:11px;color:var(--text-muted);">โหมดสีหน้าจอ:</span>
@@ -774,7 +783,7 @@
 
             <div class="btn-group-full">
               <button class="btn btn-primary btn-lg" id="btnRunOcr" onclick="runDirectOcrUpload()">
-                🚀 เริ่มอ่านลายมือในโพยด้วย AI (Gemini 2.5 Pro)
+                🚀 เริ่มอ่านลายมือในโพยด้วย AI
               </button>
             </div>
           </div>
@@ -1371,6 +1380,6 @@
   </div>
 
   <div id="toastContainer" class="toast-container no-print"></div>
-  <script src="/app.js?v=20261120_72"></script>
+  <script src="/app.js?v=20261120_73"></script>
 </body>
 </html>
